@@ -8,16 +8,6 @@ using ItemData = ItemDrop.ItemData;
 
 namespace FineDining;
 
-/// <summary>
-/// Stable optional integration surface for mods that calculate food stats.
-/// Freshness is based only on this item's own spoilage clock.
-/// </summary>
-public static class FineDiningApi
-{
-    public static float GetFoodStatMultiplier(ItemData item) =>
-        FreshnessRuntime.GetFoodStatMultiplier(item);
-}
-
 internal readonly struct AssignedLifetimeSnapshot
 {
     internal AssignedLifetimeSnapshot(string? rawValue, long value, bool valid)
@@ -69,7 +59,7 @@ internal static class FreshnessRuntime
 
     internal static float GetFoodStatMultiplier(ItemData? item)
     {
-        if (!FoodClassifier.IsEdible(item))
+        if (!FoodIdentity.IsDirectlyEdible(item))
         {
             return 1f;
         }

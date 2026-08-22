@@ -2,7 +2,7 @@
   "name": "FineDining",
   "version_number": "1.0.0",
   "website_url": "",
-  "description": "Server-synchronized food spoilage with an Icebox, biome preservation, world drops, and placed Feasts.",
+  "description": "Integrated spoilage, freshness, expanded diets, cooking bonuses, Iceboxes, and station hover guidance.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2202"
   ]

@@ -86,6 +86,9 @@
         <Reference Include="System.Core"/>
         <Reference Include="System.Data"/>
         <Reference Include="System.Xml"/>
+        <Reference Include="netstandard">
+            <HintPath>$(CorlibPath)\netstandard.dll</HintPath>
+        </Reference>
         <Reference Include="UnityEngine">
             <HintPath>$(CorlibPath)\UnityEngine.dll</HintPath>
         </Reference>
@@ -104,6 +107,9 @@
         <Reference Include="UnityEngine.InputLegacyModule">
             <HintPath>$(CorlibPath)\UnityEngine.InputLegacyModule.dll</HintPath>
         </Reference>
+        <Reference Include="UnityEngine.TextRenderingModule">
+            <HintPath>$(CorlibPath)\UnityEngine.TextRenderingModule.dll</HintPath>
+        </Reference>
         <Reference Include="UnityEngine.UI">
             <HintPath>$(CorlibPath)\UnityEngine.UI.dll</HintPath>
         </Reference>
@@ -121,28 +127,7 @@
         </Reference>
     </ItemGroup>
     <ItemGroup>
-        <Compile Include="AzuExtendedPlayerInventoryCompatibility.cs"/>
-        <Compile Include="FineDiningUi.cs"/>
-        <Compile Include="DecayPatches.cs"/>
-        <Compile Include="DecayRuntime.cs"/>
-        <Compile Include="FoodClassifier.cs"/>
-        <Compile Include="FoodPrefabOwnerResolver.cs"/>
-        <Compile Include="FreshnessEffects.cs"/>
-        <Compile Include="FreshnessRuntime.cs"/>
-        <Compile Include="GeneratedPrefabRegistry.cs"/>
-        <Compile Include="IceboxLimitPolicy.cs"/>
-        <Compile Include="IceboxMapPins.cs"/>
-        <Compile Include="IceboxQuotaService.cs"/>
-        <Compile Include="IceboxSubsystem.cs"/>
-        <Compile Include="InventorySlotsCompatibility.cs"/>
-        <Compile Include="LocalizationManager.cs"/>
-        <Compile Include="PlacedItemSpoilage.cs"/>
-        <Compile Include="Plugin.cs"/>
-        <Compile Include="PreservationConfig.cs"/>
-        <Compile Include="Properties\AssemblyInfo.cs"/>
-        <Compile Include="SpoilageModel.cs"/>
-        <Compile Include="SpoilagePolicy.cs"/>
-        <Compile Include="SpoilageReferenceGenerator.cs"/>
+        <Compile Include="**\*.cs" Exclude="bin\**;obj\**"/>
     </ItemGroup>
     <ItemGroup>
         <Content Include=".gitignore"/>
@@ -156,6 +141,7 @@
         <Content Include="Thunderstore\CHANGELOG.md"/>
         <Content Include="Thunderstore\icon.png"/>
         <Content Include="Thunderstore\manifest.json"/>
+        <Content Include="THIRD-PARTY-NOTICES.txt"/>
         <EmbeddedResource Include="Resources\Defaults\FineDining.yml"/>
         <EmbeddedResource Include="translations\English.yml"/>
         <EmbeddedResource Include="translations\Korean.yml"/>
@@ -233,6 +219,8 @@
             <PackageFiles Include="$(ProjectDir)\Thunderstore\CHANGELOG.md" Condition="Exists('$(ProjectDir)\Thunderstore\CHANGELOG.md')"/>
             <PackageFiles Include="$(ProjectDir)\Thunderstore\manifest.json" Condition="Exists('$(ProjectDir)\Thunderstore\manifest.json')"/>
             <PackageFiles Include="$(ProjectDir)\Thunderstore\icon.png" Condition="Exists('$(ProjectDir)\Thunderstore\icon.png')"/>
+            <PackageFiles Include="$(ProjectDir)\LICENSE.txt" Condition="Exists('$(ProjectDir)\LICENSE.txt')"/>
+            <PackageFiles Include="$(ProjectDir)\THIRD-PARTY-NOTICES.txt" Condition="Exists('$(ProjectDir)\THIRD-PARTY-NOTICES.txt')"/>
         </ItemGroup>
         <MakeDir Directories="$(PackageDir)"/>
         <Copy SourceFiles="@(PackageFiles)" DestinationFolder="$(PackageDir)"/>

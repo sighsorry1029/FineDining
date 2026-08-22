@@ -26,7 +26,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
 
-    internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource(ModName);
+    internal static ManualLogSource Log = null!;
 
     internal static readonly ConfigSync ConfigSync = new(ModGUID)
     {
@@ -40,12 +40,15 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
 
     private void Awake()
     {
-        LocalizationManager.Localizer.Load();
+        Log = Logger;
+        FineDiningLocalization.Initialize(this);
         ConfigSync.AddLockingConfigEntry(BindConfigurationLock(Config));
         FreshnessRuntime.Initialize(Config, ConfigSync);
         PreservationConfig.Initialize(Config, ConfigSync);
         SpoilagePolicy.Initialize(ConfigSync);
         IceboxSubsystem.Initialize(this);
+        DietModule.Initialize(Config, ConfigSync);
+        StationModule.Initialize(Config, ConfigSync);
         _harmony.PatchAll(Assembly.GetExecutingAssembly());
         AzuExtendedPlayerInventoryCompatibility.TryInstall(_harmony);
         InventorySlotsCompatibility.TryInstall();
@@ -66,15 +69,19 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         SpoilageReferenceGenerator.Tick();
         DecayRuntime.Tick();
         IceboxSubsystem.Tick();
+        DietModule.Tick();
     }
 
     private void OnDestroy()
     {
+        StationModule.Shutdown();
+        DietModule.Shutdown();
         FreshnessRuntime.Shutdown();
         PreservationConfig.Shutdown();
         SpoilagePolicy.Shutdown();
         IceboxSubsystem.Shutdown();
         AzuExtendedPlayerInventoryCompatibility.Shutdown();
+        FineDiningLocalization.Shutdown();
         _harmony.UnpatchSelf();
         DecayRuntime.Reset();
         FoodClassifier.Invalidate();

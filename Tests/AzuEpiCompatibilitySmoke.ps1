@@ -1,11 +1,16 @@
 param(
     [Parameter(Mandatory = $true)]
     [string] $AzuEpiAssemblyPath,
-    [string] $AssemblyPath = "$(Split-Path -Parent $PSScriptRoot)\bin\Debug\FineDining.dll",
+    [string] $AssemblyPath = '',
     [string] $GameDirectory = 'C:\Program Files (x86)\Steam\steamapps\common\Valheim'
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($AssemblyPath))
+{
+    $AssemblyPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\Debug\FineDining.dll'
+}
+
 $assemblyPath = (Resolve-Path -LiteralPath $AssemblyPath).Path
 $azuEpiAssemblyPath = (Resolve-Path -LiteralPath $AzuEpiAssemblyPath).Path
 $assemblyDirectory = Split-Path -Parent $assemblyPath
@@ -52,7 +57,7 @@ function Assert-True([bool] $Condition, [string] $Message)
     }
 }
 
-$beingSpoiledAssembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
+$fineDiningAssembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 $azuEpiAssembly = [Reflection.Assembly]::UnsafeLoadFrom($azuEpiAssemblyPath)
 $targetType = $azuEpiAssembly.GetType(
     'AzuEPI.Game.Patches.InventoryPatches+Load_TrackAndFixHiddenItems_Patch',
@@ -87,7 +92,7 @@ $originalInstructionArguments[0] = $target
 $originalInstructionArguments[1] = $null
 $originalInstructions = $getOriginalInstructions.Invoke($null, $originalInstructionArguments)
 
-$compatibilityType = $beingSpoiledAssembly.GetType(
+$compatibilityType = $fineDiningAssembly.GetType(
     'FineDining.AzuExtendedPlayerInventoryCompatibility',
     $true)
 $transpiler = $compatibilityType.GetMethod('Transpiler', $staticNonPublic)

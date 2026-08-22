@@ -118,17 +118,8 @@ internal static class FoodClassifier
         return true;
     }
 
-    internal static bool IsEdible(ItemDrop.ItemData? item)
-    {
-        if (item?.m_shared == null)
-        {
-            return false;
-        }
-
-        ItemDrop.ItemData.SharedData shared = item.m_shared;
-        return shared.m_itemType == ItemDrop.ItemData.ItemType.Consumable &&
-               HasDirectFoodStats(shared);
-    }
+    internal static bool IsEdible(ItemDrop.ItemData? item) =>
+        FoodIdentity.IsDirectlyEdible(item);
 
     private static bool HasDirectFoodStats(ItemDrop.ItemData.SharedData shared)
     {
@@ -142,32 +133,11 @@ internal static class FoodClassifier
         return HasDirectFoodStats(shared) || shared.m_isDrink;
     }
 
-    internal static string GetPrefabName(ItemDrop.ItemData? item)
-    {
-        if (item == null)
-        {
-            return "";
-        }
+    internal static string GetPrefabName(ItemDrop.ItemData? item) =>
+        FoodIdentity.GetCanonicalPrefabName(item);
 
-        if (item.m_dropPrefab != null)
-        {
-            return CleanPrefabName(item.m_dropPrefab.name);
-        }
-
-        ObjectDB objectDb = ObjectDB.instance;
-        if (objectDb != null && item.m_shared != null &&
-            objectDb.TryGetItemPrefab(item.m_shared, out GameObject prefab) && prefab != null)
-        {
-            return CleanPrefabName(prefab.name);
-        }
-
-        return "";
-    }
-
-    internal static string CleanPrefabName(string? name)
-    {
-        return string.IsNullOrWhiteSpace(name) ? "" : name!.Replace("(Clone)", "").Trim();
-    }
+    internal static string CleanPrefabName(string? name) =>
+        FoodIdentity.NormalizePrefabName(name);
 
     private static bool EnsureCache()
     {

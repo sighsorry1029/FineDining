@@ -6,7 +6,7 @@ using FineDining;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle(FineDiningPlugin.ModName)]
-[assembly: AssemblyDescription("Server-synchronized food spoilage with Icebox and biome preservation.")]
+[assembly: AssemblyDescription("Integrated food spoilage, diet, cooking, and station guidance for Valheim.")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany(FineDiningPlugin.Author)]
 [assembly: AssemblyProduct(FineDiningPlugin.ModName)]
