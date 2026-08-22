@@ -1,0 +1,8 @@
+bin/
+obj/
+.idea/
+*.user
+*.suo
+Thunderstore/FineDining_v*/
+Thunderstore/FineDining_v*.zip
+Nexus/
