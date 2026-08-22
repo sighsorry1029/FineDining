@@ -1,0 +1,23 @@
+# FineDining server policy.
+# Lifetime values are hours. Valid values are 0 through 5040; 0 disables that group.
+version: 1
+lifetimes:
+  farmingHarvest: 100
+  cookingStationInput: 75
+  cookingStationOutput: 50
+  fermentedFood: 25
+  feastMaterial: 125
+  feastResult: 125
+  fish: 75
+  otherEdible: 25
+
+# Compact override schema:
+#   - <prefab>, <hours>[, <replacement prefab>]
+# A positive override force-includes that exact prefab. 0 disables it.
+# Examples:
+# Without the optional replacement, the item's automatic classification chooses
+# the fixed group replacement; unclassified force-includes use RottenMeat.
+#   - Dandelion, 100
+#   - Thistle, 100
+#   - DeerMeat, 0
+overrides: []

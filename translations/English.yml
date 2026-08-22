@@ -1,0 +1,15 @@
+# Ready to use english translation file for the plugin
+# (for more information on LocalizationManager, see the LocalizationManager documentation https://github.com/blaxxun-boop/LocalizationManager#example-project).
+finedining_tooltip_spoils_in: "Spoils in {0}"
+finedining_tooltip_paused: "Cold preservation paused spoilage · remaining {0} ❄"
+finedining_tooltip_freshness_effect: "Freshness effect: food stats x{0}"
+finedining_duration_day: "{0}d"
+finedining_duration_hour: "{0}h"
+finedining_duration_minute: "{0}m"
+finedining_icebox: "Icebox"
+finedining_icebox_description: "A chilled chest that pauses spoilage for everything stored inside."
+finedining_rotten_produce: "Rotten Produce"
+finedining_rotten_produce_description: "Spoiled produce. Eating it causes vomiting for 5 seconds."
+finedining_rotten_food: "Rotten Food"
+finedining_rotten_food_description: "Thoroughly spoiled food. Eating it causes vomiting for 10 seconds."
+finedining_icebox_limit_reached: "Icebox placement limit reached (maximum {0})."
