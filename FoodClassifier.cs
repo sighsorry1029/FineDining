@@ -133,10 +133,10 @@ internal static class FoodClassifier
         return HasDirectFoodStats(shared) || shared.m_isDrink;
     }
 
-    internal static string GetPrefabName(ItemDrop.ItemData? item) =>
+    private static string GetPrefabName(ItemDrop.ItemData? item) =>
         FoodIdentity.GetCanonicalPrefabName(item);
 
-    internal static string CleanPrefabName(string? name) =>
+    private static string CleanPrefabName(string? name) =>
         FoodIdentity.NormalizePrefabName(name);
 
     private static bool EnsureCache()

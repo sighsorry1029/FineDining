@@ -52,6 +52,17 @@ internal static class FoodIdentity
     internal static bool IsDirectlyEdible(Player.Food? food) =>
         IsDirectlyEdible(food?.m_item);
 
+    // Diet keeps the original regen-only consumable preview/Chef behavior.
+    // Spoilage's direct-food rule intentionally remains limited to the main
+    // health, stamina, and eitr stats used by vanilla food classification.
+    internal static bool IsDietConsumable(ItemDrop.ItemData? item) =>
+        IsDirectlyEdible(item) ||
+        item?.m_shared is
+        {
+            m_itemType: ItemDrop.ItemData.ItemType.Consumable,
+            m_foodRegen: > 0f
+        };
+
     internal static string NormalizePrefabName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))

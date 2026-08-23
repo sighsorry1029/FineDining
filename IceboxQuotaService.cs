@@ -928,11 +928,11 @@ internal static class IceboxQuotaService
             return Array.Empty<Piece.Requirement>();
         }
 
-        if (!GeneratedPrefabRegistry.TryCreateIceboxRequirements(
+        if (!IceboxSubsystem.TryCreateRequirements(
                 objectDb,
                 storedRecipe,
                 out Piece.Requirement[] storedRequirements) ||
-            !GeneratedPrefabRegistry.TryCreateIceboxRequirements(
+            !IceboxSubsystem.TryCreateRequirements(
                 objectDb,
                 IceboxSubsystem.Recipe,
                 out Piece.Requirement[] configuredRequirements))
@@ -941,9 +941,9 @@ internal static class IceboxQuotaService
         }
 
         string storedCanonical =
-            GeneratedPrefabRegistry.SerializeIceboxRequirements(storedRequirements);
+            IceboxSubsystem.SerializeRequirements(storedRequirements);
         string configuredCanonical =
-            GeneratedPrefabRegistry.SerializeIceboxRequirements(configuredRequirements);
+            IceboxSubsystem.SerializeRequirements(configuredRequirements);
         if (!string.Equals(storedCanonical, configuredCanonical, StringComparison.Ordinal))
         {
             FineDiningPlugin.Log.LogWarning(

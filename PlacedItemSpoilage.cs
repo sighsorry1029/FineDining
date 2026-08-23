@@ -27,7 +27,7 @@ internal static class PlacementSpoilageTracker
         {
             if (player != null && piece != null && player == Player.m_localPlayer)
             {
-                state.TargetPrefabName = FoodClassifier.CleanPrefabName(piece.gameObject.name);
+                state.TargetPrefabName = FoodIdentity.NormalizePrefabName(piece.gameObject.name);
                 DecayRuntime.TryGetWorldTicks(out state.PlacementTicks);
                 if (!IsNoCostPlacement(player, piece))
                 {
@@ -83,7 +83,7 @@ internal static class PlacementSpoilageTracker
         }
 
         PlacementSpoilageState state = _scopes.Peek();
-        string placedPrefabName = FoodClassifier.CleanPrefabName(placedDrop.gameObject.name);
+        string placedPrefabName = FoodIdentity.NormalizePrefabName(placedDrop.gameObject.name);
         if (state.Consumed || state.TargetPrefabName.Length == 0 ||
             !string.Equals(state.TargetPrefabName, placedPrefabName, StringComparison.OrdinalIgnoreCase))
         {
@@ -248,7 +248,7 @@ internal static class PieceRecoverySpoilageTracker
                         continue;
                     }
 
-                    string prefabName = FoodClassifier.CleanPrefabName(requirement.m_resItem.gameObject.name);
+                    string prefabName = FoodIdentity.NormalizePrefabName(requirement.m_resItem.gameObject.name);
                     if (prefabName.Length > 0)
                     {
                         state.RecoverySourcePrefabs.Add(prefabName);
@@ -331,7 +331,7 @@ internal static class PieceRecoverySpoilageTracker
                 return;
             }
 
-            string sourcePrefabName = FoodClassifier.GetPrefabName(source.m_itemData);
+            string sourcePrefabName = FoodIdentity.GetCanonicalPrefabName(source.m_itemData);
             if (sourcePrefabName.Length == 0 ||
                 !state.RecoverySourcePrefabs.Contains(sourcePrefabName) ||
                 resultPrefab.GetComponent<ItemDrop>() == null)
@@ -339,7 +339,7 @@ internal static class PieceRecoverySpoilageTracker
                 return;
             }
 
-            string resultPrefabName = FoodClassifier.CleanPrefabName(resultPrefab.name);
+            string resultPrefabName = FoodIdentity.NormalizePrefabName(resultPrefab.name);
             if (resultPrefabName.Length > 0)
             {
                 state.RecoverablePrefabs.Add(resultPrefabName);
@@ -367,7 +367,7 @@ internal static class PieceRecoverySpoilageTracker
             return false;
         }
 
-        string prefabName = FoodClassifier.GetPrefabName(item);
+        string prefabName = FoodIdentity.GetCanonicalPrefabName(item);
         return prefabName.Length > 0 && state.RecoverablePrefabs.Contains(prefabName);
     }
 }

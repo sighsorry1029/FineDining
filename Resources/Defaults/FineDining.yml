@@ -17,7 +17,7 @@ lifetimes:
 # Examples:
 # Without the optional replacement, the item's automatic classification chooses
 # the fixed group replacement; unclassified force-includes use RottenMeat.
-#   - Dandelion, 100
-#   - Thistle, 100
-#   - DeerMeat, 0
+#   - ModdedEdible, 100
+#   - ModdedProduce, 100, FineDining_RottenProduce
+#   - DecorativeFoodLikeItem, 0
 overrides: []

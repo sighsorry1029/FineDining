@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using BepInEx.Configuration;
 using HarmonyLib;
 using ServerSync;
@@ -149,6 +151,134 @@ internal static class IceboxSubsystem
                 "FineWood:10,Iron:2. Every amount must be a positive integer and every prefab must " +
                 "be a registered item. This gameplay setting is synchronized with the server."));
 
+    internal static bool TryCreateRequirements(
+        ObjectDB objectDb,
+        string? recipe,
+        out Piece.Requirement[] requirements)
+    {
+        requirements = Array.Empty<Piece.Requirement>();
+        if (!TryParseRecipe(
+                recipe,
+                out List<KeyValuePair<string, int>> ingredients,
+                out string error))
+        {
+            GeneratedPrefabRegistry.LogProblemOnce(
+                "icebox-recipe-format:" + (recipe ?? string.Empty),
+                $"Could not apply the Icebox recipe '{recipe ?? string.Empty}': {error} " +
+                $"Expected comma-separated ItemPrefab:Amount entries such as '{DefaultRecipe}'.");
+            return false;
+        }
+
+        Piece.Requirement[] resolved = new Piece.Requirement[ingredients.Count];
+        for (int index = 0; index < ingredients.Count; index++)
+        {
+            KeyValuePair<string, int> ingredient = ingredients[index];
+            ItemDrop? itemDrop = GeneratedPrefabRegistry.FindItemPrefab(objectDb, ingredient.Key)
+                ?.GetComponent<ItemDrop>();
+            if ((object?)itemDrop == null)
+            {
+                GeneratedPrefabRegistry.LogDebugOnce(
+                    "icebox-recipe-item:" + ingredient.Key,
+                    $"Could not apply the Icebox recipe yet: item prefab '{ingredient.Key}' is not ready.");
+                return false;
+            }
+
+            resolved[index] = new Piece.Requirement
+            {
+                m_resItem = itemDrop!,
+                m_amount = ingredient.Value,
+                m_amountPerLevel = 0,
+                m_recover = true
+            };
+        }
+
+        requirements = resolved;
+        return true;
+    }
+
+    internal static string SerializeRequirements(Piece.Requirement[]? requirements)
+    {
+        if (requirements == null || requirements.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        List<string> entries = new(requirements.Length);
+        HashSet<string> prefabNames = new(StringComparer.Ordinal);
+        foreach (Piece.Requirement? requirement in requirements)
+        {
+            ItemDrop? itemDrop = requirement?.m_resItem;
+            string prefabName = (object?)itemDrop != null
+                ? FoodIdentity.NormalizePrefabName(Utils.GetPrefabName(itemDrop!.gameObject))
+                : string.Empty;
+            int amount = requirement?.m_amount ?? 0;
+            if (prefabName.Length == 0 || amount <= 0 || !prefabNames.Add(prefabName))
+            {
+                return string.Empty;
+            }
+
+            entries.Add(prefabName + ":" + amount.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return string.Join(",", entries);
+    }
+
+    private static bool TryParseRecipe(
+        string? recipe,
+        out List<KeyValuePair<string, int>> ingredients,
+        out string error)
+    {
+        ingredients = new List<KeyValuePair<string, int>>();
+        error = string.Empty;
+        string text = recipe?.Trim() ?? string.Empty;
+        if (text.Length == 0)
+        {
+            error = "the recipe is empty.";
+            return false;
+        }
+
+        HashSet<string> prefabNames = new(StringComparer.Ordinal);
+        foreach (string rawEntry in text.Split(','))
+        {
+            string entry = rawEntry.Trim();
+            string[] fields = entry.Split(':');
+            if (fields.Length != 2)
+            {
+                error = $"entry '{entry}' does not contain exactly one ':' separator.";
+                return false;
+            }
+
+            string prefabName = fields[0].Trim();
+            string rawAmount = fields[1].Trim();
+            if (prefabName.Length == 0)
+            {
+                error = $"entry '{entry}' has an empty prefab name.";
+                return false;
+            }
+
+            if (!int.TryParse(
+                    rawAmount,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int amount) ||
+                amount <= 0)
+            {
+                error = $"entry '{entry}' must use a positive integer amount.";
+                return false;
+            }
+
+            if (!prefabNames.Add(prefabName))
+            {
+                error = $"item prefab '{prefabName}' is listed more than once.";
+                return false;
+            }
+
+            ingredients.Add(new KeyValuePair<string, int>(prefabName, amount));
+        }
+
+        return true;
+    }
+
     internal static void ApplyConfiguredStorageSize(Container? container)
     {
         if (container == null || !GeneratedPrefabRegistry.IsIcebox(container))
@@ -211,7 +341,7 @@ internal static class IceboxSubsystem
             return;
         }
 
-        string snapshot = GeneratedPrefabRegistry.SerializeIceboxRequirements(piece.m_resources);
+        string snapshot = SerializeRequirements(piece.m_resources);
         if (snapshot.Length == 0)
         {
             FineDiningPlugin.Log.LogWarning(
@@ -247,7 +377,7 @@ internal static class IceboxSubsystem
 
         ObjectDB? objectDb = ObjectDB.instance;
         if (objectDb != null &&
-            GeneratedPrefabRegistry.TryCreateIceboxRequirements(
+            TryCreateRequirements(
                 objectDb,
                 snapshot,
                 out Piece.Requirement[] requirements))

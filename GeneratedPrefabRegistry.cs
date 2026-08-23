@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -220,7 +219,7 @@ internal static class GeneratedPrefabRegistry
 
     internal static bool IsIceboxPrefabName(string? prefabName)
     {
-        string normalized = NormalizePrefabName(prefabName);
+        string normalized = FoodIdentity.NormalizePrefabName(prefabName);
         return string.Equals(normalized, IceboxPrefabName, StringComparison.Ordinal);
     }
 
@@ -1202,7 +1201,7 @@ internal static class GeneratedPrefabRegistry
             return;
         }
 
-        if (!TryCreateIceboxRequirements(
+        if (!IceboxSubsystem.TryCreateRequirements(
                 objectDb!,
                 IceboxSubsystem.Recipe,
                 out Piece.Requirement[] requirements))
@@ -1250,134 +1249,6 @@ internal static class GeneratedPrefabRegistry
         {
             ((Humanoid)Player.m_localPlayer).SetPlaceMode(pieceTable);
         }
-    }
-
-    internal static bool TryCreateIceboxRequirements(
-        ObjectDB objectDb,
-        string? recipe,
-        out Piece.Requirement[] requirements)
-    {
-        requirements = Array.Empty<Piece.Requirement>();
-        if (!TryParseIceboxRecipe(
-                recipe,
-                out List<KeyValuePair<string, int>> ingredients,
-                out string error))
-        {
-            LogProblemOnce(
-                "icebox-recipe-format:" + (recipe ?? string.Empty),
-                $"Could not apply the Icebox recipe '{recipe ?? string.Empty}': {error} " +
-                $"Expected comma-separated ItemPrefab:Amount entries such as '{IceboxSubsystem.DefaultRecipe}'.");
-            return false;
-        }
-
-        Piece.Requirement[] resolved = new Piece.Requirement[ingredients.Count];
-        for (int index = 0; index < ingredients.Count; index++)
-        {
-            KeyValuePair<string, int> ingredient = ingredients[index];
-            ItemDrop? itemDrop = FindItemPrefab(objectDb, ingredient.Key)?.GetComponent<ItemDrop>();
-            if ((object?)itemDrop == null)
-            {
-                LogDebugOnce(
-                    "icebox-recipe-item:" + ingredient.Key,
-                    $"Could not apply the Icebox recipe yet: item prefab '{ingredient.Key}' is not ready.");
-                return false;
-            }
-
-            resolved[index] = new Piece.Requirement
-            {
-                m_resItem = itemDrop!,
-                m_amount = ingredient.Value,
-                m_amountPerLevel = 0,
-                m_recover = true
-            };
-        }
-
-        requirements = resolved;
-        return true;
-    }
-
-    internal static string SerializeIceboxRequirements(Piece.Requirement[]? requirements)
-    {
-        if (requirements == null || requirements.Length == 0)
-        {
-            return string.Empty;
-        }
-
-        List<string> entries = new(requirements.Length);
-        HashSet<string> prefabNames = new(StringComparer.Ordinal);
-        foreach (Piece.Requirement? requirement in requirements)
-        {
-            ItemDrop? itemDrop = requirement?.m_resItem;
-            string prefabName = (object?)itemDrop != null
-                ? NormalizePrefabName(Utils.GetPrefabName(itemDrop!.gameObject))
-                : string.Empty;
-            int amount = requirement?.m_amount ?? 0;
-            if (prefabName.Length == 0 || amount <= 0 || !prefabNames.Add(prefabName))
-            {
-                return string.Empty;
-            }
-
-            entries.Add(prefabName + ":" + amount.ToString(CultureInfo.InvariantCulture));
-        }
-
-        return string.Join(",", entries);
-    }
-
-    private static bool TryParseIceboxRecipe(
-        string? recipe,
-        out List<KeyValuePair<string, int>> ingredients,
-        out string error)
-    {
-        ingredients = new List<KeyValuePair<string, int>>();
-        error = string.Empty;
-        string text = recipe?.Trim() ?? string.Empty;
-        if (text.Length == 0)
-        {
-            error = "the recipe is empty.";
-            return false;
-        }
-
-        HashSet<string> prefabNames = new(StringComparer.Ordinal);
-        string[] entries = text.Split(',');
-        foreach (string rawEntry in entries)
-        {
-            string entry = rawEntry.Trim();
-            string[] fields = entry.Split(':');
-            if (fields.Length != 2)
-            {
-                error = $"entry '{entry}' does not contain exactly one ':' separator.";
-                return false;
-            }
-
-            string prefabName = fields[0].Trim();
-            string rawAmount = fields[1].Trim();
-            if (prefabName.Length == 0)
-            {
-                error = $"entry '{entry}' has an empty prefab name.";
-                return false;
-            }
-
-            if (!int.TryParse(
-                    rawAmount,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int amount) ||
-                amount <= 0)
-            {
-                error = $"entry '{entry}' must use a positive integer amount.";
-                return false;
-            }
-
-            if (!prefabNames.Add(prefabName))
-            {
-                error = $"item prefab '{prefabName}' is listed more than once.";
-                return false;
-            }
-
-            ingredients.Add(new KeyValuePair<string, int>(prefabName, amount));
-        }
-
-        return true;
     }
 
     private static bool HasRegistryCollision(
@@ -1553,7 +1424,7 @@ internal static class GeneratedPrefabRegistry
         return FindItemPrefab(objectDb, prefabName) ?? FindScenePrefab(zNetScene, prefabName);
     }
 
-    private static GameObject? FindItemPrefab(ObjectDB? objectDb, string prefabName)
+    internal static GameObject? FindItemPrefab(ObjectDB? objectDb, string prefabName)
     {
         if ((object?)objectDb == null)
         {
@@ -1970,21 +1841,12 @@ internal static class GeneratedPrefabRegistry
             .Trim();
     }
 
-    private static string NormalizePrefabName(string? prefabName)
-    {
-        string normalized = (prefabName ?? string.Empty).Trim();
-        const string cloneSuffix = "(Clone)";
-        return normalized.EndsWith(cloneSuffix, StringComparison.Ordinal)
-            ? normalized.Substring(0, normalized.Length - cloneSuffix.Length).Trim()
-            : normalized;
-    }
-
     private static T? AliveOrNull<T>(T? value) where T : UnityEngine.Object
     {
         return (object?)value != null && value != null ? value : null;
     }
 
-    private static void LogProblemOnce(string key, string message)
+    internal static void LogProblemOnce(string key, string message)
     {
         if (ReportedProblems.Add("warning:" + key))
         {
@@ -2000,7 +1862,7 @@ internal static class GeneratedPrefabRegistry
         }
     }
 
-    private static void LogDebugOnce(string key, string message)
+    internal static void LogDebugOnce(string key, string message)
     {
         if (ReportedProblems.Add("debug:" + key))
         {

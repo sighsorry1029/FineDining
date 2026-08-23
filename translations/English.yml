@@ -1,5 +1,3 @@
-# Ready to use english translation file for the plugin
-# (for more information on LocalizationManager, see the LocalizationManager documentation https://github.com/blaxxun-boop/LocalizationManager#example-project).
 finedining_tooltip_spoils_in: "Spoils in {0}"
 finedining_tooltip_paused: "Cold preservation paused spoilage · remaining {0} ❄"
 finedining_tooltip_freshness_effect: "Freshness effect: food stats x{0}"

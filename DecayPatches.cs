@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
+using UnityEngine;
 
 namespace FineDining;
 
@@ -202,6 +203,20 @@ internal static class ItemDropAutoStackSpoilagePatch
     }
 }
 
+internal static class SpoilageContentLifecycle
+{
+    internal static void Refresh(
+        ObjectDB? objectDb,
+        ZNetScene? zNetScene,
+        MonoBehaviour retryRunner)
+    {
+        GeneratedPrefabRegistry.RegisterConfiguredContent(objectDb, zNetScene);
+        GeneratedPrefabRegistry.QueueRegistrationRetry(retryRunner);
+        FoodClassifier.Invalidate();
+        DecayRuntime.InvalidateAll();
+    }
+}
+
 [HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.Awake))]
 internal static class ObjectDbAwakeSpoilagePatch
 {
@@ -210,10 +225,7 @@ internal static class ObjectDbAwakeSpoilagePatch
     {
         // Registration must remain synchronous: saved ItemData can deserialize
         // before a deferred refresh gets a chance to recreate its prefab.
-        GeneratedPrefabRegistry.RegisterConfiguredContent(__instance, ZNetScene.instance);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(__instance);
-        FoodClassifier.Invalidate();
-        DecayRuntime.InvalidateAll();
+        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
     }
 }
 
@@ -223,10 +235,7 @@ internal static class ObjectDbCopySpoilagePatch
     [HarmonyPriority(Priority.First)]
     private static void Postfix(ObjectDB __instance)
     {
-        GeneratedPrefabRegistry.RegisterConfiguredContent(__instance, ZNetScene.instance);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(__instance);
-        FoodClassifier.Invalidate();
-        DecayRuntime.InvalidateAll();
+        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
     }
 }
 
@@ -241,10 +250,7 @@ internal static class ObjectDbUpdateRegistersSpoilagePatch
         // relationship snapshot after their registration pass completes. The
         // generated identities are already persistent; this also restores the
         // Icebox recipe if a data mod replaced Hammer's PieceTable.
-        GeneratedPrefabRegistry.RegisterConfiguredContent(__instance, ZNetScene.instance);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(__instance);
-        FoodClassifier.Invalidate();
-        DecayRuntime.InvalidateAll();
+        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
     }
 }
 
@@ -254,10 +260,7 @@ internal static class ZNetSceneAwakeSpoilagePatch
     [HarmonyPriority(Priority.First)]
     private static void Postfix(ZNetScene __instance)
     {
-        GeneratedPrefabRegistry.RegisterConfiguredContent(ObjectDB.instance, __instance);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(__instance);
-        FoodClassifier.Invalidate();
-        DecayRuntime.InvalidateAll();
+        SpoilageContentLifecycle.Refresh(ObjectDB.instance, __instance, __instance);
     }
 }
 

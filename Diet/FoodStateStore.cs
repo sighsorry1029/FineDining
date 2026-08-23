@@ -1,14 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
+using UnityEngine;
 
 namespace FineDining;
 
 internal static class FoodStateStore
 {
     private const string CustomDataKey = "sighsorry.FineDining.DietState";
-    private const string StateVersion = "v1";
+    private const string StatePrefix = "v1:";
     private static readonly Dictionary<Player, PlayerFoodStateData> Cache = new();
 
     internal static PlayerFoodStateData GetState(Player? player)
@@ -74,269 +73,31 @@ internal static class FoodStateStore
 
     private static string SerializeState(PlayerFoodStateData state)
     {
-        StringBuilder builder = new();
-        builder.Append(StateVersion);
-        builder.Append("|R:");
-        AppendRecent(builder, state.Recent);
-        builder.Append("|C:");
-        AppendChef(builder, state.Chef);
-        builder.Append("|Q:");
-        AppendQueue(builder, state.ChefQueue);
-        builder.Append("|A:");
-        AppendActive(builder, state.Active);
-        return builder.ToString();
+        return StatePrefix + JsonUtility.ToJson(state);
     }
 
     private static PlayerFoodStateData DeserializeState(string data)
     {
-        PlayerFoodStateData state = new();
-        string[] sections = data.Split(new[] { '|' }, StringSplitOptions.None);
-        if (sections.Length == 0 || sections[0] != StateVersion)
+        if (!data.StartsWith(StatePrefix, StringComparison.Ordinal))
         {
             FineDiningPlugin.Log.LogWarning(
                 "Unsupported FineDining diet state format; resetting the stored diet state.");
-            return state;
+            return new PlayerFoodStateData();
         }
 
-        for (int index = 1; index < sections.Length; index++)
+        string json = data.Substring(StatePrefix.Length);
+        if (string.IsNullOrWhiteSpace(json))
         {
-            string section = sections[index];
-            if (section.Length < 2 || section[1] != ':')
-            {
-                continue;
-            }
+            throw new FormatException("The FineDining diet state JSON payload is empty.");
+        }
 
-            string payload = section.Length > 2 ? section.Substring(2) : string.Empty;
-            switch (section[0])
-            {
-                case 'R':
-                    state.Recent = ReadRecent(payload);
-                    break;
-                case 'C':
-                    state.Chef = ReadChef(payload);
-                    break;
-                case 'Q':
-                    state.ChefQueue = ReadQueue(payload);
-                    break;
-                case 'A':
-                    state.Active = ReadActive(payload);
-                    break;
-            }
+        PlayerFoodStateData? state = JsonUtility.FromJson<PlayerFoodStateData>(json);
+        if (state == null)
+        {
+            throw new FormatException("The FineDining diet state JSON payload is invalid.");
         }
 
         return state;
-    }
-
-    private static void AppendRecent(StringBuilder builder, List<HistoryEntryData> recent)
-    {
-        bool first = true;
-        foreach (HistoryEntryData entry in recent)
-        {
-            if (entry == null || string.IsNullOrWhiteSpace(entry.Key))
-            {
-                continue;
-            }
-
-            AppendSeparator(builder, ref first);
-            builder.Append(EncodeKey(entry.Key));
-            builder.Append(',');
-            builder.Append(Math.Max(1, entry.Stack).ToString(CultureInfo.InvariantCulture));
-        }
-    }
-
-    private static void AppendChef(StringBuilder builder, List<ChefEntryData> chef)
-    {
-        bool first = true;
-        foreach (ChefEntryData entry in chef)
-        {
-            if (entry == null || string.IsNullOrWhiteSpace(entry.Key))
-            {
-                continue;
-            }
-
-            AppendSeparator(builder, ref first);
-            builder.Append(EncodeKey(entry.Key));
-            builder.Append(',');
-            builder.Append(entry.Multiplier.ToString("R", CultureInfo.InvariantCulture));
-        }
-    }
-
-    private static void AppendQueue(StringBuilder builder, List<string> queue)
-    {
-        bool first = true;
-        foreach (string key in queue)
-        {
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                continue;
-            }
-
-            AppendSeparator(builder, ref first);
-            builder.Append(EncodeKey(key));
-        }
-    }
-
-    private static void AppendActive(StringBuilder builder, List<ActiveFoodData> active)
-    {
-        bool first = true;
-        foreach (ActiveFoodData entry in active)
-        {
-            if (entry == null || string.IsNullOrWhiteSpace(entry.Key))
-            {
-                continue;
-            }
-
-            AppendSeparator(builder, ref first);
-            builder.Append(EncodeKey(entry.Key));
-            builder.Append(',');
-            builder.Append(entry.AppliedScale.ToString("R", CultureInfo.InvariantCulture));
-        }
-    }
-
-    private static void AppendSeparator(StringBuilder builder, ref bool first)
-    {
-        if (!first)
-        {
-            builder.Append(';');
-        }
-
-        first = false;
-    }
-
-    private static List<HistoryEntryData> ReadRecent(string payload)
-    {
-        List<HistoryEntryData> recent = new();
-        foreach (string token in SplitEntries(payload))
-        {
-            string[] parts = token.Split(',');
-            if (parts.Length != 2)
-            {
-                continue;
-            }
-
-            string key = DecodeKey(parts[0]);
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                recent.Add(new HistoryEntryData
-                {
-                    Key = key,
-                    Stack = ParseInt(parts[1], 1)
-                });
-            }
-        }
-
-        return recent;
-    }
-
-    private static List<ChefEntryData> ReadChef(string payload)
-    {
-        List<ChefEntryData> chef = new();
-        foreach (string token in SplitEntries(payload))
-        {
-            string[] parts = token.Split(',');
-            if (parts.Length != 2)
-            {
-                continue;
-            }
-
-            string key = DecodeKey(parts[0]);
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                chef.Add(new ChefEntryData
-                {
-                    Key = key,
-                    Multiplier = ParseFloat(parts[1], 1f)
-                });
-            }
-        }
-
-        return chef;
-    }
-
-    private static List<string> ReadQueue(string payload)
-    {
-        List<string> queue = new();
-        foreach (string token in SplitEntries(payload))
-        {
-            string key = DecodeKey(token);
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                queue.Add(key);
-            }
-        }
-
-        return queue;
-    }
-
-    private static List<ActiveFoodData> ReadActive(string payload)
-    {
-        List<ActiveFoodData> active = new();
-        foreach (string token in SplitEntries(payload))
-        {
-            string[] parts = token.Split(',');
-            if (parts.Length != 2)
-            {
-                continue;
-            }
-
-            string key = DecodeKey(parts[0]);
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                active.Add(new ActiveFoodData
-                {
-                    Key = key,
-                    AppliedScale = ParseFloat(parts[1], DietConfig.GetBaseSlotScale())
-                });
-            }
-        }
-
-        return active;
-    }
-
-    private static IEnumerable<string> SplitEntries(string payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            yield break;
-        }
-
-        foreach (string entry in payload.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            yield return entry;
-        }
-    }
-
-    private static string EncodeKey(string value) =>
-        Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
-
-    private static string DecodeKey(string value)
-    {
-        try
-        {
-            return Encoding.UTF8.GetString(Convert.FromBase64String(value));
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
-    private static int ParseInt(string value, int fallback) =>
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-            ? parsed
-            : fallback;
-
-    private static float ParseFloat(string value, float fallback)
-    {
-        return float.TryParse(
-                   value,
-                   NumberStyles.Float | NumberStyles.AllowThousands,
-                   CultureInfo.InvariantCulture,
-                   out float parsed) &&
-               !float.IsNaN(parsed) &&
-               !float.IsInfinity(parsed)
-            ? parsed
-            : fallback;
     }
 
     private static void NormalizeState(Player player, PlayerFoodStateData state)
@@ -439,7 +200,7 @@ internal static class FoodStateStore
         HashSet<string> activeKeys = new(StringComparer.Ordinal);
         foreach (Player.Food food in player.GetFoods())
         {
-            string key = FoodKeys.GetKey(food);
+            string key = FoodIdentity.GetCanonicalPrefabName(food);
             if (!string.IsNullOrWhiteSpace(key))
             {
                 activeKeys.Add(key);

@@ -31,11 +31,11 @@ internal sealed class SpoilageReferenceEntry
         double lifetimeHours,
         string replacementPrefab)
     {
-        PrefabName = FoodClassifier.CleanPrefabName(prefabName);
+        PrefabName = FoodIdentity.NormalizePrefabName(prefabName);
         OwnerName = FoodPrefabOwnerResolver.NormalizeOwnerName(ownerName);
         Section = section;
         LifetimeHours = lifetimeHours <= 0d ? 0d : lifetimeHours;
-        ReplacementPrefab = FoodClassifier.CleanPrefabName(replacementPrefab);
+        ReplacementPrefab = FoodIdentity.NormalizePrefabName(replacementPrefab);
     }
 
     internal string PrefabName { get; }
@@ -269,7 +269,7 @@ internal static class SpoilageReferenceGenerator
                 continue;
             }
 
-            string prefabName = FoodClassifier.CleanPrefabName(prefab.name);
+            string prefabName = FoodIdentity.NormalizePrefabName(prefab.name);
             if (prefabName.Length > 0 && !itemDrops.ContainsKey(prefabName))
             {
                 itemDrops.Add(prefabName, itemDrop);
@@ -300,10 +300,10 @@ internal static class SpoilageReferenceGenerator
             }
 
             candidates.Add((
-                FoodClassifier.CleanPrefabName(pair.Key),
+                FoodIdentity.NormalizePrefabName(pair.Key),
                 GetReferenceSection(rule),
                 lifetimeHours <= 0d ? 0d : lifetimeHours,
-                FoodClassifier.CleanPrefabName(
+                FoodIdentity.NormalizePrefabName(
                     rule.State == SpoilageRuleState.Enabled ? rule.ReplacementPrefab : "")));
             capturedPrefabs.Add(pair.Key);
         }
@@ -321,12 +321,12 @@ internal static class SpoilageReferenceGenerator
             }
 
             candidates.Add((
-                FoodClassifier.CleanPrefabName(itemOverride.PrefabName),
+                FoodIdentity.NormalizePrefabName(itemOverride.PrefabName),
                 itemOverride.LifetimeTicks > 0L
                     ? SpoilageReferenceSection.OverrideEnabled
                     : SpoilageReferenceSection.OverrideDisabled,
                 itemOverride.Hours <= 0d ? 0d : itemOverride.Hours,
-                FoodClassifier.CleanPrefabName(
+                FoodIdentity.NormalizePrefabName(
                     itemOverride.LifetimeTicks > 0L ? itemOverride.ReplacementPrefab : "")));
         }
 

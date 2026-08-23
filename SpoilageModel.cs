@@ -15,8 +15,8 @@ internal enum SpoilageGroup
 internal static class SpoilageDefaults
 {
     internal const string RottenMeatPrefabName = "RottenMeat";
-    internal const string RottenProducePrefabName = "FineDining_RottenProduce";
-    internal const string RottenFoodPrefabName = "FineDining_RottenFood";
+    internal const string RottenProducePrefabName = GeneratedPrefabRegistry.RottenProducePrefabName;
+    internal const string RottenFoodPrefabName = GeneratedPrefabRegistry.RottenFoodPrefabName;
 
     internal static string GetReplacementPrefab(SpoilageGroup group)
     {

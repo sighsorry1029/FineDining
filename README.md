@@ -48,16 +48,16 @@ lifetimes:
   fish: 75
   otherEdible: 25
 overrides:
-  - Dandelion, 100
-  - Thistle, 100, FineDining_RottenProduce
-  - SomePrefab, 0
+  - ModdedEdible, 100
+  - ModdedProduce, 100, FineDining_RottenProduce
+  - DecorativeFoodLikeItem, 0
 ```
 
 Hours accept `0..5040`. Zero disables a group or exact prefab. Positive values below one second are clamped to one second internally. Invalid YAML is rejected atomically and the last valid policy remains active.
 
 Timers appear in inventory and container slots, item tooltips, loose ItemDrop hover text, and placed food/Feast hover text. Running clocks are gold. Cold-paused clocks are blue and use the Frost icon. The display rounds up to hours and switches to minutes below one hour, with one minute as its minimum text.
 
-Vanilla loose-item cleanup is retained. Timestamped world stacks that survive vanilla cleanup conditions can spoil in place. Stack replacement never creates multiple ground stacks from one source stack.
+Vanilla loose-item cleanup is retained. Timestamped world stacks that survive vanilla cleanup conditions can spoil in place. Replacement preserves the full source count, including a deliberate over-stack when the rotten prefab has a smaller nominal capacity; one ground stack never becomes several stacks.
 
 ## Freshness and diet effects
 

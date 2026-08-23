@@ -28,10 +28,28 @@ internal static class RecentHistoryService
 
     internal static int RegisterConsumption(PlayerFoodStateData state, string key, bool isChef)
     {
-        HistoryEntryData? entry = GetEntry(state, key);
-        if (entry != null)
+        for (int index = 0; index < state.Recent.Count; index++)
         {
-            entry.Stack = GetNextStack(state, key, isChef);
+            HistoryEntryData entry = state.Recent[index];
+            if (entry.Key != key)
+            {
+                continue;
+            }
+
+            entry.Stack = isChef
+                ? 1
+                : entry.Stack < 1
+                    ? 1
+                    : entry.Stack + 1;
+
+            // Re-consumption makes this the newest history entry. Moving it to
+            // the tail also ensures trimming removes the genuinely oldest food.
+            if (index != state.Recent.Count - 1)
+            {
+                state.Recent.RemoveAt(index);
+                state.Recent.Add(entry);
+            }
+
             return entry.Stack;
         }
 

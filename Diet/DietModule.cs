@@ -9,8 +9,6 @@ internal static class DietModule
     private static bool _initialized;
     private static bool _reconcileRequested;
 
-    internal static int LocalizationRevision { get; private set; }
-
     internal static void Initialize(ConfigFile config, ConfigSync configSync)
     {
         if (_initialized)
@@ -22,7 +20,7 @@ internal static class DietModule
         DietConfig.MaxFoodSlots.SettingChanged += FoodStateShapeChanged;
         DietConfig.RecentHistorySize.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefCollectionSize.SettingChanged += FoodStateShapeChanged;
-        FineDiningLocalization.OnLocalizationComplete += LocalizationChanged;
+        FineDiningLocalization.OnLocalizationComplete += HudFoodPanels.ResetAll;
         _reconcileRequested = true;
         _initialized = true;
     }
@@ -56,7 +54,7 @@ internal static class DietModule
             DietConfig.MaxFoodSlots.SettingChanged -= FoodStateShapeChanged;
             DietConfig.RecentHistorySize.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefCollectionSize.SettingChanged -= FoodStateShapeChanged;
-            FineDiningLocalization.OnLocalizationComplete -= LocalizationChanged;
+            FineDiningLocalization.OnLocalizationComplete -= HudFoodPanels.ResetAll;
         }
 
         _initialized = false;
@@ -69,16 +67,6 @@ internal static class DietModule
     private static void FoodStateShapeChanged(object sender, EventArgs e)
     {
         _reconcileRequested = true;
-    }
-
-    private static void LocalizationChanged()
-    {
-        unchecked
-        {
-            LocalizationRevision++;
-        }
-
-        HudFoodPanels.ResetAll();
     }
 
     private static void TrimExcessFoods(Player player)

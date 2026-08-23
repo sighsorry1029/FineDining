@@ -707,7 +707,7 @@ internal static class WorldItemSpoilageHover
                 FreshnessRuntime.CopyFreshnessMetadata(worldDrop.m_itemData, freshnessItem);
             }
 
-            float multiplier = FreshnessFoodEffects.GetMultiplier(freshnessItem);
+            float multiplier = FreshnessRuntime.GetFoodStatMultiplier(freshnessItem);
             if (multiplier < 0.999999f)
             {
                 string effectLine = SpoilageUiText.BuildFreshnessEffectLine(multiplier);

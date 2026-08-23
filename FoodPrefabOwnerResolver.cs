@@ -21,7 +21,7 @@ internal sealed class FoodPrefabOwnerSnapshot
 
     internal string GetOwnerName(string? prefabName)
     {
-        string normalized = FoodClassifier.CleanPrefabName(prefabName);
+        string normalized = FoodIdentity.NormalizePrefabName(prefabName);
         return normalized.Length > 0 && _owners.TryGetValue(normalized, out string ownerName)
             ? ownerName
             : FoodPrefabOwnerResolver.UnknownOwnerName;
@@ -55,7 +55,7 @@ internal static class FoodPrefabOwnerResolver
     internal static FoodPrefabOwnerSnapshot GetSnapshot(IEnumerable<string> prefabNames)
     {
         List<string> targets = (prefabNames ?? Enumerable.Empty<string>())
-            .Select(FoodClassifier.CleanPrefabName)
+            .Select(FoodIdentity.NormalizePrefabName)
             .Where(name => name.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
@@ -189,7 +189,7 @@ internal static class FoodPrefabOwnerResolver
 
         foreach (object holder in EnumerateCollectionValues(prefabs))
         {
-            string prefabName = FoodClassifier.CleanPrefabName(GetPrefabNameFromHolder(holder));
+            string prefabName = FoodIdentity.NormalizePrefabName(GetPrefabNameFromHolder(holder));
             if (prefabName.Length == 0 || !targets.Contains(prefabName) || owners.ContainsKey(prefabName) ||
                 !TryResolveSourceModOwner(holder, out string ownerName))
             {
@@ -246,7 +246,7 @@ internal static class FoodPrefabOwnerResolver
                     continue;
                 }
 
-                string prefabName = FoodClassifier.CleanPrefabName(
+                string prefabName = FoodIdentity.NormalizePrefabName(
                     Path.GetFileNameWithoutExtension(assetName));
                 if (prefabName.Length == 0 || !targets.Contains(prefabName))
                 {
@@ -552,7 +552,7 @@ internal static class FoodPrefabOwnerResolver
 
     private static IEnumerable<string> EnumerateLookupCandidates(string prefabName)
     {
-        string normalized = FoodClassifier.CleanPrefabName(prefabName);
+        string normalized = FoodIdentity.NormalizePrefabName(prefabName);
         if (normalized.Length == 0)
         {
             yield break;
@@ -609,7 +609,7 @@ internal static class FoodPrefabOwnerResolver
                         continue;
                     }
 
-                    string prefabName = FoodClassifier.CleanPrefabName(
+                    string prefabName = FoodIdentity.NormalizePrefabName(
                         Path.GetFileNameWithoutExtension(assetPath));
                     if (prefabName.Length > 0)
                     {

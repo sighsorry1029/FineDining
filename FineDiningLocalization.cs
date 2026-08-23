@@ -16,6 +16,10 @@ internal static class FineDiningLocalization
     private static BaseUnityPlugin? _plugin;
     internal static event Action? OnLocalizationComplete;
 
+    private static readonly IDeserializer Deserializer = new DeserializerBuilder()
+        .IgnoreFields()
+        .Build();
+
     private static BaseUnityPlugin Plugin =>
         _plugin ?? throw new InvalidOperationException("FineDining localization is not initialized.");
 
@@ -40,12 +44,10 @@ internal static class FineDiningLocalization
         }
     }
 
-    internal static void SafeCallLocalizeComplete() => OnLocalizationComplete?.Invoke();
-
     internal static void LoadLocalization(Localization __instance, string language)
     {
         Dictionary<string, string> localizationFiles = new();
-        foreach (string file in Directory.GetFiles(Path.GetDirectoryName(Paths.PluginPath)!, $"{Plugin.Info.Metadata.Name}.*", SearchOption.AllDirectories).Where(f => fileExtensions.IndexOf(Path.GetExtension(f)) >= 0))
+        foreach (string file in Directory.GetFiles(Paths.PluginPath, $"{Plugin.Info.Metadata.Name}.*", SearchOption.AllDirectories).Where(f => fileExtensions.IndexOf(Path.GetExtension(f)) >= 0))
         {
             string[] parts = Path.GetFileNameWithoutExtension(file).Split('.');
             if (parts.Length < 2)
@@ -70,7 +72,7 @@ internal static class FineDiningLocalization
             throw new Exception($"Found no English localizations in mod {Plugin.Info.Metadata.Name}. Expected an embedded resource translations/English.json or translations/English.yml.");
         }
 
-        Dictionary<string, string>? localizationTexts = new DeserializerBuilder().IgnoreFields().Build().Deserialize<Dictionary<string, string>?>(Encoding.UTF8.GetString(englishAssemblyData));
+        Dictionary<string, string>? localizationTexts = Deserializer.Deserialize<Dictionary<string, string>?>(Encoding.UTF8.GetString(englishAssemblyData));
         if (localizationTexts is null)
         {
             throw new Exception($"Localization for mod {Plugin.Info.Metadata.Name} failed: Localization file was empty.");
@@ -96,7 +98,7 @@ internal static class FineDiningLocalization
 
         if (localizationData is not null)
         {
-            foreach (KeyValuePair<string, string> kv in new DeserializerBuilder().IgnoreFields().Build().Deserialize<Dictionary<string, string>?>(localizationData) ?? new Dictionary<string, string>())
+            foreach (KeyValuePair<string, string> kv in Deserializer.Deserialize<Dictionary<string, string>?>(localizationData) ?? new Dictionary<string, string>())
             {
                 localizationTexts[kv.Key] = kv.Value;
             }
@@ -106,6 +108,8 @@ internal static class FineDiningLocalization
         {
             __instance.AddWord(s.Key, s.Value);
         }
+
+        OnLocalizationComplete?.Invoke();
     }
 
     private static byte[]? LoadTranslationFromAssembly(string language)
@@ -121,10 +125,10 @@ internal static class FineDiningLocalization
         return null;
     }
 
-    internal static byte[]? ReadEmbeddedFileBytes(string resourceFileName, Assembly? containingAssembly = null)
+    private static byte[]? ReadEmbeddedFileBytes(string resourceFileName)
     {
         using MemoryStream stream = new();
-        containingAssembly ??= Assembly.GetCallingAssembly();
+        Assembly containingAssembly = typeof(FineDiningLocalization).Assembly;
         if (containingAssembly.GetManifestResourceNames().FirstOrDefault(str => str.EndsWith(resourceFileName, StringComparison.Ordinal)) is { } name)
         {
             containingAssembly.GetManifestResourceStream(name)?.CopyTo(stream);
@@ -147,11 +151,4 @@ internal static class FineDiningLocalizationGuiPatch
 {
     [HarmonyPostfix]
     private static void Postfix() => FineDiningLocalization.LoadLocalizationLater();
-}
-
-[HarmonyPatch(typeof(FejdStartup), nameof(FejdStartup.Start))]
-internal static class FineDiningLocalizationReadyPatch
-{
-    [HarmonyPostfix]
-    private static void Postfix() => FineDiningLocalization.SafeCallLocalizeComplete();
 }

@@ -21,19 +21,7 @@ internal static class IceboxMapPins
     private static readonly TimeSpan MinimumServerRequestInterval = TimeSpan.FromMilliseconds(250d);
     private static readonly TimeSpan ServerRequestHistoryLifetime = TimeSpan.FromSeconds(30d);
 
-    private readonly struct LocalEntry
-    {
-        internal LocalEntry(ZDOID zdoId, Vector3 position)
-        {
-            ZdoId = zdoId;
-            Position = position;
-        }
-
-        internal ZDOID ZdoId { get; }
-        internal Vector3 Position { get; }
-    }
-
-    private static readonly Dictionary<ZDOID, LocalEntry> LocalSnapshot = new();
+    private static readonly Dictionary<ZDOID, IceboxPinSnapshotEntry> LocalSnapshot = new();
     private static readonly Dictionary<ZDOID, Minimap.PinData> LocalPins = new();
     private static readonly Dictionary<long, DateTime> LastServerRequestUtc = new();
     private static readonly List<long> ScratchPeerIds = new();
@@ -350,7 +338,7 @@ internal static class IceboxMapPins
             return;
         }
 
-        Dictionary<ZDOID, LocalEntry> parsed = new();
+        Dictionary<ZDOID, IceboxPinSnapshotEntry> parsed = new();
         try
         {
             for (int index = 0; index < count; index++)
@@ -359,7 +347,7 @@ internal static class IceboxMapPins
                 Vector3 position = package.ReadVector3();
                 if (!zdoId.IsNone())
                 {
-                    parsed[zdoId] = new LocalEntry(zdoId, position);
+                    parsed[zdoId] = new IceboxPinSnapshotEntry(zdoId, position);
                 }
             }
         }
@@ -369,7 +357,7 @@ internal static class IceboxMapPins
         }
 
         LocalSnapshot.Clear();
-        foreach (KeyValuePair<ZDOID, LocalEntry> entry in parsed)
+        foreach (KeyValuePair<ZDOID, IceboxPinSnapshotEntry> entry in parsed)
         {
             LocalSnapshot[entry.Key] = entry.Value;
         }
@@ -420,7 +408,7 @@ internal static class IceboxMapPins
         for (int index = 0; index < entries.Count; index++)
         {
             IceboxPinSnapshotEntry entry = entries[index];
-            LocalSnapshot[entry.ZdoId] = new LocalEntry(entry.ZdoId, entry.Position);
+            LocalSnapshot[entry.ZdoId] = entry;
         }
     }
 
@@ -434,7 +422,7 @@ internal static class IceboxMapPins
         Sprite? icon = ResolveIceboxIcon();
         EnsureCustomPinType(minimap, icon);
         HashSet<ZDOID> seen = new();
-        foreach (LocalEntry entry in LocalSnapshot.Values)
+        foreach (IceboxPinSnapshotEntry entry in LocalSnapshot.Values)
         {
             seen.Add(entry.ZdoId);
             bool create = !LocalPins.TryGetValue(entry.ZdoId, out Minimap.PinData? pin) ||

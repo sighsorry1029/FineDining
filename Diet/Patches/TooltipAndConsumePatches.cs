@@ -33,7 +33,7 @@ internal static class DietTooltipPatch
         __state = null;
         Player player = Player.m_localPlayer;
         ItemDrop.ItemData item = __0;
-        if (player == null || !FoodKeys.IsConsumableFood(item))
+        if (player == null || !FoodIdentity.IsDietConsumable(item))
         {
             return;
         }
@@ -133,6 +133,63 @@ internal static class DietTooltipPatch
 
     private static string FormatTooltipStat(float value) =>
         RoundTooltipStat(value).ToString("0.#", CultureInfo.CurrentCulture);
+}
+
+/// <summary>
+/// Feast stores edible stats on m_foodItem but Feaster-style placement stores
+/// persistent spoilage metadata on the host Piece ItemDrop. Bridge the metadata
+/// only for the synchronous eat-confirmation call.
+/// </summary>
+[HarmonyPatch(typeof(Feast), "RPC_EatConfirmation")]
+internal static class PlacedFeastFreshnessConsumptionPatch
+{
+    internal sealed class State
+    {
+        internal ItemDrop? FoodDrop;
+        internal ItemDrop.ItemData? OriginalItem;
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
+    private static void Prefix(Feast __instance, out State? __state)
+    {
+        __state = null;
+        ItemDrop? foodDrop = __instance?.m_foodItem;
+        ItemDrop? placedDrop = __instance != null ? __instance.GetComponent<ItemDrop>() : null;
+        if (foodDrop?.m_itemData == null || placedDrop?.m_itemData == null)
+        {
+            return;
+        }
+
+        try
+        {
+            placedDrop.Load();
+            ItemDrop.ItemData bridged = foodDrop.m_itemData.Clone();
+            FreshnessRuntime.CopyFreshnessMetadata(placedDrop.m_itemData, bridged);
+            __state = new State
+            {
+                FoodDrop = foodDrop,
+                OriginalItem = foodDrop.m_itemData
+            };
+            foodDrop.m_itemData = bridged;
+        }
+        catch (Exception exception)
+        {
+            FineDiningPlugin.Log.LogWarning(
+                "Could not bridge placed-feast freshness into its food item: " + exception.Message);
+        }
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(State? __state, Exception? __exception)
+    {
+        if (__state?.FoodDrop != null && __state.OriginalItem != null)
+        {
+            __state.FoodDrop.m_itemData = __state.OriginalItem;
+        }
+
+        return __exception;
+    }
 }
 
 [HarmonyPatch]

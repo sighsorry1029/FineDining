@@ -5,7 +5,6 @@ namespace FineDining;
 internal readonly struct FoodEffect
 {
     internal FoodEffect(
-        float baseScale,
         float freshnessScale,
         float appliedScale,
         float effectiveScale,
@@ -19,7 +18,6 @@ internal readonly struct FoodEffect
         float chefMultiplier,
         bool fullStraightActive)
     {
-        BaseScale = baseScale;
         FreshnessScale = freshnessScale;
         AppliedScale = appliedScale;
         EffectiveScale = effectiveScale;
@@ -34,7 +32,6 @@ internal readonly struct FoodEffect
         FullStraightActive = fullStraightActive;
     }
 
-    internal float BaseScale { get; }
     internal float FreshnessScale { get; }
     internal float AppliedScale { get; }
     internal float EffectiveScale { get; }
@@ -73,10 +70,10 @@ internal static class FoodRules
     internal static bool WillHaveFullStraightAfterEating(Player player, ItemDrop.ItemData item)
     {
         int activeFoodCount = player.GetFoods().Count;
-        string itemKey = FoodKeys.GetKey(item);
+        string itemKey = FoodIdentity.GetCanonicalPrefabName(item);
         foreach (Player.Food food in player.GetFoods())
         {
-            if (FoodKeys.GetKey(food) == itemKey)
+            if (FoodIdentity.GetCanonicalPrefabName(food) == itemKey)
             {
                 return IsFullStraightActive(activeFoodCount);
             }
@@ -95,7 +92,7 @@ internal static class FoodRules
         PlayerFoodStateData state,
         ItemDrop.ItemData item)
     {
-        string key = FoodKeys.GetKey(item);
+        string key = FoodIdentity.GetCanonicalPrefabName(item);
         ChefEntryData? chefEntry = ChefCollectionService.GetEntry(state, key);
         bool isChef = chefEntry != null;
         int stack = RecentHistoryService.GetNextStack(state, key, isChef);
@@ -125,7 +122,6 @@ internal static class FoodRules
         float effectiveScale = appliedScale *
                                (fullStraightActive ? FullStraightMultiplier : 1f);
         return new FoodEffect(
-            baseScale,
             freshnessScale,
             appliedScale,
             effectiveScale,
@@ -142,7 +138,7 @@ internal static class FoodRules
 
     internal static float GetAppliedScale(PlayerFoodStateData state, Player.Food food)
     {
-        string key = FoodKeys.GetKey(food);
+        string key = FoodIdentity.GetCanonicalPrefabName(food);
         ActiveFoodData? active = GetActiveFood(state, key);
         if (active != null)
         {

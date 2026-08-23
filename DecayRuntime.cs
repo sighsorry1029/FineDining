@@ -1411,7 +1411,7 @@ internal static class DecayRuntime
         out string configuredPrefab,
         out ItemDrop replacementDrop)
     {
-        configuredPrefab = FoodClassifier.CleanPrefabName(rule.ReplacementPrefab);
+        configuredPrefab = FoodIdentity.NormalizePrefabName(rule.ReplacementPrefab);
         replacementDrop = null!;
 
         ObjectDB objectDb = ObjectDB.instance;
@@ -1441,7 +1441,7 @@ internal static class DecayRuntime
         ItemDrop? candidate = replacementPrefab != null
             ? replacementPrefab.GetComponent<ItemDrop>()
             : null;
-        string sourcePrefab = FoodClassifier.GetPrefabName(sourceItem);
+        string sourcePrefab = FoodIdentity.GetCanonicalPrefabName(sourceItem);
         if (candidate?.m_itemData?.m_shared == null ||
             string.Equals(sourcePrefab, configuredPrefab, StringComparison.OrdinalIgnoreCase))
         {
@@ -1480,7 +1480,6 @@ internal static class DecayRuntime
         ItemDrop.ItemData template = replacementDrop.m_itemData;
 
         int sourceAmount = Math.Max(0, item.m_stack);
-        int sourceMaxStack = Math.Max(1, item.m_shared?.m_maxStackSize ?? 1);
         Vector2i originalPosition = item.m_gridPos;
         int sourceWorldLevel = item.m_worldLevel;
         if (!inventory.m_inventory.Remove(item))
@@ -1494,12 +1493,14 @@ internal static class DecayRuntime
         }
 
         int maxStack = Math.Max(1, template.m_shared.m_maxStackSize);
-        int remaining = CalculateReplacementAmount(
-            sourceAmount,
-            sourceMaxStack,
-            maxStack);
+        int remaining = CalculateReplacementAmount(sourceAmount);
         ItemDrop.ItemData stackTemplate = CreateReplacement(template, replacementPrefab, sourceWorldLevel);
-        int firstAmount = Math.Min(maxStack, remaining);
+        // Preserve the source count in its original slot even when the
+        // replacement's nominal max stack is smaller. Inventory.AddItem's
+        // positioned overload accepts that intentional over-stack for an
+        // empty slot. The merge/split path below remains as a fallback for
+        // inventory mods that reject or partially consume the insertion.
+        int firstAmount = remaining;
         remaining -= InsertReplacementStack(inventory, stackTemplate, firstAmount, originalPosition);
 
         if (remaining > 0)
@@ -1516,7 +1517,7 @@ internal static class DecayRuntime
                     continue;
                 }
 
-                int moved = Math.Min(remaining, maxStack - existing.m_stack);
+                int moved = Math.Min(remaining, Math.Max(0, maxStack - existing.m_stack));
                 existing.m_stack += moved;
                 remaining -= moved;
             }
@@ -1601,7 +1602,7 @@ internal static class DecayRuntime
             return;
         }
 
-        string sourcePrefab = FoodClassifier.GetPrefabName(sourceItem);
+        string sourcePrefab = FoodIdentity.GetCanonicalPrefabName(sourceItem);
         if (resolution == ReplacementResolution.Invalid)
         {
             drop.m_nview.Destroy();
@@ -1628,14 +1629,10 @@ internal static class DecayRuntime
         }
 
         int sourceWorldLevel = sourceItem.m_worldLevel;
-        int sourceMaxStack = Math.Max(1, sourceItem.m_shared?.m_maxStackSize ?? 1);
-        int maxStack = Math.Max(1, template.m_shared.m_maxStackSize);
-        int replacementAmount = CalculateReplacementAmount(
-            sourceAmount,
-            sourceMaxStack,
-            maxStack);
-        // CalculateReplacementAmount caps the result to maxStack, so one
-        // expired ground stack always remains one ground stack.
+        int replacementAmount = CalculateReplacementAmount(sourceAmount);
+        // ItemDrop.DropItem accepts the preserved count even when it exceeds
+        // the replacement's nominal stack limit, so one expired ground stack
+        // remains one ground stack.
         ItemDrop.ItemData replacementTemplate = CreateReplacement(
             template,
             replacementPrefab,
@@ -1700,7 +1697,7 @@ internal static class DecayRuntime
         }
 
         return string.Equals(
-            FoodClassifier.GetPrefabName(drop.m_itemData),
+            FoodIdentity.GetCanonicalPrefabName(drop.m_itemData),
             sourcePrefab,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -1755,32 +1752,12 @@ internal static class DecayRuntime
         }
     }
 
-    internal static int CalculateReplacementAmount(
-        int sourceAmount,
-        int sourceMaxStackSize,
-        int replacementMaxStackSize)
+    internal static int CalculateReplacementAmount(int sourceAmount)
     {
-        int amount = Math.Max(0, sourceAmount);
-        if (amount == 0)
-        {
-            return 0;
-        }
-
-        int sourceMaxStack = Math.Max(1, sourceMaxStackSize);
-        int replacementMaxStack = Math.Max(1, replacementMaxStackSize);
-        if (replacementMaxStack >= sourceMaxStack)
-        {
-            // A roomier replacement can preserve the source count without
-            // creating extra items merely to match its larger capacity.
-            return Math.Min(amount, replacementMaxStack);
-        }
-
-        // Preserve the occupied fraction of the original stack while ensuring
-        // that every positive expired stack produces at least one replacement.
-        // Capping at one full replacement stack also contains modded over-stacks.
-        long scaled = ((long)amount * replacementMaxStack + sourceMaxStack - 1L) /
-                      sourceMaxStack;
-        return (int)Math.Max(1L, Math.Min(replacementMaxStack, scaled));
+        // Stack capacities are intentionally irrelevant here. Spoilage is a
+        // one-for-one transformation: 50 source items become 50 replacements,
+        // including a deliberate 50/20 over-stack when the target is smaller.
+        return Math.Max(0, sourceAmount);
     }
 
     private static void LogFirstGroundExpiration(int sourceAmount, int replacementStackCount)
@@ -1837,7 +1814,7 @@ internal static class DecayRuntime
         GameObject? direct = objectDb.GetItemPrefab(prefabName);
         if (direct != null &&
             string.Equals(
-                FoodClassifier.CleanPrefabName(direct.name),
+                FoodIdentity.NormalizePrefabName(direct.name),
                 prefabName,
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -1846,7 +1823,7 @@ internal static class DecayRuntime
 
         return objectDb.m_items?.FirstOrDefault(prefab =>
             prefab != null &&
-            string.Equals(FoodClassifier.CleanPrefabName(prefab.name), prefabName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(FoodIdentity.NormalizePrefabName(prefab.name), prefabName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsObjectDatabaseReady(ObjectDB? objectDb)

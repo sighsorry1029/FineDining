@@ -12,7 +12,6 @@ internal static class HudFoodPanels
     private const string RootName = "FineDining_DietHudRoot";
     private const float FallbackFoodIconSize = 43f;
     private const float SlotSpacing = 1f;
-    private const float ChefFallbackRefreshSeconds = 5f;
 
     private static readonly Vector3[] RectCorners = new Vector3[4];
     private static readonly Color DefaultBackground = new(0f, 0f, 0f, 0.45f);
@@ -219,9 +218,10 @@ internal static class HudFoodPanels
 
         Localization localization = Localization.instance;
         string language = localization.GetSelectedLanguage();
-        int localizationRevision = DietModule.LocalizationRevision;
-        if (string.Equals(indicator.TooltipLanguage, language, System.StringComparison.OrdinalIgnoreCase)
-            && indicator.TooltipRevision == localizationRevision)
+        if (string.Equals(
+                indicator.TooltipLanguage,
+                language,
+                System.StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -237,7 +237,6 @@ internal static class HudFoodPanels
                 "$finedining_diet_full_straight_description",
                 FullStraightMultiplierValueText));
         indicator.TooltipLanguage = language;
-        indicator.TooltipRevision = localizationRevision;
     }
 
     private static void HideFullStraightIndicator(FullStraightContext? indicator)
@@ -263,8 +262,7 @@ internal static class HudFoodPanels
                || context.ChefObjectDb != objectDb
                || context.KnownRecipeCount != PlayerPrivateAccess.KnownRecipes(player).Count
                || context.KnownMaterialCount != PlayerPrivateAccess.KnownMaterials(player).Count
-               || context.ObjectDbItemCount != objectDb.m_items.Count
-               || Time.unscaledTime >= context.NextChefRefreshTime;
+               || context.ObjectDbItemCount != objectDb.m_items.Count;
     }
 
     private static void RememberChefCollectionInputs(PanelContext context, Player player)
@@ -280,7 +278,6 @@ internal static class HudFoodPanels
         context.KnownRecipeCount = PlayerPrivateAccess.KnownRecipes(player).Count;
         context.KnownMaterialCount = PlayerPrivateAccess.KnownMaterials(player).Count;
         context.ObjectDbItemCount = objectDb.m_items.Count;
-        context.NextChefRefreshTime = Time.unscaledTime + ChefFallbackRefreshSeconds;
     }
 
     internal static void ResetAll()
@@ -693,13 +690,11 @@ internal static class HudFoodPanels
 
         Localization localization = Localization.instance;
         string language = localization.GetSelectedLanguage();
-        int localizationRevision = DietModule.LocalizationRevision;
         if (!slot.TooltipDirty
             && slot.TooltipIsChef == isChef
             && slot.TooltipStack == stack
             && Mathf.Approximately(slot.TooltipMultiplier, multiplier)
-            && slot.TooltipLanguage == language
-            && slot.TooltipRevision == localizationRevision)
+            && slot.TooltipLanguage == language)
         {
             return;
         }
@@ -750,8 +745,10 @@ internal static class HudFoodPanels
                 stack.ToString(CultureInfo.InvariantCulture));
         }
 
-        if ((!string.Equals(slot.TooltipLanguage, language, System.StringComparison.OrdinalIgnoreCase)
-             || slot.TooltipRevision != localizationRevision)
+        if (!string.Equals(
+                slot.TooltipLanguage,
+                language,
+                System.StringComparison.OrdinalIgnoreCase)
             && GetCurrentTooltip() == slot.Tooltip)
         {
             UITooltip.HideTooltip();
@@ -763,7 +760,6 @@ internal static class HudFoodPanels
         slot.TooltipStack = stack;
         slot.TooltipMultiplier = multiplier;
         slot.TooltipLanguage = language;
-        slot.TooltipRevision = localizationRevision;
     }
 
     private static void HideSlot(SlotContext slot)
@@ -816,7 +812,6 @@ internal static class HudFoodPanels
         public int KnownRecipeCount = -1;
         public int KnownMaterialCount = -1;
         public int ObjectDbItemCount = -1;
-        public float NextChefRefreshTime;
     }
 
     private sealed class FullStraightContext
@@ -826,7 +821,6 @@ internal static class HudFoodPanels
         public TextMeshProUGUI Star = null!;
         public UITooltip? Tooltip;
         public string TooltipLanguage = string.Empty;
-        public int TooltipRevision = -1;
     }
 
     private sealed class SlotContext
@@ -845,7 +839,5 @@ internal static class HudFoodPanels
         public int TooltipStack = -1;
         public float TooltipMultiplier = float.NaN;
         public string TooltipLanguage = string.Empty;
-        public int TooltipRevision = -1;
     }
 }
-

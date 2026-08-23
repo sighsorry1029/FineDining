@@ -173,7 +173,7 @@ internal static class ChefCollectionService
             }
 
             ItemDrop.ItemData? item = prefab.GetComponent<ItemDrop>()?.m_itemData;
-            if (item == null || !FoodKeys.IsConsumableFood(item))
+            if (item == null || !FoodIdentity.IsDietConsumable(item))
             {
                 continue;
             }

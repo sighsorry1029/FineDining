@@ -150,7 +150,7 @@ internal static class SpoilagePolicy
             return new ResolvedSpoilageRule(SpoilageRuleState.NotTracked);
         }
 
-        string prefabName = FoodClassifier.GetPrefabName(item);
+        string prefabName = FoodIdentity.GetCanonicalPrefabName(item);
         // Every configured replacement is a terminal, even when a user tries
         // to add an exact positive override for it. This prevents recursive
         // spoilage chains and also protects the two built-in rotten items.

@@ -10,10 +10,10 @@ internal static class PlayerFoodLogic
     internal static bool CanEat(Player player, ItemDrop.ItemData item, bool showMessages)
     {
         List<Player.Food> foods = player.GetFoods();
-        string itemKey = FoodKeys.GetKey(item);
+        string itemKey = FoodIdentity.GetCanonicalPrefabName(item);
         foreach (Player.Food food in foods)
         {
-            if (FoodKeys.GetKey(food) != itemKey)
+            if (FoodIdentity.GetCanonicalPrefabName(food) != itemKey)
             {
                 continue;
             }
@@ -61,7 +61,7 @@ internal static class PlayerFoodLogic
             return false;
         }
 
-        string key = FoodKeys.GetKey(item);
+        string key = FoodIdentity.GetCanonicalPrefabName(item);
         Player.Food? targetFood = FindTargetFood(player, item);
         if (targetFood == null || string.IsNullOrWhiteSpace(key))
         {
@@ -210,10 +210,10 @@ internal static class PlayerFoodLogic
     private static Player.Food? FindTargetFood(Player player, ItemDrop.ItemData item)
     {
         List<Player.Food> foods = player.GetFoods();
-        string itemKey = FoodKeys.GetKey(item);
+        string itemKey = FoodIdentity.GetCanonicalPrefabName(item);
         foreach (Player.Food food in foods)
         {
-            if (FoodKeys.GetKey(food) == itemKey)
+            if (FoodIdentity.GetCanonicalPrefabName(food) == itemKey)
             {
                 return food.CanEatAgain() ? food : null;
             }
