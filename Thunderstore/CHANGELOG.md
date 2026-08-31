@@ -3,7 +3,7 @@
 ## 1.0.2
 
 - Added `keep` expiry actions for spoilage groups and exact prefab overrides, preserving the original prefab and stack while permanently marking expired items spoiled. Feast materials and feast results now use `keep` in the default policy.
-- Added localized `Spoiled` indicators to inventory and container slots, item tooltips, loose drops, and placed-food hover text. Kept spoiled food persists across moves, placement, recovery, and restarts.
+- Added localized minimum-freshness countdown and endpoint indicators for `keep` items across inventory and container slots, item tooltips, loose drops, and placed-food hover text, including distinct cold-preservation wording. Kept items persist across moves, placement, recovery, and restarts.
 - Improved stack compatibility so spoiled state propagates through vanilla inventory and world stacking, InventorySlots, and AzuExtendedPlayerInventory recovery paths.
 - Existing numeric lifetime and override syntax remains valid. Existing `Spoilage.yml` files are not overwritten, so upgraded servers must set `feastMaterial: 72, keep` and `feastResult: 48, keep` manually to adopt the new defaults.
 

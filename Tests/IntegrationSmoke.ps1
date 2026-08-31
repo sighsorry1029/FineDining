@@ -786,6 +786,19 @@ Assert-True ($positiveModifierColor -eq '#9FE870') 'Active Chef modifiers must r
 Assert-True ($neutralModifierColor -eq '#B8B8B8') 'Neutral Chef entries must retain the neutral color.'
 Assert-True ($runningSpoilageColor -eq '#FFD138') 'Running spoilage text must match the gold inventory timer.'
 Assert-True ($pausedSpoilageColor -eq '#70C8FF') 'Paused spoilage text must retain its cold blue color.'
+$buildSpoilageStatusLine = Get-MethodRequired $foodEffectUiTextType 'BuildStatusLine'
+$getMinimumFreshnessLabel = Get-MethodRequired $foodEffectUiTextType 'GetMinimumFreshnessLabel'
+$getMinimumFreshnessSlotLabel = Get-MethodRequired $foodEffectUiTextType 'GetMinimumFreshnessSlotLabel'
+$buildMinimumFreshnessLine = Get-MethodRequired $foodEffectUiTextType 'BuildMinimumFreshnessLine'
+Assert-True ($buildSpoilageStatusLine.GetParameters().Count -eq 3 -and
+             $buildSpoilageStatusLine.GetParameters()[2].ParameterType -eq [bool]) 'Spoilage status formatting must receive the resolved minimum-freshness endpoint.'
+Assert-True ($getMinimumFreshnessLabel.ReturnType -eq [string] -and
+             $getMinimumFreshnessSlotLabel.ReturnType -eq [string] -and
+             $buildMinimumFreshnessLine.ReturnType -eq [string]) 'Minimum-freshness UI formatter contracts are incomplete.'
+Assert-True ((Get-Constant $foodEffectUiTextType 'EnglishMinimumFreshnessRunningLine') -eq 'Minimum freshness in {0}') 'Keep expiry must describe its minimum-freshness endpoint instead of claiming that the item becomes rotten.'
+Assert-True ((Get-Constant $foodEffectUiTextType 'EnglishMinimumFreshnessPausedLine') -eq 'Cold preservation paused freshness loss · minimum freshness in {0} ❄') 'Paused Keep expiry must describe paused freshness loss rather than paused spoilage.'
+Assert-True ((Get-Constant $foodEffectUiTextType 'EnglishMinimumFreshnessLine') -eq 'Minimum freshness reached') 'Keep expiry detail text must use the explicit minimum-freshness endpoint.'
+Assert-True ((Get-Constant $foodEffectUiTextType 'EnglishMinimumFreshnessSlotLabel') -eq 'Min') 'The narrow inventory overlay must use the compact minimum-freshness label.'
 Assert-Method $foodEffectUiTextType 'BuildChefChoiceModifierLine'
 Assert-Method $foodEffectUiTextType 'TryBuildDiminishingReturnsLine'
 Assert-Method $foodEffectUiTextType 'TryBuildStalenessLine'
@@ -798,6 +811,15 @@ $stalenessModifierIndex = $dietTooltipSource.IndexOf('FoodEffectUiText.TryBuildS
 Assert-True ($chefModifierIndex -ge 0 -and $chefModifierIndex -lt $diminishingModifierIndex -and $diminishingModifierIndex -lt $stalenessModifierIndex) 'Item tooltip modifiers must remain ordered as Chef Choice, diminishing returns, then staleness.'
 $fineDiningUiSource = Get-Content -LiteralPath (Join-Path $projectRoot 'FineDiningUi.cs') -Raw
 Assert-True ($fineDiningUiSource.Contains('string color = paused ? PausedColorHex : RunningColorHex;')) 'Spoilage status text must select a color for both running and paused clocks.'
+Assert-True ($fineDiningUiSource.Contains('if (reachesMinimumFreshness)') -and
+             $fineDiningUiSource.Contains('EnglishMinimumFreshnessPausedLine') -and
+             $fineDiningUiSource.Contains('EnglishMinimumFreshnessRunningLine')) 'Keep countdown formatting must select dedicated running and paused minimum-freshness wording.'
+Assert-True ([regex]::IsMatch(
+    $fineDiningUiSource,
+    '(?s)ReachesMinimumFreshness\(ItemData\? item\).*?rule\.State == SpoilageRuleState\.Enabled\s*&&\s*rule\.ExpiryAction == SpoilageExpiryAction\.KeepOriginal')) 'Keep-specific wording must require an enabled KeepOriginal policy rule.'
+Assert-True ($fineDiningUiSource.Contains('? FoodEffectUiText.GetMinimumFreshnessSlotLabel()')) 'Completed Keep expiry must use the compact label in inventory and container slots.'
+Assert-True ($fineDiningUiSource.Contains('FoodEffectUiText.BuildMinimumFreshnessLine()')) 'Completed Keep expiry must use the shared detailed minimum-freshness line in tooltips and world hover.'
+Assert-True ($fineDiningUiSource.Contains('FoodEffectUiText.ReachesMinimumFreshness(__instance)')) 'Item tooltips must select Keep-specific minimum-freshness wording before expiry.'
 Assert-True (-not $fineDiningUiSource.Contains('WaterPausedLineKey') -and -not $fineDiningUiSource.Contains('EnglishWaterPausedLine')) 'Water preservation must not add a dedicated hover label.'
 $statusColorReturn = 'return $"<color={color}>{line}</color>";'
 Assert-True ($fineDiningUiSource.Contains($statusColorReturn)) 'Spoilage status text must colorize the complete localized line.'
@@ -806,6 +828,7 @@ $worldHoverEnd = $fineDiningUiSource.IndexOf('[HarmonyPatch(typeof(Feast)', $wor
 Assert-True ($worldHoverStart -ge 0 -and $worldHoverEnd -gt $worldHoverStart) 'World-item hover implementation boundaries are missing.'
 $worldHoverSource = $fineDiningUiSource.Substring($worldHoverStart, $worldHoverEnd - $worldHoverStart)
 Assert-True ($worldHoverSource.Contains('FoodEffectUiText.TryBuildStalenessLine(')) 'Dropped and placed food hover must use the shared staleness formatter.'
+Assert-True ($worldHoverSource.Contains('FoodEffectUiText.ReachesMinimumFreshness(worldDrop?.m_itemData)')) 'Dropped and placed food hover must select Keep-specific minimum-freshness wording before expiry.'
 Assert-True (-not $worldHoverSource.Contains('IsFishPreservedInWater')) 'World-item hover must not expose a water-specific preservation reason.'
 Assert-True (-not $fineDiningUiSource.Contains('[HarmonyPatch(typeof(Fish), nameof(Fish.GetHoverText))]')) 'FineDining must leave vanilla underwater Fish hover text unchanged.'
 $decayRuntimeSource = Get-Content -LiteralPath (Join-Path $projectRoot 'DecayRuntime.cs') -Raw
@@ -3875,6 +3898,10 @@ $english = Get-Content -LiteralPath (Join-Path $projectRoot 'translations\Englis
 $korean = Get-Content -LiteralPath (Join-Path $projectRoot 'translations\Korean.yml') -Raw
 foreach ($key in @(
     'finedining_tooltip_spoils_in',
+    'finedining_tooltip_minimum_freshness_in',
+    'finedining_tooltip_minimum_freshness_paused',
+    'finedining_tooltip_minimum_freshness_reached',
+    'finedining_slot_minimum_freshness',
     'finedining_tooltip_staleness',
     'finedining_diet_full_course_title',
     'finedining_diet_full_course_description',
@@ -3912,6 +3939,14 @@ Assert-True ($english.Contains('finedining_station_seconds: "{0}s"')) 'English s
 Assert-True ($korean.Contains('finedining_station_seconds: "{0}초"')) 'Korean station seconds format must remain localized.'
 Assert-True ($english.Contains('finedining_station_auto_eject: "Auto eject"')) 'English auto-eject label is incorrect.'
 Assert-True ($korean.Contains('finedining_station_auto_eject: "자동 배출"')) 'Korean auto-eject label is incorrect.'
+Assert-True ($english.Contains('finedining_tooltip_minimum_freshness_in: "Minimum freshness in {0}"')) 'English Keep countdown wording is incorrect.'
+Assert-True ($korean.Contains('finedining_tooltip_minimum_freshness_in: "최저 신선도까지 {0}"')) 'Korean Keep countdown wording is incorrect.'
+Assert-True ($english.Contains('finedining_tooltip_minimum_freshness_paused: "Cold preservation paused freshness loss · minimum freshness in {0} ❄"')) 'English paused Keep wording is incorrect.'
+Assert-True ($korean.Contains('finedining_tooltip_minimum_freshness_paused: "저온 보존으로 신선도 저하가 멈춤 · 최저 신선도까지 {0} ❄"')) 'Korean paused Keep wording is incorrect.'
+Assert-True ($english.Contains('finedining_tooltip_minimum_freshness_reached: "Minimum freshness reached"')) 'English completed Keep wording is incorrect.'
+Assert-True ($korean.Contains('finedining_tooltip_minimum_freshness_reached: "최저 신선도"')) 'Korean completed Keep wording is incorrect.'
+Assert-True ($english.Contains('finedining_slot_minimum_freshness: "Min"') -and
+             $korean.Contains('finedining_slot_minimum_freshness: "최저"')) 'Minimum-freshness slot labels must remain compact.'
 Assert-True ($english.Contains('finedining_station_fermentation_speed: "Fermentation speed"')) 'English Fermenter speed label is incorrect.'
 Assert-True ($korean.Contains('finedining_station_fermentation_speed: "발효 속도"')) 'Korean Fermenter speed label is incorrect.'
 Assert-True ($english.Contains('finedining_station_fermentation_guidance: "More cover and greater depth make fermentation faster."')) 'English Fermenter guidance is incorrect.'
@@ -3940,6 +3975,7 @@ Assert-True ($korean.Contains('finedining_diet_chef_cooking_guidance_disabled: "
 Assert-True (-not [regex]::IsMatch($english, '(?m)^\s*skill_cooking_description\s*:')) 'FineDining must not replace the vanilla English Cooking description globally.'
 Assert-True (-not [regex]::IsMatch($korean, '(?m)^\s*skill_cooking_description\s*:')) 'FineDining must not replace the vanilla Korean Cooking description globally.'
 foreach ($removedKey in @(
+    'finedining_tooltip_spoiled',
     'finedining_tooltip_freshness_effect',
     'finedining_diet_tooltip_diminish_factor',
     'finedining_diet_tooltip_chef_multiplier',

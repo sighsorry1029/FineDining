@@ -18,7 +18,7 @@ internal static class InventoryGridSpoilageTimerPatch
     private const string PauseIconObjectName = "sighsorry.FineDining.TimerPauseIcon";
     private static readonly Color RunningTimerColor = new(1f, 0.82f, 0.22f, 1f);
     private static readonly Color PausedTimerColor = new(0.44f, 0.78f, 1f, 1f);
-    private static readonly Color SpoiledTimerColor = new(1f, 0.71f, 0.33f, 1f);
+    private static readonly Color MinimumFreshnessTimerColor = new(1f, 0.71f, 0.33f, 1f);
     private static Sprite? _coldPauseSprite;
     private static int _updateId;
     private static bool _loggedUiFailure;
@@ -124,7 +124,7 @@ internal static class InventoryGridSpoilageTimerPatch
             if (refreshText)
             {
                 string text = spoiled
-                    ? FoodEffectUiText.GetSpoiledLabel()
+                    ? FoodEffectUiText.GetMinimumFreshnessSlotLabel()
                     : FormatRemainingTime(remainingTicks / (double)TimeSpan.TicksPerSecond);
                 SetOverlayState(cache, text, paused, spoiled);
                 cache.NextTextRefreshAt = unscaledTime + 1f;
@@ -253,7 +253,7 @@ internal static class InventoryGridSpoilageTimerPatch
         }
 
         timerText.color = spoiled
-            ? SpoiledTimerColor
+            ? MinimumFreshnessTimerColor
             : paused
                 ? PausedTimerColor
                 : RunningTimerColor;
@@ -478,13 +478,24 @@ internal static class FoodEffectUiText
     internal const string NeutralModifierColorHex = "#B8B8B8";
     private const string RunningLineKey = "$finedining_tooltip_spoils_in";
     private const string PausedLineKey = "$finedining_tooltip_paused";
-    private const string SpoiledLineKey = "$finedining_tooltip_spoiled";
+    private const string MinimumFreshnessRunningLineKey =
+        "$finedining_tooltip_minimum_freshness_in";
+    private const string MinimumFreshnessPausedLineKey =
+        "$finedining_tooltip_minimum_freshness_paused";
+    private const string MinimumFreshnessLineKey =
+        "$finedining_tooltip_minimum_freshness_reached";
+    private const string MinimumFreshnessSlotLabelKey =
+        "$finedining_slot_minimum_freshness";
     private const string DayUnitKey = "$finedining_duration_day";
     private const string HourUnitKey = "$finedining_duration_hour";
     private const string MinuteUnitKey = "$finedining_duration_minute";
     private const string EnglishRunningLine = "Spoils in {0}";
     private const string EnglishPausedLine = "Cold environment paused spoilage · remaining {0} ❄";
-    private const string EnglishSpoiledLine = "Spoiled";
+    private const string EnglishMinimumFreshnessRunningLine = "Minimum freshness in {0}";
+    private const string EnglishMinimumFreshnessPausedLine =
+        "Cold preservation paused freshness loss · minimum freshness in {0} ❄";
+    private const string EnglishMinimumFreshnessLine = "Minimum freshness reached";
+    private const string EnglishMinimumFreshnessSlotLabel = "Min";
     private const string ChefChoiceLineKey = "$finedining_diet_tooltip_chef_choice";
     private const string DiminishingReturnsLineKey =
         "$finedining_diet_tooltip_diminishing_returns";
@@ -496,22 +507,56 @@ internal static class FoodEffectUiText
     private const string EnglishStalenessLine =
         "<color={0}>Staleness</color>: food stats <color={0}>x{1}</color>";
 
-    internal static string BuildStatusLine(long remainingTicks, bool paused)
+    internal static string BuildStatusLine(
+        long remainingTicks,
+        bool paused,
+        bool reachesMinimumFreshness)
     {
         string remaining = FormatDetailedRemaining(remainingTicks);
+        string lineKey;
+        string englishFallback;
+        if (reachesMinimumFreshness)
+        {
+            lineKey = paused
+                ? MinimumFreshnessPausedLineKey
+                : MinimumFreshnessRunningLineKey;
+            englishFallback = paused
+                ? EnglishMinimumFreshnessPausedLine
+                : EnglishMinimumFreshnessRunningLine;
+        }
+        else
+        {
+            lineKey = paused ? PausedLineKey : RunningLineKey;
+            englishFallback = paused ? EnglishPausedLine : EnglishRunningLine;
+        }
+
         string line = FineDiningLocalization.FormatOrFallback(
-            paused ? PausedLineKey : RunningLineKey,
-            paused ? EnglishPausedLine : EnglishRunningLine,
+            lineKey,
+            englishFallback,
             remaining);
         string color = paused ? PausedColorHex : RunningColorHex;
         return $"<color={color}>{line}</color>";
     }
 
-    internal static string GetSpoiledLabel() =>
-        FineDiningLocalization.LocalizeOrFallback(SpoiledLineKey, EnglishSpoiledLine);
+    internal static bool ReachesMinimumFreshness(ItemData? item)
+    {
+        ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(item);
+        return rule.State == SpoilageRuleState.Enabled &&
+               rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal;
+    }
 
-    internal static string BuildSpoiledLine() =>
-        $"<color={PenaltyModifierColorHex}>{GetSpoiledLabel()}</color>";
+    internal static string GetMinimumFreshnessLabel() =>
+        FineDiningLocalization.LocalizeOrFallback(
+            MinimumFreshnessLineKey,
+            EnglishMinimumFreshnessLine);
+
+    internal static string GetMinimumFreshnessSlotLabel() =>
+        FineDiningLocalization.LocalizeOrFallback(
+            MinimumFreshnessSlotLabelKey,
+            EnglishMinimumFreshnessSlotLabel);
+
+    internal static string BuildMinimumFreshnessLine() =>
+        $"<color={PenaltyModifierColorHex}>{GetMinimumFreshnessLabel()}</color>";
 
     internal static string BuildChefChoiceModifierLine(float multiplier)
     {
@@ -664,12 +709,12 @@ internal static class ItemDataSpoilageTooltipPatch
         {
             if (SpoilageClock.IsSpoiled(__instance))
             {
-                string spoiledLine = FoodEffectUiText.BuildSpoiledLine();
-                if (!FoodEffectUiText.ContainsLine(__result ?? "", spoiledLine))
+                string minimumFreshnessLine = FoodEffectUiText.BuildMinimumFreshnessLine();
+                if (!FoodEffectUiText.ContainsLine(__result ?? "", minimumFreshnessLine))
                 {
                     __result = string.IsNullOrEmpty(__result)
-                        ? spoiledLine
-                        : __result + "\n" + spoiledLine;
+                        ? minimumFreshnessLine
+                        : __result + "\n" + minimumFreshnessLine;
                 }
 
                 return;
@@ -685,7 +730,10 @@ internal static class ItemDataSpoilageTooltipPatch
                 return;
             }
 
-            string line = FoodEffectUiText.BuildStatusLine(remainingTicks, paused);
+            string line = FoodEffectUiText.BuildStatusLine(
+                remainingTicks,
+                paused,
+                FoodEffectUiText.ReachesMinimumFreshness(__instance));
             if (!FoodEffectUiText.ContainsLine(__result ?? "", line))
             {
                 __result = string.IsNullOrEmpty(__result) ? line : __result + "\n" + line;
@@ -793,7 +841,7 @@ internal static class WorldItemSpoilageHover
 
         if (SpoilageClock.IsSpoiled(worldDrop?.m_itemData))
         {
-            timerLine = FoodEffectUiText.BuildSpoiledLine();
+            timerLine = FoodEffectUiText.BuildMinimumFreshnessLine();
             return true;
         }
 
@@ -807,7 +855,10 @@ internal static class WorldItemSpoilageHover
             return false;
         }
 
-        timerLine = FoodEffectUiText.BuildStatusLine(remainingTicks, paused);
+        timerLine = FoodEffectUiText.BuildStatusLine(
+            remainingTicks,
+            paused,
+            FoodEffectUiText.ReachesMinimumFreshness(worldDrop?.m_itemData));
         return true;
     }
 }
