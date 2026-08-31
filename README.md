@@ -14,7 +14,7 @@ Food can spoil in containers, as loose drops, and when placed for display. Remai
 
 ![](https://i.ibb.co/bgsRhwFQ/feasterplacedspoil.gif)
 
-Expired food normally becomes its configured rotten result. A group rule or exact override can instead keep the original prefab and mark it spoiled. Cold biomes and the Icebox pause active spoilage timers.
+Expired food normally becomes its configured rotten result. A group rule or exact override can instead keep the original prefab at minimum freshness. Cold biomes and the Icebox pause active spoilage timers.
 
 ![](https://i.ibb.co/fzY9VG7S/rottenfood.png)
 
@@ -114,7 +114,7 @@ chefChoiceBlacklist: []
 overrides: []
 ```
 
-Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently marks it spoiled. `0` disables spoilage and cannot be combined with `keep`. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
+Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. `0` disables spoilage and cannot be combined with `keep`. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
 
 Exact prefab rules use this compact format:
 
@@ -126,13 +126,13 @@ overrides:
   - DecorativeFood, 0
 ```
 
-The optional third value is either a replacement prefab or the reserved, case-insensitive keyword `keep`. With `keep`, the timer runs normally, but expiry preserves the original prefab and stack and records a permanent spoiled state instead of creating a replacement. Spoiled food remains at the configured minimum freshness effect, displays `Spoiled`, and does not receive another timer after moves or restarts. Because its prefab identity is unchanged, other systems still recognize it as the original item. A `0` lifetime disables spoilage without marking the item spoiled.
+The optional third value is either a replacement prefab or the reserved, case-insensitive keyword `keep`. With `keep`, the timer runs normally, but expiry preserves the original prefab and stack and records a permanent minimum-freshness state instead of creating a replacement. The item stays at the configured minimum freshness effect, displays `Minimum freshness reached` (`Min` in slots), and does not receive another timer after moves or restarts. Because its prefab identity is unchanged, other systems still recognize it as the original item. A `0` lifetime disables spoilage without applying this state.
 
 When the third override value is omitted, a classified item inherits its group's action while an unclassified force-include uses `RottenMeat`. By default, farming harvests become `FineDining_RottenProduce`; CookingStation inputs, CookingStation outputs, and Fish become `RottenMeat`; unfermented food, fermented food, and other edible food become `FineDining_RottenFood`; feast materials and feast results keep their original prefab.
 
 `FineDining_RottenProduce` and `FineDining_RottenFood` cannot spoil again. Eating them applies Puke for five and ten seconds respectively.
 
-Timers appear in inventory and container slots, item tooltips, loose ItemDrop hover text, and placed-food hover text. Merging timed stacks keeps the lower remaining lifetime; merging with a spoiled `keep` stack marks the resulting stack spoiled. Vanilla loose-item cleanup remains active.
+Timers appear in inventory and container slots, item tooltips, loose ItemDrop hover text, and placed-food hover text. Merging timed stacks keeps the lower remaining lifetime; merging with a minimum-freshness `keep` stack applies that state to the resulting stack. Vanilla loose-item cleanup remains active.
 
 ### Freshness
 
