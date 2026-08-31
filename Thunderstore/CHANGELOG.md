@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Preserved EpicMMOSystem and other mods' maximum Health, Stamina, and Eitr bonuses by routing final food totals through Valheim's standard calculation. FineDining continues scaling only each food's own stat and health-regeneration contributions.
+
 ## 1.0.2
 
 - Added `keep` expiry actions for spoilage groups and exact prefab overrides, preserving the original prefab and stack while permanently setting expired items to minimum freshness. Feast materials and feast results now use `keep` in the default policy.

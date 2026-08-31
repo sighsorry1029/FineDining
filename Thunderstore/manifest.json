@@ -1,6 +1,6 @@
 {
   "name": "FineDining",
-  "version_number": "1.0.2",
+  "version_number": "1.0.3",
   "website_url": "https://discord.gg/jkcJCq2sK5",
   "description": "Make food matter with real spoilage, freshness-based stats, Iceboxes, up to 9 food slots, Chef's Choice bonuses, Full Course rewards, Cooking skill perks, bonus outputs, auto-eject cooking, faster fermentation, and clear station hover hints.",
   "dependencies": [

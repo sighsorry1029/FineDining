@@ -212,11 +212,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.2.0') 'Assembly version must remain 1.0.2.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.3.0') 'Assembly version must remain 1.0.3.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.2') 'Plugin version must remain 1.0.2.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.3') 'Plugin version must remain 1.0.3.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -3094,6 +3094,8 @@ Assert-True (-not $afterChefRemovalSource.Contains('EnsureChefCollection(')) 'Tr
 Assert-True (-not $tryConsumeChefSource.Contains('RefillAfterConsumption(')) 'TryConsumeChefEntry must leave replacement selection to the post-history refill path.'
 
 $playerFoodLogicSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\PlayerFoodLogic.cs') -Raw
+Assert-True ($playerFoodLogicSource.Contains('PlayerPrivateAccess.GetTotalFoodValue(')) 'Food totals must pass through Player.GetTotalFoodValue so external player-stat postfixes remain intact.'
+Assert-True (-not $playerFoodLogicSource.Contains('private static void GetTotalFoodValue(')) 'FineDining must not bypass external player-stat postfixes with a private food-total clone.'
 $consumeChefCallIndex = $playerFoodLogicSource.IndexOf(
     'ChefCollectionService.TryConsumeChefEntry(',
     [StringComparison]::Ordinal)

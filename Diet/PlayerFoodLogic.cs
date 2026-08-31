@@ -249,31 +249,17 @@ internal static class PlayerFoodLogic
             food.m_eitr = food.m_item.m_shared.m_foodEitr * effectiveScale * normalizedTime;
         }
 
-        GetTotalFoodValue(player, foods, out float health, out float stamina, out float eitr);
+        PlayerPrivateAccess.GetTotalFoodValue(
+            player,
+            out float health,
+            out float stamina,
+            out float eitr);
         player.SetMaxHealth(health, flashBar: true);
         player.SetMaxStamina(stamina, flashBar: true);
         PlayerPrivateAccess.SetMaxEitr(player, eitr, flashBar: true);
         if (eitr > 0f)
         {
             player.ShowTutorial("eitr");
-        }
-    }
-
-    private static void GetTotalFoodValue(
-        Player player,
-        List<Player.Food> foods,
-        out float health,
-        out float stamina,
-        out float eitr)
-    {
-        health = player.GetBaseFoodHP();
-        stamina = player.m_baseStamina;
-        eitr = 0f;
-        foreach (Player.Food food in foods)
-        {
-            health += food.m_health;
-            stamina += food.m_stamina;
-            eitr += food.m_eitr;
         }
     }
 
@@ -329,6 +315,12 @@ internal static class PlayerFoodLogic
 
 internal static class PlayerPrivateAccess
 {
+    internal delegate void GetTotalFoodValueDelegate(
+        Player player,
+        out float health,
+        out float stamina,
+        out float eitr);
+
     internal delegate void SetMaxEitrDelegate(Player player, float eitr, bool flashBar);
 
     internal static readonly AccessTools.FieldRef<Player, float> FoodUpdateTimer =
@@ -342,6 +334,18 @@ internal static class PlayerPrivateAccess
 
     internal static readonly AccessTools.FieldRef<Player, HashSet<string>> KnownMaterials =
         AccessTools.FieldRefAccess<Player, HashSet<string>>("m_knownMaterial");
+
+    internal static readonly GetTotalFoodValueDelegate GetTotalFoodValue =
+        AccessTools.MethodDelegate<GetTotalFoodValueDelegate>(
+            AccessTools.DeclaredMethod(
+                typeof(Player),
+                "GetTotalFoodValue",
+                new[]
+                {
+                    typeof(float).MakeByRefType(),
+                    typeof(float).MakeByRefType(),
+                    typeof(float).MakeByRefType()
+                }));
 
     internal static readonly SetMaxEitrDelegate SetMaxEitr =
         AccessTools.MethodDelegate<SetMaxEitrDelegate>(
