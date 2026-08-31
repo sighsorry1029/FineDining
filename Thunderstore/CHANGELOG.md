@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+- Added `keep` expiry actions for spoilage groups and exact prefab overrides, preserving the original prefab and stack while permanently marking expired items spoiled. Feast materials and feast results now use `keep` in the default policy.
+- Added localized `Spoiled` indicators to inventory and container slots, item tooltips, loose drops, and placed-food hover text. Kept spoiled food persists across moves, placement, recovery, and restarts.
+- Improved stack compatibility so spoiled state propagates through vanilla inventory and world stacking, InventorySlots, and AzuExtendedPlayerInventory recovery paths.
+- Existing numeric lifetime and override syntax remains valid. Existing `Spoilage.yml` files are not overwritten, so upgraded servers must set `feastMaterial: 72, keep` and `feastResult: 48, keep` manually to adopt the new defaults.
+
 ## 1.0.1
 
 - Added progression-aware Chef's Choice: higher Cooking favors higher ResourceMap tiers and stronger multipliers, while recent Health, Stamina, and Eitr food ratios influence future choices.

@@ -18,6 +18,7 @@ internal static class InventoryGridSpoilageTimerPatch
     private const string PauseIconObjectName = "sighsorry.FineDining.TimerPauseIcon";
     private static readonly Color RunningTimerColor = new(1f, 0.82f, 0.22f, 1f);
     private static readonly Color PausedTimerColor = new(0.44f, 0.78f, 1f, 1f);
+    private static readonly Color SpoiledTimerColor = new(1f, 0.71f, 0.33f, 1f);
     private static Sprite? _coldPauseSprite;
     private static int _updateId;
     private static bool _loggedUiFailure;
@@ -96,11 +97,15 @@ internal static class InventoryGridSpoilageTimerPatch
                 continue;
             }
 
-            if (!DecayRuntime.TryGetSpoilageClock(
+            bool spoiled = SpoilageClock.IsSpoiled(item);
+            long remainingTicks = 0L;
+            bool paused = false;
+            if (!spoiled &&
+                !DecayRuntime.TryGetSpoilageClock(
                     item,
                     nowTicks,
-                    out long remainingTicks,
-                    out bool paused))
+                    out remainingTicks,
+                    out paused))
             {
                 continue;
             }
@@ -109,20 +114,24 @@ internal static class InventoryGridSpoilageTimerPatch
             float unscaledTime = Time.unscaledTime;
             bool refreshText = !ReferenceEquals(cache.LastItem, item) ||
                                cache.LastPaused != paused ||
+                               cache.LastSpoiled != spoiled ||
                                unscaledTime >= cache.NextTextRefreshAt ||
                                string.IsNullOrEmpty(cache.LastText);
             cache.LastItem = item;
             cache.LastPaused = paused;
+            cache.LastSpoiled = spoiled;
             cache.LastSeenUpdateId = updateId;
             if (refreshText)
             {
-                double seconds = remainingTicks / (double)TimeSpan.TicksPerSecond;
-                SetOverlayState(cache, FormatRemainingTime(seconds), paused);
+                string text = spoiled
+                    ? FoodEffectUiText.GetSpoiledLabel()
+                    : FormatRemainingTime(remainingTicks / (double)TimeSpan.TicksPerSecond);
+                SetOverlayState(cache, text, paused, spoiled);
                 cache.NextTextRefreshAt = unscaledTime + 1f;
             }
             else
             {
-                ShowOverlay(cache, paused);
+                ShowOverlay(cache, paused, spoiled);
             }
         }
 
@@ -213,7 +222,8 @@ internal static class InventoryGridSpoilageTimerPatch
     private static void SetOverlayState(
         FineDiningTimerOverlayCache cache,
         string text,
-        bool paused)
+        bool paused,
+        bool spoiled)
     {
         TMP_Text? timerText = cache.TimerText;
         if (timerText == null)
@@ -228,10 +238,13 @@ internal static class InventoryGridSpoilageTimerPatch
             cache.LastText = text;
         }
 
-        ShowOverlay(cache, paused);
+        ShowOverlay(cache, paused, spoiled);
     }
 
-    private static void ShowOverlay(FineDiningTimerOverlayCache cache, bool paused)
+    private static void ShowOverlay(
+        FineDiningTimerOverlayCache cache,
+        bool paused,
+        bool spoiled)
     {
         TMP_Text? timerText = cache.TimerText;
         if (timerText == null)
@@ -239,7 +252,11 @@ internal static class InventoryGridSpoilageTimerPatch
             return;
         }
 
-        timerText.color = paused ? PausedTimerColor : RunningTimerColor;
+        timerText.color = spoiled
+            ? SpoiledTimerColor
+            : paused
+                ? PausedTimerColor
+                : RunningTimerColor;
         if (!cache.Visible || !timerText.gameObject.activeSelf || !timerText.enabled)
         {
             timerText.enabled = true;
@@ -414,6 +431,7 @@ internal static class InventoryGridSpoilageTimerPatch
         cache.Visible = false;
         cache.LastItem = null;
         cache.LastPaused = false;
+        cache.LastSpoiled = false;
         cache.PauseIconLayoutText = "";
         cache.NextTextRefreshAt = 0f;
     }
@@ -447,6 +465,7 @@ internal sealed class FineDiningTimerOverlayCache : MonoBehaviour
     internal int LastSeenUpdateId;
     internal bool Visible;
     internal bool LastPaused;
+    internal bool LastSpoiled;
     internal string PauseIconLayoutText = "";
 }
 
@@ -459,11 +478,13 @@ internal static class FoodEffectUiText
     internal const string NeutralModifierColorHex = "#B8B8B8";
     private const string RunningLineKey = "$finedining_tooltip_spoils_in";
     private const string PausedLineKey = "$finedining_tooltip_paused";
+    private const string SpoiledLineKey = "$finedining_tooltip_spoiled";
     private const string DayUnitKey = "$finedining_duration_day";
     private const string HourUnitKey = "$finedining_duration_hour";
     private const string MinuteUnitKey = "$finedining_duration_minute";
     private const string EnglishRunningLine = "Spoils in {0}";
     private const string EnglishPausedLine = "Cold environment paused spoilage · remaining {0} ❄";
+    private const string EnglishSpoiledLine = "Spoiled";
     private const string ChefChoiceLineKey = "$finedining_diet_tooltip_chef_choice";
     private const string DiminishingReturnsLineKey =
         "$finedining_diet_tooltip_diminishing_returns";
@@ -485,6 +506,12 @@ internal static class FoodEffectUiText
         string color = paused ? PausedColorHex : RunningColorHex;
         return $"<color={color}>{line}</color>";
     }
+
+    internal static string GetSpoiledLabel() =>
+        FineDiningLocalization.LocalizeOrFallback(SpoiledLineKey, EnglishSpoiledLine);
+
+    internal static string BuildSpoiledLine() =>
+        $"<color={PenaltyModifierColorHex}>{GetSpoiledLabel()}</color>";
 
     internal static string BuildChefChoiceModifierLine(float multiplier)
     {
@@ -635,6 +662,19 @@ internal static class ItemDataSpoilageTooltipPatch
 
         try
         {
+            if (SpoilageClock.IsSpoiled(__instance))
+            {
+                string spoiledLine = FoodEffectUiText.BuildSpoiledLine();
+                if (!FoodEffectUiText.ContainsLine(__result ?? "", spoiledLine))
+                {
+                    __result = string.IsNullOrEmpty(__result)
+                        ? spoiledLine
+                        : __result + "\n" + spoiledLine;
+                }
+
+                return;
+            }
+
             if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
                 !DecayRuntime.TryGetSpoilageClock(
                     __instance,
@@ -746,7 +786,18 @@ internal static class WorldItemSpoilageHover
         out string timerLine)
     {
         timerLine = string.Empty;
-        if (DecayRuntime.IsCreatorlessPlacedDrop(worldDrop) ||
+        if (DecayRuntime.IsCreatorlessPlacedDrop(worldDrop))
+        {
+            return false;
+        }
+
+        if (SpoilageClock.IsSpoiled(worldDrop?.m_itemData))
+        {
+            timerLine = FoodEffectUiText.BuildSpoiledLine();
+            return true;
+        }
+
+        if (
             !DecayRuntime.TryGetSpoilageClock(
                 worldDrop?.m_itemData,
                 nowTicks,

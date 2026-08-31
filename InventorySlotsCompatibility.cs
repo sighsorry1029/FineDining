@@ -54,6 +54,8 @@ internal static class InventorySlotsCompatibility
             Func<string?, string?, string?> lifetimeMerger = FreshnessRuntime.ComposeAssignedLifetimeValues;
             Func<string?, string?, bool> lifetimeCanMerge =
                 FreshnessRuntime.CanMergeAssignedLifetimeValues;
+            Func<string?, string?, string?> spoiledMerger = SpoilageClock.ComposeSpoiledValues;
+            Func<string?, string?, bool> spoiledCanMerge = SpoilageClock.CanMergeSpoiledValues;
             RegisterAndLog(
                 guardedRegister,
                 SpoilageClock.ExpiryDataKey,
@@ -66,6 +68,12 @@ internal static class InventorySlotsCompatibility
                 "assigned-lifetime",
                 lifetimeMerger,
                 lifetimeCanMerge);
+            RegisterAndLog(
+                guardedRegister,
+                SpoilageClock.SpoiledDataKey,
+                "spoiled-state",
+                spoiledMerger,
+                spoiledCanMerge);
         }
         catch (Exception exception)
         {

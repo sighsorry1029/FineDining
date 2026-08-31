@@ -1,5 +1,6 @@
 finedining_tooltip_spoils_in: "{0} 뒤에 상함"
 finedining_tooltip_paused: "저온 보존으로 부패 정지됨 · 남은 시간 {0} ❄"
+finedining_tooltip_spoiled: "상함"
 finedining_tooltip_staleness: "<color={0}>신선도 저하</color>: 음식 효과 <color={0}>x{1}</color>"
 finedining_duration_day: "{0}일"
 finedining_duration_hour: "{0}시간"

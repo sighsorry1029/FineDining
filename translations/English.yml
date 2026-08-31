@@ -1,5 +1,6 @@
 finedining_tooltip_spoils_in: "Spoils in {0}"
 finedining_tooltip_paused: "Cold preservation paused spoilage · remaining {0} ❄"
+finedining_tooltip_spoiled: "Spoiled"
 finedining_tooltip_staleness: "<color={0}>Staleness</color>: food stats <color={0}>x{1}</color>"
 finedining_duration_day: "{0}d"
 finedining_duration_hour: "{0}h"

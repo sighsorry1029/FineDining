@@ -248,6 +248,7 @@ internal sealed class InventoryAddMergeState
     internal string? OriginalSourceLifetimeValue;
     internal long SourceClockValue;
     internal AssignedLifetimeSnapshot SourceLifetime;
+    internal bool SourceSpoiled;
 }
 
 internal static class InventoryAddMergeTracker
@@ -268,7 +269,9 @@ internal static class InventoryAddMergeTracker
         DecayRuntime.PrepareItemForAdd(inventory, source);
         PieceRecoverySpoilageTracker.ApplyToInventoryItem(inventory, source);
         state.SourceLifetime = FreshnessRuntime.CaptureAssignedLifetime(source);
-        if (!DecayRuntime.TryGetExpiryTicks(source, out state.SourceClockValue))
+        state.SourceSpoiled = SpoilageClock.IsSpoiled(source);
+        if (!DecayRuntime.TryGetExpiryTicks(source, out state.SourceClockValue) &&
+            !state.SourceSpoiled)
         {
             return null;
         }
@@ -301,23 +304,21 @@ internal static class InventoryAddMergeTracker
         bool changedAfterVanillaSave = false;
         try
         {
-            if (state.SourceClockValue != 0L)
+            foreach (KeyValuePair<ItemDrop.ItemData, int> previous in state.PreviousStacks)
             {
-                foreach (KeyValuePair<ItemDrop.ItemData, int> previous in state.PreviousStacks)
+                ItemDrop.ItemData target = previous.Key;
+                if (ReferenceEquals(target, source) || target.m_stack <= previous.Value)
                 {
-                    ItemDrop.ItemData target = previous.Key;
-                    if (ReferenceEquals(target, source) || target.m_stack <= previous.Value)
-                    {
-                        continue;
-                    }
-
-                    changedAfterVanillaSave |= DecayRuntime.ComposeInventoryStackMetadata(
-                        inventory,
-                        target,
-                        state.SourceClockValue,
-                        state.PreviousLifetimes[target],
-                        state.SourceLifetime);
+                    continue;
                 }
+
+                changedAfterVanillaSave |= DecayRuntime.ComposeInventoryStackMetadata(
+                    inventory,
+                    target,
+                    state.SourceClockValue,
+                    state.PreviousLifetimes[target],
+                    state.SourceLifetime,
+                    state.SourceSpoiled);
             }
         }
         finally

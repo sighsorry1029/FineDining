@@ -208,7 +208,7 @@ internal static class SpoilageReferenceGenerator
             .Append(FineDiningPlugin.ModVersion)
             .AppendLine(". This file is overwritten automatically.");
         builder.AppendLine("# It is a local lookup only; it is not loaded as configuration or synchronized to clients.");
-        builder.AppendLine("# Copy selected '- Prefab, hours[, replacement]' rows under 'overrides:' in Spoilage.yml.");
+        builder.AppendLine("# Copy selected '- Prefab, hours[, replacement prefab or keep]' rows under 'overrides:' in Spoilage.yml.");
         builder.AppendLine("# Classification is primary; prefab owner is the secondary comment section.");
 
         foreach ((SpoilageGroup? group, bool? overrideEnabled, string label) in SectionOrder)
@@ -331,7 +331,11 @@ internal static class SpoilageReferenceGenerator
                 rule.IsOverride ? rule.State == SpoilageRuleState.Enabled : null,
                 lifetimeHours <= 0d ? 0d : lifetimeHours,
                 FoodIdentity.NormalizePrefabName(
-                    rule.State == SpoilageRuleState.Enabled ? rule.ReplacementPrefab : "")));
+                    rule.State == SpoilageRuleState.Enabled
+                        ? rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal
+                            ? SpoilagePolicy.KeepOriginalKeyword
+                            : rule.ReplacementPrefab
+                        : "")));
             capturedPrefabs.Add(pair.Key);
         }
 

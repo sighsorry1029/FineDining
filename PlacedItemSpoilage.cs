@@ -154,6 +154,12 @@ internal static class PlacementSpoilageTracker
                     continue;
                 }
 
+                if (SpoilageClock.IsSpoiled(item))
+                {
+                    earliestRemainingTicks = 0L;
+                    continue;
+                }
+
                 initializedTimer |= DecayRuntime.PrepareItemForAdd(inventory, item);
                 if (DecayRuntime.TryGetSpoilageClock(
                         item,
@@ -226,14 +232,18 @@ internal static class PieceRecoverySpoilageTracker
                     // The local item data may still contain a valid persisted value.
                 }
 
-                if (!DecayRuntime.IsCreatorlessPlacedDrop(placedDrop) &&
-                    SpoilageClock.TryGetWorldTicks(out long nowTicks))
+                if (!DecayRuntime.IsCreatorlessPlacedDrop(placedDrop))
                 {
-                    if (DecayRuntime.TryGetSpoilageClock(
-                            placedDrop.m_itemData,
-                            nowTicks,
-                            out long remainingTicks,
-                            out _))
+                    if (SpoilageClock.IsSpoiled(placedDrop.m_itemData))
+                    {
+                        state.RemainingTicks = 0L;
+                    }
+                    else if (SpoilageClock.TryGetWorldTicks(out long nowTicks) &&
+                             DecayRuntime.TryGetSpoilageClock(
+                                 placedDrop.m_itemData,
+                                 nowTicks,
+                                 out long remainingTicks,
+                                 out _))
                     {
                         state.RemainingTicks = remainingTicks;
                     }

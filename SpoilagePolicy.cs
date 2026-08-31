@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using BepInEx;
 using ServerSync;
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -16,6 +18,7 @@ internal static class SpoilagePolicy
     private const string PolicyFileName = "Spoilage.yml";
     private const string DefaultPolicyResourceName = "FineDining.Resources.Defaults.Spoilage.yml";
     private const string SyncedYamlIdentifier = "finedining_spoilage_yaml";
+    internal const string KeepOriginalKeyword = "keep";
     private const int SupportedVersion = 1;
     private const double MaximumLifetimeHours = 720d;
     private const double ReloadDebounceMilliseconds = 350d;
@@ -26,12 +29,14 @@ internal static class SpoilagePolicy
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .WithDuplicateKeyChecking()
+        .WithTypeConverter(new SpoilageYamlLifetimeValueConverter())
         .Build();
 
     private static readonly ISerializer Serializer = new SerializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
         .DisableAliases()
+        .WithTypeConverter(new SpoilageYamlLifetimeValueConverter())
         .Build();
 
     private static ConfigSync? _configSync;
@@ -173,16 +178,26 @@ internal static class SpoilagePolicy
 
             SpoilageGroup overrideGroup = SpoilageGroup.OtherEdible;
             string replacementPrefab = itemOverride.ReplacementPrefab;
-            if (!itemOverride.HasReplacementOverride)
+            SpoilageExpiryAction expiryAction = itemOverride.ExpiryAction;
+            if (!itemOverride.HasResultOverride)
             {
                 if (!FoodClassifier.IsReady)
                 {
                     return new ResolvedSpoilageRule(SpoilageRuleState.NotReady);
                 }
 
-                replacementPrefab = FoodClassifier.TryClassify(item, out overrideGroup)
-                    ? SpoilageDefaults.GetReplacementPrefab(overrideGroup)
-                    : SpoilageDefaults.RottenMeatPrefabName;
+                if (FoodClassifier.TryClassify(item, out overrideGroup))
+                {
+                    expiryAction = policy.GetExpiryAction(overrideGroup);
+                    replacementPrefab = expiryAction == SpoilageExpiryAction.KeepOriginal
+                        ? string.Empty
+                        : SpoilageDefaults.GetReplacementPrefab(overrideGroup);
+                }
+                else
+                {
+                    expiryAction = SpoilageExpiryAction.Replace;
+                    replacementPrefab = SpoilageDefaults.RottenMeatPrefabName;
+                }
             }
             else if (FoodClassifier.IsReady)
             {
@@ -194,7 +209,8 @@ internal static class SpoilagePolicy
                 itemOverride.LifetimeTicks,
                 replacementPrefab,
                 overrideGroup,
-                isOverride: true);
+                isOverride: true,
+                expiryAction: expiryAction);
         }
 
         if (!FoodClassifier.IsReady)
@@ -208,19 +224,25 @@ internal static class SpoilagePolicy
         }
 
         long lifetimeTicks = policy.GetLifetimeTicks(group);
+        SpoilageExpiryAction groupExpiryAction = policy.GetExpiryAction(group);
+        string groupReplacementPrefab = groupExpiryAction == SpoilageExpiryAction.KeepOriginal
+            ? string.Empty
+            : SpoilageDefaults.GetReplacementPrefab(group);
         if (lifetimeTicks == 0L)
         {
             return new ResolvedSpoilageRule(
                 SpoilageRuleState.Disabled,
-                replacementPrefab: SpoilageDefaults.GetReplacementPrefab(group),
-                group: group);
+                replacementPrefab: groupReplacementPrefab,
+                group: group,
+                expiryAction: groupExpiryAction);
         }
 
         return new ResolvedSpoilageRule(
             SpoilageRuleState.Enabled,
             lifetimeTicks,
-            SpoilageDefaults.GetReplacementPrefab(group),
-            group);
+            groupReplacementPrefab,
+            group,
+            expiryAction: groupExpiryAction);
     }
 
     internal static string NormalizeReplacementPrefabName(string? prefabName)
@@ -259,7 +281,9 @@ internal static class SpoilagePolicy
                 itemOverride.PrefabName,
                 itemOverride.Hours,
                 itemOverride.LifetimeTicks,
-                itemOverride.ReplacementPrefab)));
+                itemOverride.HasResultOverride
+                    ? GetOverrideResultDisplay(itemOverride)
+                    : string.Empty)));
         return true;
     }
 
@@ -502,54 +526,45 @@ internal static class SpoilagePolicy
             SpoilageYamlLifetimes lifetimes = document.Lifetimes ??
                 throw new InvalidDataException("lifetimes is required.");
 
-            double farmingHarvestHours = RequireHours(
+            NormalizedGroupLifetime farmingHarvest = RequireGroupLifetime(
                 lifetimes.FarmingHarvest,
                 "lifetimes.farmingHarvest");
-            double cookingStationInputHours = RequireHours(
+            NormalizedGroupLifetime cookingStationInput = RequireGroupLifetime(
                 lifetimes.CookingStationInput,
                 "lifetimes.cookingStationInput");
-            double cookingStationOutputHours = RequireHours(
+            NormalizedGroupLifetime cookingStationOutput = RequireGroupLifetime(
                 lifetimes.CookingStationOutput,
                 "lifetimes.cookingStationOutput");
-            double unfermentedFoodHours = RequireHours(
+            NormalizedGroupLifetime unfermentedFood = RequireGroupLifetime(
                 lifetimes.UnfermentedFood,
                 "lifetimes.unfermentedFood");
-            double fermentedFoodHours = RequireHours(
+            NormalizedGroupLifetime fermentedFood = RequireGroupLifetime(
                 lifetimes.FermentedFood,
                 "lifetimes.fermentedFood");
-            double feastMaterialHours = RequireHours(
+            NormalizedGroupLifetime feastMaterial = RequireGroupLifetime(
                 lifetimes.FeastMaterial,
                 "lifetimes.feastMaterial");
-            double feastResultHours = RequireHours(
+            NormalizedGroupLifetime feastResult = RequireGroupLifetime(
                 lifetimes.FeastResult,
                 "lifetimes.feastResult");
-            double fishHours = RequireHours(
+            NormalizedGroupLifetime fish = RequireGroupLifetime(
                 lifetimes.Fish,
                 "lifetimes.fish");
-            double otherEdibleHours = RequireHours(
+            NormalizedGroupLifetime otherEdible = RequireGroupLifetime(
                 lifetimes.OtherEdible,
                 "lifetimes.otherEdible");
 
-            Dictionary<SpoilageGroup, (double Hours, long Ticks)> normalizedLifetimes = new()
+            Dictionary<SpoilageGroup, NormalizedGroupLifetime> normalizedLifetimes = new()
             {
-                [SpoilageGroup.FarmingHarvest] =
-                    (farmingHarvestHours, HoursToTicks(farmingHarvestHours)),
-                [SpoilageGroup.CookingStationInput] =
-                    (cookingStationInputHours, HoursToTicks(cookingStationInputHours)),
-                [SpoilageGroup.CookingStationOutput] =
-                    (cookingStationOutputHours, HoursToTicks(cookingStationOutputHours)),
-                [SpoilageGroup.UnfermentedFood] =
-                    (unfermentedFoodHours, HoursToTicks(unfermentedFoodHours)),
-                [SpoilageGroup.FermentedFood] =
-                    (fermentedFoodHours, HoursToTicks(fermentedFoodHours)),
-                [SpoilageGroup.FeastMaterial] =
-                    (feastMaterialHours, HoursToTicks(feastMaterialHours)),
-                [SpoilageGroup.FeastResult] =
-                    (feastResultHours, HoursToTicks(feastResultHours)),
-                [SpoilageGroup.Fish] =
-                    (fishHours, HoursToTicks(fishHours)),
-                [SpoilageGroup.OtherEdible] =
-                    (otherEdibleHours, HoursToTicks(otherEdibleHours))
+                [SpoilageGroup.FarmingHarvest] = farmingHarvest,
+                [SpoilageGroup.CookingStationInput] = cookingStationInput,
+                [SpoilageGroup.CookingStationOutput] = cookingStationOutput,
+                [SpoilageGroup.UnfermentedFood] = unfermentedFood,
+                [SpoilageGroup.FermentedFood] = fermentedFood,
+                [SpoilageGroup.FeastMaterial] = feastMaterial,
+                [SpoilageGroup.FeastResult] = feastResult,
+                [SpoilageGroup.Fish] = fish,
+                [SpoilageGroup.OtherEdible] = otherEdible
             };
 
             if (document.Overrides == null)
@@ -591,7 +606,8 @@ internal static class SpoilagePolicy
             };
             foreach (NormalizedItemOverride itemOverride in overrides.Values)
             {
-                if (itemOverride.LifetimeTicks > 0L)
+                if (itemOverride.LifetimeTicks > 0L &&
+                    itemOverride.ExpiryAction == SpoilageExpiryAction.Replace)
                 {
                     replacementPrefabs.Add(itemOverride.ReplacementPrefab);
                 }
@@ -619,15 +635,15 @@ internal static class SpoilagePolicy
                 Version = SupportedVersion,
                 Lifetimes = new SpoilageYamlLifetimes
                 {
-                    FarmingHarvest = farmingHarvestHours,
-                    CookingStationInput = cookingStationInputHours,
-                    CookingStationOutput = cookingStationOutputHours,
-                    UnfermentedFood = unfermentedFoodHours,
-                    FermentedFood = fermentedFoodHours,
-                    FeastMaterial = feastMaterialHours,
-                    FeastResult = feastResultHours,
-                    Fish = fishHours,
-                    OtherEdible = otherEdibleHours
+                    FarmingHarvest = farmingHarvest.ToYamlValue(),
+                    CookingStationInput = cookingStationInput.ToYamlValue(),
+                    CookingStationOutput = cookingStationOutput.ToYamlValue(),
+                    UnfermentedFood = unfermentedFood.ToYamlValue(),
+                    FermentedFood = fermentedFood.ToYamlValue(),
+                    FeastMaterial = feastMaterial.ToYamlValue(),
+                    FeastResult = feastResult.ToYamlValue(),
+                    Fish = fish.ToYamlValue(),
+                    OtherEdible = otherEdible.ToYamlValue()
                 },
                 ChefChoiceBlacklist = chefChoiceBlacklist
                     .OrderBy(prefab => prefab, StringComparer.OrdinalIgnoreCase)
@@ -660,23 +676,35 @@ internal static class SpoilagePolicy
         if (fields.Length is < 2 or > 3)
         {
             throw new InvalidDataException(
-                $"Override '{rawEntry}' must be '<prefab>, <hours>[, <replacement>]'.");
+                $"Override '{rawEntry}' must be '<prefab>, <hours>[, <replacement prefab or keep>]'.");
         }
 
         string prefab = RequirePrefab(fields[0], "override prefab");
         double hours = ParseHours(fields[1], $"Override '{prefab}' hours");
-        bool hasReplacement = fields.Length == 3;
-        if (hours == 0d && hasReplacement)
+        bool hasResult = fields.Length == 3;
+        if (hours == 0d && hasResult)
         {
             throw new InvalidDataException(
-                $"Disabled override '{prefab}' cannot specify a replacement prefab.");
+                $"Disabled override '{prefab}' cannot specify an expiry result.");
         }
 
-        string replacement = hasReplacement
-            ? NormalizeReplacementPrefabName(
-                RequirePrefab(fields[2], $"Override '{prefab}' replacement"))
-            : SpoilageDefaults.RottenMeatPrefabName;
-        if (hours > 0d && prefab.Equals(replacement, StringComparison.OrdinalIgnoreCase))
+        string result = hasResult
+            ? RequirePrefab(fields[2], $"Override '{prefab}' expiry result")
+            : string.Empty;
+        SpoilageExpiryAction expiryAction = string.Equals(
+            result,
+            KeepOriginalKeyword,
+            StringComparison.OrdinalIgnoreCase)
+            ? SpoilageExpiryAction.KeepOriginal
+            : SpoilageExpiryAction.Replace;
+        string replacement = expiryAction == SpoilageExpiryAction.KeepOriginal
+            ? string.Empty
+            : hasResult
+                ? NormalizeReplacementPrefabName(result)
+                : SpoilageDefaults.RottenMeatPrefabName;
+        if (hours > 0d &&
+            expiryAction == SpoilageExpiryAction.Replace &&
+            prefab.Equals(replacement, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException(
                 $"Override '{prefab}' cannot replace an item with itself.");
@@ -687,25 +715,60 @@ internal static class SpoilagePolicy
             hours,
             HoursToTicks(hours),
             replacement,
-            hasReplacement);
+            hasResult,
+            expiryAction);
     }
 
     private static string FormatOverride(NormalizedItemOverride itemOverride)
     {
         string tuple = $"{itemOverride.PrefabName}, {FormatHours(itemOverride.Hours)}";
-        return itemOverride.HasReplacementOverride
-            ? $"{tuple}, {itemOverride.ReplacementPrefab}"
+        return itemOverride.HasResultOverride
+            ? $"{tuple}, {GetOverrideResultDisplay(itemOverride)}"
             : tuple;
     }
 
-    private static double RequireHours(double? value, string context)
+    private static string GetOverrideResultDisplay(NormalizedItemOverride itemOverride) =>
+        itemOverride.ExpiryAction == SpoilageExpiryAction.KeepOriginal
+            ? KeepOriginalKeyword
+            : itemOverride.ReplacementPrefab;
+
+    private static NormalizedGroupLifetime RequireGroupLifetime(
+        SpoilageYamlLifetimeValue? value,
+        string context)
     {
-        if (!value.HasValue)
+        if (value == null || string.IsNullOrWhiteSpace(value.Value))
         {
             throw new InvalidDataException($"{context} is required.");
         }
 
-        return ValidateHours(value.Value, context);
+        string[] fields = value.Value.Split(new[] { ',' }, StringSplitOptions.None);
+        if (fields.Length is < 1 or > 2)
+        {
+            throw new InvalidDataException(
+                $"{context} must be '<hours>' or '<hours>, keep'.");
+        }
+
+        double hours = ParseHours(fields[0], context);
+        SpoilageExpiryAction expiryAction = SpoilageExpiryAction.Replace;
+        if (fields.Length == 2)
+        {
+            string action = fields[1].Trim();
+            if (!string.Equals(action, KeepOriginalKeyword, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"{context} expiry action must be '{KeepOriginalKeyword}'.");
+            }
+
+            if (hours == 0d)
+            {
+                throw new InvalidDataException(
+                    $"Disabled group '{context}' cannot specify an expiry action.");
+            }
+
+            expiryAction = SpoilageExpiryAction.KeepOriginal;
+        }
+
+        return new NormalizedGroupLifetime(hours, HoursToTicks(hours), expiryAction);
     }
 
     private static double ParseHours(string? value, string context)
@@ -798,10 +861,40 @@ internal static class SpoilagePolicy
         FineDiningPlugin.Log.LogInfo($"Created default spoilage policy: {PolicyFilePath}");
     }
 
+    private readonly struct NormalizedGroupLifetime
+    {
+        internal NormalizedGroupLifetime(
+            double hours,
+            long ticks,
+            SpoilageExpiryAction expiryAction)
+        {
+            Hours = hours;
+            Ticks = ticks;
+            ExpiryAction = expiryAction;
+        }
+
+        internal double Hours { get; }
+
+        internal long Ticks { get; }
+
+        internal SpoilageExpiryAction ExpiryAction { get; }
+
+        internal SpoilageYamlLifetimeValue ToYamlValue()
+        {
+            string value = FormatHours(Hours);
+            if (ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+            {
+                value += ", " + KeepOriginalKeyword;
+            }
+
+            return new SpoilageYamlLifetimeValue(value);
+        }
+    }
+
     private sealed class NormalizedPolicy
     {
         internal NormalizedPolicy(
-            Dictionary<SpoilageGroup, (double Hours, long Ticks)> lifetimes,
+            Dictionary<SpoilageGroup, NormalizedGroupLifetime> lifetimes,
             Dictionary<string, NormalizedItemOverride> overrides,
             HashSet<string> replacementPrefabs,
             HashSet<string> chefChoiceBlacklist)
@@ -812,7 +905,7 @@ internal static class SpoilagePolicy
             ChefChoiceBlacklist = chefChoiceBlacklist;
         }
 
-        internal Dictionary<SpoilageGroup, (double Hours, long Ticks)> Lifetimes { get; }
+        internal Dictionary<SpoilageGroup, NormalizedGroupLifetime> Lifetimes { get; }
 
         internal Dictionary<string, NormalizedItemOverride> Overrides { get; }
 
@@ -829,6 +922,11 @@ internal static class SpoilagePolicy
         {
             return Lifetimes[group].Hours;
         }
+
+        internal SpoilageExpiryAction GetExpiryAction(SpoilageGroup group)
+        {
+            return Lifetimes[group].ExpiryAction;
+        }
     }
 
     private sealed class NormalizedItemOverride
@@ -838,13 +936,15 @@ internal static class SpoilagePolicy
             double hours,
             long lifetimeTicks,
             string replacementPrefab,
-            bool hasReplacementOverride)
+            bool hasResultOverride,
+            SpoilageExpiryAction expiryAction)
         {
             PrefabName = prefabName;
             Hours = hours;
             LifetimeTicks = lifetimeTicks;
             ReplacementPrefab = replacementPrefab;
-            HasReplacementOverride = hasReplacementOverride;
+            HasResultOverride = hasResultOverride;
+            ExpiryAction = expiryAction;
         }
 
         internal string PrefabName { get; }
@@ -855,7 +955,9 @@ internal static class SpoilagePolicy
 
         internal string ReplacementPrefab { get; }
 
-        internal bool HasReplacementOverride { get; }
+        internal bool HasResultOverride { get; }
+
+        internal SpoilageExpiryAction ExpiryAction { get; }
     }
 }
 
@@ -892,21 +994,63 @@ internal sealed class SpoilageYamlDocument
 
 internal sealed class SpoilageYamlLifetimes
 {
-    public double? FarmingHarvest { get; set; }
+    public SpoilageYamlLifetimeValue? FarmingHarvest { get; set; }
 
-    public double? CookingStationInput { get; set; }
+    public SpoilageYamlLifetimeValue? CookingStationInput { get; set; }
 
-    public double? CookingStationOutput { get; set; }
+    public SpoilageYamlLifetimeValue? CookingStationOutput { get; set; }
 
-    public double? UnfermentedFood { get; set; }
+    public SpoilageYamlLifetimeValue? UnfermentedFood { get; set; }
 
-    public double? FermentedFood { get; set; }
+    public SpoilageYamlLifetimeValue? FermentedFood { get; set; }
 
-    public double? FeastMaterial { get; set; }
+    public SpoilageYamlLifetimeValue? FeastMaterial { get; set; }
 
-    public double? FeastResult { get; set; }
+    public SpoilageYamlLifetimeValue? FeastResult { get; set; }
 
-    public double? Fish { get; set; }
+    public SpoilageYamlLifetimeValue? Fish { get; set; }
 
-    public double? OtherEdible { get; set; }
+    public SpoilageYamlLifetimeValue? OtherEdible { get; set; }
+}
+
+internal sealed class SpoilageYamlLifetimeValue
+{
+    internal SpoilageYamlLifetimeValue(string value)
+    {
+        Value = value ?? string.Empty;
+    }
+
+    internal string Value { get; }
+}
+
+internal sealed class SpoilageYamlLifetimeValueConverter : IYamlTypeConverter
+{
+    public bool Accepts(Type type) => type == typeof(SpoilageYamlLifetimeValue);
+
+    public object ReadYaml(
+        IParser parser,
+        Type type,
+        ObjectDeserializer rootDeserializer)
+    {
+        Scalar scalar = parser.Consume<Scalar>();
+        return new SpoilageYamlLifetimeValue(scalar.Value ?? string.Empty);
+    }
+
+    public void WriteYaml(
+        IEmitter emitter,
+        object? value,
+        Type type,
+        ObjectSerializer serializer)
+    {
+        SpoilageYamlLifetimeValue lifetime = value as SpoilageYamlLifetimeValue ??
+                                             throw new InvalidDataException(
+                                                 "Spoilage lifetime YAML values cannot be null.");
+        emitter.Emit(new Scalar(
+            AnchorName.Empty,
+            TagName.Empty,
+            lifetime.Value,
+            ScalarStyle.Plain,
+            isPlainImplicit: true,
+            isQuotedImplicit: false));
+    }
 }

@@ -1,5 +1,8 @@
 # FineDining spoilage policy.
-# Lifetime values are hours. Valid values are 0 through 720; 0 disables that group.
+# Group lifetime schema: <hours>[, keep]
+# Hours are valid from 0 through 720; 0 disables that group and cannot use keep.
+# A number alone uses the group's fixed rotten replacement. keep preserves the
+# original prefab and stack, then permanently marks the expired item spoiled.
 version: 1
 lifetimes:
   farmingHarvest: 72
@@ -7,8 +10,8 @@ lifetimes:
   cookingStationOutput: 48
   unfermentedFood: 48
   fermentedFood: 72
-  feastMaterial: 72
-  feastResult: 48
+  feastMaterial: 72, keep
+  feastResult: 48, keep
   fish: 24
   otherEdible: 24
 
@@ -18,12 +21,15 @@ lifetimes:
 chefChoiceBlacklist: []
 
 # Compact override schema:
-#   - <prefab>, <hours>[, <replacement prefab>]
+#   - <prefab>, <hours>[, <replacement prefab or keep>]
 # A positive override force-includes that exact prefab. 0 disables it.
 # Examples:
-# Without the optional replacement, the item's automatic classification chooses
-# the fixed group replacement; unclassified force-includes use RottenMeat.
+# Without the optional result, the item's automatic classification chooses the
+# group action above; unclassified force-includes use RottenMeat.
+# The reserved keyword keep lets the timer expire, then preserves the original
+# prefab and stack while permanently marking that item spoiled.
 #   - ModdedEdible, 100
 #   - ModdedProduce, 100, FineDining_RottenProduce
+#   - PreservedIdentityFood, 100, keep
 #   - DecorativeFoodLikeItem, 0
 overrides: []

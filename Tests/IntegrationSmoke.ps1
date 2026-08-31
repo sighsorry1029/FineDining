@@ -212,11 +212,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.1.0') 'Assembly version must remain 1.0.1.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.2.0') 'Assembly version must remain 1.0.2.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.1') 'Plugin version must remain 1.0.1.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.2') 'Plugin version must remain 1.0.2.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -619,6 +619,7 @@ $autoPopSystemType = Get-TypeRequired $assembly 'FineDining.CookingStationAutoPo
 $productionBonusSystemType = Get-TypeRequired $assembly 'FineDining.CookingProductionBonusSystem'
 
 Assert-True ((Get-Constant $spoilageClockType 'ExpiryDataKey') -eq 'sighsorry.FineDining.ExpiryWorldTicks') 'Expiry key is not owned by the FineDining spoilage clock.'
+Assert-True ((Get-Constant $spoilageClockType 'SpoiledDataKey') -eq 'sighsorry.FineDining.Spoiled') 'The permanent spoiled-state marker key must remain stable.'
 Assert-True ((Get-Constant $freshnessType 'AssignedLifetimeDataKey') -eq 'sighsorry.FineDining.AssignedLifetimeTicks') 'Assigned-lifetime key is not the new FineDining key.'
 Assert-True ((Get-Constant $stateStoreType 'CustomDataKey') -eq 'sighsorry.FineDining.DietState') 'Diet state key is not the new FineDining key.'
 Assert-True ((Get-Constant $iceboxSubsystemType 'PrefabName') -eq 'FineDining_Icebox') 'Icebox prefab ID is incorrect.'
@@ -1747,13 +1748,23 @@ Assert-True ($null -eq $foodEffectType.GetProperty('Duration', $foodEffectFlags)
 $spoilagePolicyType = Get-TypeRequired $assembly 'FineDining.SpoilagePolicy'
 $spoilageYamlDocumentType = Get-TypeRequired $assembly 'FineDining.SpoilageYamlDocument'
 $spoilageYamlLifetimesType = Get-TypeRequired $assembly 'FineDining.SpoilageYamlLifetimes'
+$spoilageYamlLifetimeValueType = Get-TypeRequired $assembly 'FineDining.SpoilageYamlLifetimeValue'
+$spoilageYamlLifetimeValueConverterType = Get-TypeRequired $assembly 'FineDining.SpoilageYamlLifetimeValueConverter'
+$spoilageGroupType = Get-TypeRequired $assembly 'FineDining.SpoilageGroup'
+$spoilageExpiryActionType = Get-TypeRequired $assembly 'FineDining.SpoilageExpiryAction'
 Assert-True ((Get-Constant $spoilagePolicyType 'PolicyFileName') -eq 'Spoilage.yml') 'Spoilage policy filename is incorrect.'
+Assert-True ((Get-Constant $spoilagePolicyType 'KeepOriginalKeyword') -eq 'keep') 'The compact keep-original keyword must remain canonical and stable.'
+Assert-True (([Enum]::GetNames($spoilageExpiryActionType) -join ',') -eq 'Replace,KeepOriginal') 'Spoilage expiry actions must distinguish replacement from keeping the original prefab.'
 $defaultSpoilageResourceName = [string](Get-Constant $spoilagePolicyType 'DefaultPolicyResourceName')
 Assert-True ($defaultSpoilageResourceName -eq 'FineDining.Resources.Defaults.Spoilage.yml') 'Embedded Spoilage policy resource ID is incorrect.'
 Assert-True ([double](Get-Constant $spoilagePolicyType 'MaximumLifetimeHours') -eq 720d) 'Spoilage lifetime must be capped at 720 hours.'
 Assert-Method $spoilagePolicyType 'IsChefChoiceBlacklisted'
 Assert-True ($null -ne $spoilageYamlDocumentType.GetProperty('ChefChoiceBlacklist')) 'Spoilage.yml schema must expose chefChoiceBlacklist.'
 Assert-True ($null -ne $spoilageYamlLifetimesType.GetProperty('UnfermentedFood')) 'Spoilage.yml lifetime schema must expose unfermentedFood.'
+Assert-True ($spoilageYamlLifetimesType.GetProperty('FeastMaterial').PropertyType -eq $spoilageYamlLifetimeValueType -and
+             $spoilageYamlLifetimesType.GetProperty('FeastResult').PropertyType -eq $spoilageYamlLifetimeValueType) 'Group lifetime YAML values must share the inline hours/action scalar contract.'
+Assert-True ($null -ne $spoilageYamlLifetimeValueConverterType.GetMethod('ReadYaml') -and
+             $null -ne $spoilageYamlLifetimeValueConverterType.GetMethod('WriteYaml')) 'The inline group-lifetime scalar converter must support both parsing and canonical serialization.'
 Assert-Method (Get-TypeRequired $assembly 'FineDining.DietModule') 'RequestChefCollectionReconcile'
 $tryParsePolicy = Get-MethodRequired $spoilagePolicyType 'TryParseAndNormalize'
 $defaultSpoilagePath = Join-Path $projectRoot 'Resources\Defaults\Spoilage.yml'
@@ -1773,24 +1784,54 @@ finally
 $normalizedSourcePolicyYaml = $defaultPolicyYaml.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd([char[]] @("`n")) + "`n"
 $normalizedEmbeddedPolicyYaml = $embeddedDefaultPolicyYaml.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd([char[]] @("`n")) + "`n"
 Assert-True ($normalizedEmbeddedPolicyYaml -eq $normalizedSourcePolicyYaml) 'Embedded Spoilage.yml must match its editable source default.'
-Assert-True ($defaultPolicyYaml.Contains('Valid values are 0 through 720; 0 disables that group.')) 'The default Spoilage.yml guidance must document the 720-hour maximum.'
+Assert-True ($defaultPolicyYaml.Contains('Hours are valid from 0 through 720; 0 disables that group and cannot use keep.')) 'The default Spoilage.yml guidance must document the 720-hour maximum and disabled-group rule.'
+Assert-True ($defaultPolicyYaml.Contains('<hours>[, keep]')) 'The default Spoilage.yml guidance must document the inline group keep syntax.'
+Assert-True ($defaultPolicyYaml.Contains('<replacement prefab or keep>') -and
+             $defaultPolicyYaml.Contains('PreservedIdentityFood, 100, keep')) 'The default Spoilage.yml guidance must document the keep-original expiry result.'
 foreach ($defaultLifetime in @(
     'farmingHarvest: 72',
     'cookingStationInput: 24',
     'cookingStationOutput: 48',
     'unfermentedFood: 48',
     'fermentedFood: 72',
-    'feastMaterial: 72',
-    'feastResult: 48',
     'fish: 24',
     'otherEdible: 24'))
 {
     Assert-True ($defaultPolicyYaml.Contains($defaultLifetime)) "Default Spoilage.yml lifetime is missing: $defaultLifetime"
 }
+Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastMaterial:\s*72,\s*keep\s*$') 'The default feast-material policy must keep its original prefab after 72 hours.'
+Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastResult:\s*48,\s*keep\s*$') 'The default feast-result policy must keep its original prefab after 48 hours.'
 Assert-True ($defaultPolicyYaml.Contains('chefChoiceBlacklist: []')) 'The embedded default policy must expose an empty Chef Choice blacklist.'
 $defaultPolicyParseArguments = [object[]] @([string]$defaultPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyParseArguments)) 'The default policy with a 48-hour unfermented-food lifetime must parse.'
 Assert-True ([string]$defaultPolicyParseArguments[2] -match '(?m)^\s*unfermentedFood:\s*48\s*$') 'Normalized policy YAML must retain the default unfermented-food lifetime.'
+$defaultNormalizedPolicy = $defaultPolicyParseArguments[1]
+$defaultNormalizedPolicyType = $defaultNormalizedPolicy.GetType()
+$getGroupExpiryAction = Get-MethodRequired $defaultNormalizedPolicyType 'GetExpiryAction'
+$expectedDefaultGroupActions = @{
+    FarmingHarvest = 'Replace'
+    CookingStationInput = 'Replace'
+    CookingStationOutput = 'Replace'
+    UnfermentedFood = 'Replace'
+    FermentedFood = 'Replace'
+    FeastMaterial = 'KeepOriginal'
+    FeastResult = 'KeepOriginal'
+    Fish = 'Replace'
+    OtherEdible = 'Replace'
+}
+foreach ($group in [Enum]::GetValues($spoilageGroupType))
+{
+    $actualAction = [string]$getGroupExpiryAction.Invoke(
+        $defaultNormalizedPolicy,
+        [object[]] @($group))
+    Assert-True ($actualAction -eq $expectedDefaultGroupActions[$group.ToString()]) "Unexpected default expiry action for '$group': '$actualAction'."
+}
+$defaultNormalizedYaml = [string]$defaultPolicyParseArguments[2]
+Assert-True ($defaultNormalizedYaml -match '(?m)^\s*feastMaterial:\s*72,\s*keep\s*$' -and
+             $defaultNormalizedYaml -match '(?m)^\s*feastResult:\s*48,\s*keep\s*$') 'Normalized policy YAML must retain both default Feast keep actions as plain inline scalars.'
+$defaultPolicyRoundTripArguments = [object[]] @($defaultNormalizedYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyRoundTripArguments)) 'Canonical default group-action YAML must parse again.'
+Assert-True ([string]$defaultPolicyRoundTripArguments[2] -ceq $defaultNormalizedYaml) 'Canonical default group-action YAML must remain byte-stable across a parse/serialize round trip.'
 $customUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
     'unfermentedFood: 48',
     'unfermentedFood: 12.5')
@@ -1832,6 +1873,67 @@ $overMaximumLifetimePolicyYaml = $defaultPolicyYaml.Replace(
 $overMaximumLifetimeParseArguments = [object[]] @([string]$overMaximumLifetimePolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumLifetimeParseArguments)) 'A group lifetime above 720 hours must be rejected.'
 Assert-True ([string]$overMaximumLifetimeParseArguments[3] -match '0 through 720') 'An over-limit group lifetime must report the 720-hour range.'
+$uppercaseGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
+    'farmingHarvest: 72',
+    'farmingHarvest: 12.5, KEEP')
+$uppercaseGroupKeepParseArguments = [object[]] @([string]$uppercaseGroupKeepPolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $uppercaseGroupKeepParseArguments)) 'A positive group lifetime must accept the case-insensitive keep action.'
+$uppercaseGroupKeepNormalizedPolicy = $uppercaseGroupKeepParseArguments[1]
+$uppercaseGroupKeepNormalizedYaml = [string]$uppercaseGroupKeepParseArguments[2]
+$farmingHarvestGroup = [Enum]::Parse($spoilageGroupType, 'FarmingHarvest')
+Assert-True ([string]$getGroupExpiryAction.Invoke(
+                 $uppercaseGroupKeepNormalizedPolicy,
+                 [object[]] @($farmingHarvestGroup)) -eq 'KeepOriginal') 'A group keep value must normalize to the KeepOriginal action.'
+Assert-True ($uppercaseGroupKeepNormalizedYaml -match '(?m)^\s*farmingHarvest:\s*12\.5,\s*keep\s*$') 'Group policy normalization must canonicalize KEEP to the lowercase keep keyword.'
+Assert-True ($uppercaseGroupKeepNormalizedYaml -cnotmatch '(?m)^\s*farmingHarvest:\s*12\.5,\s*KEEP\s*$') 'Canonical group policy YAML must not preserve non-canonical keep casing.'
+$uppercaseGroupKeepRoundTripArguments = [object[]] @($uppercaseGroupKeepNormalizedYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $uppercaseGroupKeepRoundTripArguments)) 'Canonical group keep YAML must parse again.'
+Assert-True ([string]$uppercaseGroupKeepRoundTripArguments[2] -ceq $uppercaseGroupKeepNormalizedYaml) 'Canonical group keep YAML must remain stable across a parse/serialize round trip.'
+$maximumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
+    'farmingHarvest: 72',
+    'farmingHarvest: 720, keep')
+$maximumGroupKeepParseArguments = [object[]] @([string]$maximumGroupKeepPolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $maximumGroupKeepParseArguments)) 'A keep group lifetime of exactly 720 hours must be accepted.'
+$overMaximumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
+    'farmingHarvest: 72',
+    'farmingHarvest: 721, keep')
+$overMaximumGroupKeepParseArguments = [object[]] @([string]$overMaximumGroupKeepPolicyYaml, $null, '', '')
+Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumGroupKeepParseArguments)) 'A keep group lifetime above 720 hours must be rejected.'
+Assert-True ([string]$overMaximumGroupKeepParseArguments[3] -match 'lifetimes\.farmingHarvest.*0 through 720') 'An over-limit keep group lifetime must report its field and valid range.'
+$minimumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
+    'farmingHarvest: 72',
+    'farmingHarvest: 0.000000001, keep')
+$minimumGroupKeepParseArguments = [object[]] @([string]$minimumGroupKeepPolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $minimumGroupKeepParseArguments)) 'A positive fractional keep group lifetime must parse.'
+$minimumGroupKeepPolicy = $minimumGroupKeepParseArguments[1]
+$minimumLifetimeProperty = $minimumGroupKeepPolicy.GetType().GetProperty(
+    'Lifetimes',
+    [Reflection.BindingFlags] 'Instance,Public,NonPublic')
+Assert-True ($null -ne $minimumLifetimeProperty) 'Normalized group lifetimes required for minimum-duration validation are missing.'
+$minimumGroupLifetimes = $minimumLifetimeProperty.GetValue($minimumGroupKeepPolicy)
+$minimumGroupLifetime = $minimumGroupLifetimes[$farmingHarvestGroup]
+$minimumGroupTicksProperty = $minimumGroupLifetime.GetType().GetProperty(
+    'Ticks',
+    [Reflection.BindingFlags] 'Instance,Public,NonPublic')
+Assert-True ($null -ne $minimumGroupTicksProperty) 'Normalized group lifetime ticks required for minimum-duration validation are missing.'
+$minimumGroupTicks = [long]$minimumGroupTicksProperty.GetValue($minimumGroupLifetime)
+Assert-True ($minimumGroupTicks -eq [TimeSpan]::TicksPerSecond) 'A positive sub-second keep group lifetime must retain the one-second internal minimum.'
+foreach ($invalidGroupLifetime in @(
+    [pscustomobject]@{ Value = '0, keep'; Error = 'cannot specify an expiry action'; Label = 'disabled keep action' },
+    [pscustomobject]@{ Value = '24, RottenMeat'; Error = "expiry action must be 'keep'"; Label = 'group replacement prefab' },
+    [pscustomobject]@{ Value = '24,'; Error = "expiry action must be 'keep'"; Label = 'empty group action' },
+    [pscustomobject]@{ Value = '24, keep, extra'; Error = "must be '<hours>' or '<hours>, keep'"; Label = 'extra group field' },
+    [pscustomobject]@{ Value = 'banana, keep'; Error = 'must be a number'; Label = 'non-numeric group lifetime' }))
+{
+    $invalidGroupPolicyYaml = $defaultPolicyYaml.Replace(
+        'farmingHarvest: 72',
+        "farmingHarvest: $($invalidGroupLifetime.Value)")
+    $invalidGroupParseArguments = [object[]] @([string]$invalidGroupPolicyYaml, $null, '', '')
+    Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $invalidGroupParseArguments)) "An invalid $($invalidGroupLifetime.Label) must be rejected."
+    $invalidGroupError = [string]$invalidGroupParseArguments[3]
+    Assert-True ($invalidGroupError -match 'lifetimes\.farmingHarvest' -and
+                 $invalidGroupError.Contains([string]$invalidGroupLifetime.Error)) "An invalid $($invalidGroupLifetime.Label) must report the field and reason."
+}
 $maximumOverridePolicyYaml = $defaultPolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - BoundaryFood, 720")
@@ -1843,6 +1945,59 @@ $overMaximumOverridePolicyYaml = $defaultPolicyYaml.Replace(
 $overMaximumOverrideParseArguments = [object[]] @([string]$overMaximumOverridePolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumOverrideParseArguments)) 'An exact-prefab override above 720 hours must be rejected.'
 Assert-True ([string]$overMaximumOverrideParseArguments[3] -match '0 through 720') 'An over-limit override must report the 720-hour range.'
+$keepOverridePolicyYaml = $defaultPolicyYaml.Replace(
+    'overrides: []',
+    "overrides:`n  - AutomaticFood, 12.5`n  - KeepFood, 24, KEEP`n  - ReplaceFood, 36, RottenMeat")
+$keepOverrideParseArguments = [object[]] @([string]$keepOverridePolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $keepOverrideParseArguments)) 'A positive exact override must accept the case-insensitive keep result.'
+$keepNormalizedPolicy = $keepOverrideParseArguments[1]
+$keepNormalizedYaml = [string]$keepOverrideParseArguments[2]
+Assert-True ($keepNormalizedYaml -match '(?m)^\s*-\s+KeepFood,\s*24,\s*keep\s*$') 'Policy normalization must canonicalize KEEP to the lowercase keep keyword.'
+Assert-True ($keepNormalizedYaml -cnotmatch '(?m)^\s*-\s+KeepFood,\s*24,\s*KEEP\s*$') 'Canonical policy YAML must not preserve non-canonical keep casing.'
+$normalizedPolicyFlags = [Reflection.BindingFlags] 'Instance,Public,NonPublic'
+$normalizedOverridesProperty = $keepNormalizedPolicy.GetType().GetProperty('Overrides', $normalizedPolicyFlags)
+$replacementPrefabsProperty = $keepNormalizedPolicy.GetType().GetProperty('ReplacementPrefabs', $normalizedPolicyFlags)
+Assert-True ($null -ne $normalizedOverridesProperty -and $null -ne $replacementPrefabsProperty) 'Normalized spoilage policy override internals required for canonical validation are missing.'
+$normalizedOverrides = $normalizedOverridesProperty.GetValue($keepNormalizedPolicy)
+$automaticOverride = $normalizedOverrides['AutomaticFood']
+$keepOverride = $normalizedOverrides['KeepFood']
+$replaceOverride = $normalizedOverrides['ReplaceFood']
+$overrideFlags = [Reflection.BindingFlags] 'Instance,Public,NonPublic'
+$hasResultOverrideProperty = $keepOverride.GetType().GetProperty('HasResultOverride', $overrideFlags)
+$expiryActionProperty = $keepOverride.GetType().GetProperty('ExpiryAction', $overrideFlags)
+$replacementPrefabProperty = $keepOverride.GetType().GetProperty('ReplacementPrefab', $overrideFlags)
+Assert-True ($null -ne $hasResultOverrideProperty -and $null -ne $expiryActionProperty -and $null -ne $replacementPrefabProperty) 'Normalized item overrides must retain their explicit expiry-result contract.'
+Assert-True (-not [bool]$hasResultOverrideProperty.GetValue($automaticOverride)) 'A two-field override must continue to use automatic replacement routing.'
+Assert-True ([string]$expiryActionProperty.GetValue($automaticOverride) -eq 'Replace' -and
+             [string]$replacementPrefabProperty.GetValue($automaticOverride) -eq 'RottenMeat') 'A two-field force-include must retain the hidden RottenMeat fallback.'
+Assert-True ([bool]$hasResultOverrideProperty.GetValue($keepOverride) -and
+             [string]$expiryActionProperty.GetValue($keepOverride) -eq 'KeepOriginal' -and
+             [string]::IsNullOrEmpty([string]$replacementPrefabProperty.GetValue($keepOverride))) 'A keep override must be explicit, select KeepOriginal, and not masquerade as a replacement prefab.'
+Assert-True ([bool]$hasResultOverrideProperty.GetValue($replaceOverride) -and
+             [string]$expiryActionProperty.GetValue($replaceOverride) -eq 'Replace' -and
+             [string]$replacementPrefabProperty.GetValue($replaceOverride) -eq 'RottenMeat') 'An explicit replacement override must retain replacement semantics.'
+$spoilagePolicySource = Get-Content -LiteralPath (Join-Path $projectRoot 'SpoilagePolicy.cs') -Raw
+$groupActionInheritanceContract = [regex]::Match(
+    $spoilagePolicySource,
+    '(?s)if\s*\(!itemOverride\.HasResultOverride\).*?FoodClassifier\.TryClassify\(item,\s*out overrideGroup\).*?expiryAction\s*=\s*policy\.GetExpiryAction\(overrideGroup\).*?replacementPrefab\s*=\s*expiryAction\s*==\s*SpoilageExpiryAction\.KeepOriginal')
+Assert-True $groupActionInheritanceContract.Success 'A result-less exact override must inherit the classified group action, including Feast keep.'
+$unclassifiedOverrideFallbackContract = [regex]::Match(
+    $spoilagePolicySource,
+    '(?s)else\s*\{\s*expiryAction\s*=\s*SpoilageExpiryAction\.Replace;\s*replacementPrefab\s*=\s*SpoilageDefaults\.RottenMeatPrefabName;')
+Assert-True $unclassifiedOverrideFallbackContract.Success 'An unclassified result-less force-include must retain the RottenMeat replacement fallback.'
+Assert-True ($spoilagePolicySource.Contains('SpoilageExpiryAction expiryAction = itemOverride.ExpiryAction;') -and
+             $spoilagePolicySource.Contains('if (!itemOverride.HasResultOverride)')) 'An explicit exact-override result must remain authoritative over the group action.'
+$replacementPrefabs = $replacementPrefabsProperty.GetValue($keepNormalizedPolicy)
+Assert-True (-not [bool]$replacementPrefabs.Contains('keep')) 'The reserved keep keyword must never enter the replacement-terminal prefab set.'
+$keepRoundTripArguments = [object[]] @($keepNormalizedYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $keepRoundTripArguments)) 'Canonical keep policy YAML must parse again.'
+Assert-True ([string]$keepRoundTripArguments[2] -ceq $keepNormalizedYaml) 'Canonical keep policy YAML must be stable across a parse/serialize round trip.'
+$disabledKeepPolicyYaml = $defaultPolicyYaml.Replace(
+    'overrides: []',
+    "overrides:`n  - DisabledKeepFood, 0, keep")
+$disabledKeepParseArguments = [object[]] @([string]$disabledKeepPolicyYaml, $null, '', '')
+Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $disabledKeepParseArguments)) 'A disabled override must not accept keep or any other expiry result.'
+Assert-True ([string]$disabledKeepParseArguments[3] -match 'cannot specify an expiry result') 'Rejected zero-hour keep syntax must explain that disabled overrides cannot specify an expiry result.'
 $blacklistPolicyYaml = $defaultPolicyYaml.Replace(
     'chefChoiceBlacklist: []',
     "chefChoiceBlacklist:`n  - ZedFood`n  - applefood")
@@ -2593,6 +2748,53 @@ $otherEdibleReferenceIndex = $spoilageReference.IndexOf('automatic: otherEdible'
 Assert-True ($fishReferenceIndex -ge 0 -and $unfermentedReferenceIndex -gt $fishReferenceIndex -and $otherEdibleReferenceIndex -gt $unfermentedReferenceIndex) 'The unfermented-food reference section must follow Fish and precede OtherEdible.'
 Assert-True ($spoilageReference.Contains('# (none)')) 'Empty spoilage reference sections must remain explicit.'
 Assert-True ($spoilageReference.Contains("under 'overrides:' in Spoilage.yml.")) 'Spoilage reference guidance must name the active Spoilage.yml policy file.'
+Assert-True ($spoilageReference.Contains("hours[, replacement prefab or keep]")) 'Spoilage reference guidance must document that copied rows can use the keep result.'
+$spoilageReferenceEntryConstructor = @(
+    $spoilageReferenceEntryType.GetConstructors([Reflection.BindingFlags] 'Instance,Public,NonPublic') |
+        Where-Object { $_.GetParameters().Count -eq 6 }
+) | Select-Object -First 1
+Assert-True ($null -ne $spoilageReferenceEntryConstructor) 'The compact spoilage-reference entry constructor is missing.'
+$feastMaterialReferenceEntry = $spoilageReferenceEntryConstructor.Invoke([object[]] @(
+    'FeastMaterialReferenceFood',
+    'Example Mod',
+    [Enum]::Parse($spoilageGroupType, 'FeastMaterial'),
+    $null,
+    [double]72,
+    'keep'))
+$feastResultReferenceEntry = $spoilageReferenceEntryConstructor.Invoke([object[]] @(
+    'FeastResultReferenceFood',
+    'Example Mod',
+    [Enum]::Parse($spoilageGroupType, 'FeastResult'),
+    $null,
+    [double]48,
+    'keep'))
+$feastKeepReferenceEntries = [Array]::CreateInstance($spoilageReferenceEntryType, 2)
+$feastKeepReferenceEntries.SetValue($feastMaterialReferenceEntry, 0)
+$feastKeepReferenceEntries.SetValue($feastResultReferenceEntry, 1)
+$feastKeepSpoilageReference = [string]$buildSpoilageReference.Invoke($null, [object[]] @(,$feastKeepReferenceEntries))
+Assert-True ($feastKeepSpoilageReference.Contains('- FeastMaterialReferenceFood, 72, keep')) 'An automatic FeastMaterial reference row must expose its inherited group keep action.'
+Assert-True ($feastKeepSpoilageReference.Contains('- FeastResultReferenceFood, 48, keep')) 'An automatic FeastResult reference row must expose its inherited group keep action.'
+$captureReferenceActionContract = [regex]::Match(
+    (Get-Content -LiteralPath (Join-Path $projectRoot 'SpoilageReferenceGenerator.cs') -Raw),
+    '(?s)rule\.ExpiryAction\s*==\s*SpoilageExpiryAction\.KeepOriginal\s*\?\s*SpoilagePolicy\.KeepOriginalKeyword\s*:\s*rule\.ReplacementPrefab')
+Assert-True $captureReferenceActionContract.Success 'Runtime reference capture must emit keep from the resolved automatic group action.'
+$keepReferenceEntry = $spoilageReferenceEntryConstructor.Invoke([object[]] @(
+    'KeepReferenceFood',
+    'Example Mod',
+    $null,
+    $true,
+    [double]12.5,
+    'keep'))
+$keepReferenceEntries = [Array]::CreateInstance($spoilageReferenceEntryType, 1)
+$keepReferenceEntries.SetValue($keepReferenceEntry, 0)
+$keepSpoilageReference = [string]$buildSpoilageReference.Invoke($null, [object[]] @(,$keepReferenceEntries))
+Assert-True ($keepSpoilageReference.Contains('- KeepReferenceFood, 12.5, keep')) 'An enabled keep override must remain directly copyable from Spoilage.reference.yml.'
+$copiedKeepReferencePolicyYaml = $defaultPolicyYaml.Replace(
+    'overrides: []',
+    "overrides:`n  - KeepReferenceFood, 12.5, keep")
+$copiedKeepReferenceParseArguments = [object[]] @([string]$copiedKeepReferencePolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $copiedKeepReferenceParseArguments)) 'A keep row copied from Spoilage.reference.yml must parse as active configuration.'
+Assert-True ([string]$copiedKeepReferenceParseArguments[2] -match '(?m)^\s*-\s+KeepReferenceFood,\s*12\.5,\s*keep\s*$') 'A copied keep reference row must retain its canonical result.'
 $spoilageReferenceGeneratorSource = Get-Content -LiteralPath (Join-Path $projectRoot 'SpoilageReferenceGenerator.cs') -Raw
 Assert-True ($null -eq $spoilageReferenceGeneratorType.GetMethod('TryWriteCurrentReference', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'Spoilage reference generation must not expose a removed manual-command path.'
 $pluginStaticFlags = [Reflection.BindingFlags] 'Static,Public,NonPublic'
@@ -3353,6 +3555,58 @@ $composeStackClockValues = Get-MethodRequired $decayType 'ComposeStackClockValue
 $canMergeStackClockValues = Get-MethodRequired $decayType 'CanMergeStackClockValues'
 $composeAssignedLifetimeValues = Get-MethodRequired $freshnessType 'ComposeAssignedLifetimeValues'
 $canMergeAssignedLifetimeValues = Get-MethodRequired $freshnessType 'CanMergeAssignedLifetimeValues'
+$isSpoiled = Get-MethodRequired $spoilageClockType 'IsSpoiled'
+$markSpoiled = Get-MethodRequired $spoilageClockType 'MarkSpoiled'
+$clearSpoiled = Get-MethodRequired $spoilageClockType 'ClearSpoiled'
+$composeSpoiledValues = Get-MethodRequired $spoilageClockType 'ComposeSpoiledValues'
+$canMergeSpoiledValues = Get-MethodRequired $spoilageClockType 'CanMergeSpoiledValues'
+$completeKeepOriginalExpiry = Get-MethodRequired $decayType 'CompleteKeepOriginalExpiry'
+$tryGetFreshnessRatio = Get-MethodRequired $freshnessType 'TryGetFreshnessRatio'
+Assert-True ([bool]$canMergeSpoiledValues.Invoke($null, [object[]] @($null, $null))) 'Two unmarked stacks must be compatible for spoiled-state merging.'
+Assert-True ([bool]$canMergeSpoiledValues.Invoke($null, [object[]] @($null, '1'))) 'A missing marker and canonical spoiled marker must be compatible.'
+Assert-True ([bool]$canMergeSpoiledValues.Invoke($null, [object[]] @('1', '1'))) 'Two canonical spoiled markers must be compatible.'
+Assert-True (-not [bool]$canMergeSpoiledValues.Invoke($null, [object[]] @('future:v2', '1'))) 'An unknown spoiled-marker format must fail closed.'
+Assert-True ($null -eq $composeSpoiledValues.Invoke($null, [object[]] @($null, $null))) 'Two unmarked stacks must remain unmarked.'
+Assert-True ([string]$composeSpoiledValues.Invoke($null, [object[]] @($null, '1')) -eq '1') 'A spoiled source must mark an unmarked destination.'
+Assert-True ([string]$composeSpoiledValues.Invoke($null, [object[]] @('1', $null)) -eq '1') 'A spoiled destination must remain spoiled when receiving an unmarked source.'
+Assert-True ([string]$composeSpoiledValues.Invoke($null, [object[]] @('1', '1')) -eq '1') 'Spoiled-state composition must be idempotent.'
+Assert-True ([string]$composeSpoiledValues.Invoke($null, [object[]] @('future:v2', '1')) -eq 'future:v2') 'Fail-closed spoiled-state composition must preserve an unknown destination value.'
+$itemCustomDataField = $itemDataType.GetField('m_customData', [Reflection.BindingFlags] 'Instance,Public,NonPublic')
+$itemStackField = $itemDataType.GetField('m_stack', [Reflection.BindingFlags] 'Instance,Public,NonPublic')
+Assert-True ($null -ne $itemCustomDataField -and $null -ne $itemStackField) 'ItemData fields required for keep-original marker validation are missing.'
+$keepExpiredItem = [Activator]::CreateInstance($itemDataType)
+$keepExpiredCustomData = $itemCustomDataField.GetValue($keepExpiredItem)
+if ($null -eq $keepExpiredCustomData)
+{
+    $keepExpiredCustomData = [Activator]::CreateInstance($itemCustomDataField.FieldType)
+    $itemCustomDataField.SetValue($keepExpiredItem, $keepExpiredCustomData)
+}
+$expiryDataKey = [string](Get-Constant $spoilageClockType 'ExpiryDataKey')
+$spoiledDataKey = [string](Get-Constant $spoilageClockType 'SpoiledDataKey')
+$assignedLifetimeDataKey = [string](Get-Constant $freshnessType 'AssignedLifetimeDataKey')
+$placedAnchorDataKey = [string](Get-Constant $decayType 'PlacedAnchorDataKey')
+$keepExpiredCustomData[$expiryDataKey] = '123'
+$keepExpiredCustomData[$assignedLifetimeDataKey] = '456'
+$keepExpiredCustomData[$placedAnchorDataKey] = '789'
+$keepExpiredCustomData['third.party.keep'] = 'preserve'
+$itemStackField.SetValue($keepExpiredItem, 7)
+Assert-True (-not [bool]$isSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'An item without the canonical marker must begin unspoiled.'
+Assert-True ([bool]$completeKeepOriginalExpiry.Invoke($null, [object[]] @($keepExpiredItem))) 'Keep-original expiry must persist a completed spoiled state.'
+Assert-True ([bool]$isSpoiled.Invoke($null, [object[]] @($keepExpiredItem)) -and
+             [string]$keepExpiredCustomData[$spoiledDataKey] -eq '1') 'Keep-original expiry must write the canonical permanent marker.'
+Assert-True (-not $keepExpiredCustomData.ContainsKey($expiryDataKey) -and
+             -not $keepExpiredCustomData.ContainsKey($assignedLifetimeDataKey) -and
+             -not $keepExpiredCustomData.ContainsKey($placedAnchorDataKey)) 'Completed keep-original expiry must remove the active clock, assigned lifetime, and placement anchor.'
+Assert-True ([string]$keepExpiredCustomData['third.party.keep'] -eq 'preserve') 'Keep-original expiry must preserve unrelated item custom data.'
+Assert-True ([int]$itemStackField.GetValue($keepExpiredItem) -eq 7) 'Keep-original expiry must preserve the original stack amount.'
+Assert-True (-not [bool]$completeKeepOriginalExpiry.Invoke($null, [object[]] @($keepExpiredItem))) 'Completing an already spoiled keep-original item must be idempotent.'
+$spoiledFreshnessArguments = [object[]] @($keepExpiredItem, [single]1)
+Assert-True ([bool]$tryGetFreshnessRatio.Invoke($null, $spoiledFreshnessArguments) -and
+             [single]$spoiledFreshnessArguments[1] -eq [single]0) 'A permanently marked edible item must expose zero freshness without an active clock.'
+Assert-True ([bool]$clearSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'The internal replacement cleanup seam must clear an existing spoiled marker.'
+Assert-True (-not [bool]$isSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'Clearing the marker must return the item to an unmarked metadata state.'
+Assert-True ([bool]$markSpoiled.Invoke($null, [object[]] @($keepExpiredItem)) -and
+             -not [bool]$markSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'Writing the canonical spoiled marker must be idempotent.'
 foreach ($removedClockMethod in @('EncodeClockValue', 'TryDecodeClockValue', 'ComposeClockValues'))
 {
     Assert-True ($null -eq $decayType.GetMethod($removedClockMethod, [Reflection.BindingFlags] 'Static,Public,NonPublic')) "DecayRuntime must not retain a forwarding clock method: $removedClockMethod"
@@ -3388,12 +3642,43 @@ $temporaryActivation = $mergePrefixSource.IndexOf('DecayRuntime.PrepareItemForAd
 Assert-True ($captureBeforeActivation -ge 0 -and $captureBeforeActivation -lt $temporaryActivation) 'Inventory.AddItem must snapshot timerless source metadata before temporary player-inventory activation.'
 $mergePostfixSource = $mergeTrackerSource.Substring($mergePostfixStart, $captureMetadataStart - $mergePostfixStart)
 Assert-True ($mergePostfixSource.Contains('RestoreTemporarySourceMetadataSafe(inventory, source, state);')) 'Inventory.AddItem postfix must safely restore temporary activation metadata after a failed or partial move.'
+$markerOnlySourceGate = [regex]::Match(
+    $mergePrefixSource,
+    '(?s)!DecayRuntime\.TryGetExpiryTicks\(source,\s*out state\.SourceClockValue\)\s*&&\s*!state\.SourceSpoiled')
+Assert-True $markerOnlySourceGate.Success 'Inventory.AddItem merge tracking must retain a marker-only source even after its active clock was removed.'
 $restoreMetadataSource = $mergeTrackerSource.Substring($restoreMetadataStart, $restoreKeyStart - $restoreMetadataStart)
 Assert-True ($restoreMetadataSource.Contains('state.SourceHadValidClock || inventory.m_inventory.Contains(source)')) 'Temporary source metadata restoration must preserve pre-existing clocks and a source reference actually owned by the destination inventory.'
 $addItemFinalizerCalls = [regex]::Matches(
     $decayPatchesSource,
     'InventoryAddMergeTracker\.RestoreTemporarySourceMetadataSafe\(__instance, item, __state\);').Count
 Assert-True ($addItemFinalizerCalls -eq 3) 'Every patched Inventory.AddItem overload must restore temporary source metadata from a Harmony finalizer.'
+$composeInventoryStart = $decayRuntimeSource.IndexOf('internal static bool ComposeInventoryStackMetadata(', [StringComparison]::Ordinal)
+$composeDirectStart = $decayRuntimeSource.IndexOf('internal static bool ComposeDirectRecoveryMergeExpiry(', $composeInventoryStart, [StringComparison]::Ordinal)
+$composeGroundStart = $decayRuntimeSource.IndexOf('internal static void ComposeGroundStackExpiry(', $composeDirectStart, [StringComparison]::Ordinal)
+$registerGroundStart = $decayRuntimeSource.IndexOf('internal static void RegisterGroundDrop(', $composeGroundStart, [StringComparison]::Ordinal)
+Assert-True ($composeInventoryStart -ge 0 -and $composeDirectStart -gt $composeInventoryStart -and $composeGroundStart -gt $composeDirectStart -and $registerGroundStart -gt $composeGroundStart) 'Spoiled-stack composition method boundaries were not found.'
+$composeInventorySource = $decayRuntimeSource.Substring($composeInventoryStart, $composeDirectStart - $composeInventoryStart)
+$composeInventoryMarkerGate = $composeInventorySource.IndexOf('sourceSpoiled || SpoilageClock.IsSpoiled(target)', [StringComparison]::Ordinal)
+$composeInventoryClockGate = $composeInventorySource.IndexOf('!SpoilageClock.IsValidClockValue(sourceClockValue)', [StringComparison]::Ordinal)
+Assert-True ($composeInventoryMarkerGate -ge 0 -and $composeInventoryMarkerGate -lt $composeInventoryClockGate) 'Inventory composition must promote a marker-only stack before rejecting its intentionally absent clock.'
+$composeDirectSource = $decayRuntimeSource.Substring($composeDirectStart, $composeGroundStart - $composeDirectStart)
+Assert-True ($composeDirectSource.IndexOf('sourceSpoiled || targetSpoiled', [StringComparison]::Ordinal) -lt
+             $composeDirectSource.IndexOf('!TryGetExpiryTicks(source, out long sourceClockValue)', [StringComparison]::Ordinal)) 'AzuEPI direct recovery composition must promote spoiled state before requiring a source clock.'
+$composeGroundSource = $decayRuntimeSource.Substring($composeGroundStart, $registerGroundStart - $composeGroundStart)
+Assert-True ($composeGroundSource.IndexOf('SpoilageClock.IsSpoiled(destination.m_itemData)', [StringComparison]::Ordinal) -lt
+             $composeGroundSource.IndexOf('!TryGetExpiryTicks(source.m_itemData, out long sourceClockValue)', [StringComparison]::Ordinal)) 'Ground AutoStack composition must promote spoiled state before requiring a source clock.'
+$placedSpoilageSource = Get-Content -LiteralPath (Join-Path $projectRoot 'PlacedItemSpoilage.cs') -Raw
+$captureConsumedStart = $placedSpoilageSource.IndexOf('private static long CaptureConsumedRemaining(', [StringComparison]::Ordinal)
+$noCostPlacementStart = $placedSpoilageSource.IndexOf('private static bool IsNoCostPlacement(', $captureConsumedStart, [StringComparison]::Ordinal)
+$pieceRecoveryBeginStart = $placedSpoilageSource.IndexOf('internal static PieceRecoverySpoilageState Begin(', $noCostPlacementStart, [StringComparison]::Ordinal)
+$pieceRecoveryEndStart = $placedSpoilageSource.IndexOf('internal static void End(', $pieceRecoveryBeginStart, [StringComparison]::Ordinal)
+Assert-True ($captureConsumedStart -ge 0 -and $noCostPlacementStart -gt $captureConsumedStart -and $pieceRecoveryBeginStart -gt $noCostPlacementStart -and $pieceRecoveryEndStart -gt $pieceRecoveryBeginStart) 'Placed-food inheritance source boundaries were not found.'
+$captureConsumedSource = $placedSpoilageSource.Substring($captureConsumedStart, $noCostPlacementStart - $captureConsumedStart)
+Assert-True ($captureConsumedSource.Contains('if (SpoilageClock.IsSpoiled(item))') -and
+             $captureConsumedSource.Contains('earliestRemainingTicks = 0L;')) 'Placing a permanently spoiled ingredient must inherit an already-expired deadline.'
+$pieceRecoveryBeginSource = $placedSpoilageSource.Substring($pieceRecoveryBeginStart, $pieceRecoveryEndStart - $pieceRecoveryBeginStart)
+Assert-True ($pieceRecoveryBeginSource.Contains('if (SpoilageClock.IsSpoiled(placedDrop.m_itemData))') -and
+             $pieceRecoveryBeginSource.Contains('state.RemainingTicks = 0L;')) 'Recovering a permanently spoiled placed item must retain its already-expired state.'
 Assert-True ([bool]$shouldProcessInventoryClock.Invoke($null, [object[]] @($true, $false))) 'Timerless food must activate when it first enters a player inventory.'
 Assert-True ([bool]$shouldProcessInventoryClock.Invoke($null, [object[]] @($true, $true))) 'An existing player-inventory clock must continue to be processed.'
 Assert-True (-not [bool]$shouldProcessInventoryClock.Invoke($null, [object[]] @($false, $false))) 'Timerless food in a location or ordinary container must remain unactivated.'

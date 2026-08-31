@@ -11,6 +11,51 @@ namespace FineDining;
 internal static class SpoilageClock
 {
     internal const string ExpiryDataKey = "sighsorry.FineDining.ExpiryWorldTicks";
+    internal const string SpoiledDataKey = "sighsorry.FineDining.Spoiled";
+    private const string SpoiledDataValue = "1";
+
+    internal static bool IsSpoiled(ItemDrop.ItemData? item) =>
+        item?.m_customData != null &&
+        item.m_customData.TryGetValue(SpoiledDataKey, out string value) &&
+        string.Equals(value, SpoiledDataValue, StringComparison.Ordinal);
+
+    internal static bool MarkSpoiled(ItemDrop.ItemData? item)
+    {
+        if (item == null)
+        {
+            return false;
+        }
+
+        item.m_customData ??= new System.Collections.Generic.Dictionary<string, string>();
+        if (IsSpoiled(item))
+        {
+            return false;
+        }
+
+        item.m_customData[SpoiledDataKey] = SpoiledDataValue;
+        return true;
+    }
+
+    internal static bool ClearSpoiled(ItemDrop.ItemData? item) =>
+        item?.m_customData != null && item.m_customData.Remove(SpoiledDataKey);
+
+    internal static string? ComposeSpoiledValues(string? destinationValue, string? sourceValue)
+    {
+        if (!CanMergeSpoiledValues(destinationValue, sourceValue))
+        {
+            return destinationValue;
+        }
+
+        return destinationValue == SpoiledDataValue || sourceValue == SpoiledDataValue
+            ? SpoiledDataValue
+            : null;
+    }
+
+    internal static bool CanMergeSpoiledValues(string? destinationValue, string? sourceValue) =>
+        IsValidSpoiledValue(destinationValue) && IsValidSpoiledValue(sourceValue);
+
+    private static bool IsValidSpoiledValue(string? value) =>
+        value == null || string.Equals(value, SpoiledDataValue, StringComparison.Ordinal);
 
     internal static bool TryGetExpiryTicks(ItemDrop.ItemData? item, out long clockValue)
     {

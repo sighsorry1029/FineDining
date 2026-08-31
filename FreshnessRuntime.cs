@@ -89,7 +89,18 @@ internal static class FreshnessRuntime
     internal static bool TryGetFreshnessRatio(ItemData? item, out float ratio)
     {
         ratio = 1f;
-        if (item == null ||
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (SpoilageClock.IsSpoiled(item))
+        {
+            ratio = 0f;
+            return true;
+        }
+
+        if (
             !SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
             !SpoilageClock.TryGetSpoilageClock(
                 item,
@@ -142,6 +153,7 @@ internal static class FreshnessRuntime
         destination.m_customData ??= new Dictionary<string, string>();
         CopyOrRemove(source, destination, SpoilageClock.ExpiryDataKey);
         CopyOrRemove(source, destination, AssignedLifetimeDataKey);
+        CopyOrRemove(source, destination, SpoilageClock.SpoiledDataKey);
     }
 
     internal static AssignedLifetimeSnapshot CaptureAssignedLifetime(ItemData? item)

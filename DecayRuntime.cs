@@ -13,6 +13,7 @@ internal static class DecayRuntime
     // Compatibility surface used by the Harmony/UI integrations. SpoilageClock
     // owns the persisted key and all clock interpretation.
     private const string ExpiryDataKey = SpoilageClock.ExpiryDataKey;
+    private const string SpoiledDataKey = SpoilageClock.SpoiledDataKey;
     internal const string PlacedAnchorDataKey = "sighsorry.FineDining.PlacedWorldTicks";
 
     private sealed class InventoryState
@@ -280,7 +281,8 @@ internal static class DecayRuntime
     internal static bool PrepareItemForAdd(Inventory inventory, ItemDrop.ItemData? item)
     {
         if (item == null ||
-            !IsAuthoritativeInventory(inventory))
+            !IsAuthoritativeInventory(inventory) ||
+            SpoilageClock.IsSpoiled(item))
         {
             return false;
         }
@@ -294,8 +296,12 @@ internal static class DecayRuntime
         }
 
         ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(item);
-        return rule.State == SpoilageRuleState.Enabled &&
-               EnsureItemState(
+        if (rule.State != SpoilageRuleState.Enabled)
+        {
+            return false;
+        }
+
+        return EnsureItemState(
                    item,
                    rule,
                    nowTicks,
@@ -320,11 +326,22 @@ internal static class DecayRuntime
             return false;
         }
 
+        if (SpoilageClock.IsSpoiled(item))
+        {
+            return false;
+        }
+
         bool changed = PrepareItemForAdd(inventory, item);
-        if (inheritedRemainingTicks < 0L ||
-            SpoilagePolicy.Resolve(item).State != SpoilageRuleState.Enabled)
+        ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(item);
+        if (inheritedRemainingTicks < 0L || rule.State != SpoilageRuleState.Enabled)
         {
             return changed;
+        }
+
+        if (inheritedRemainingTicks == 0L &&
+            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        {
+            return CompleteKeepOriginalExpiry(item) || changed;
         }
 
         bool paused = ResolveInventoryPausedState(inventory);
@@ -354,9 +371,20 @@ internal static class DecayRuntime
         ItemDrop.ItemData target,
         long sourceClockValue,
         AssignedLifetimeSnapshot targetLifetime,
-        AssignedLifetimeSnapshot sourceLifetime)
+        AssignedLifetimeSnapshot sourceLifetime,
+        bool sourceSpoiled)
     {
-        if (inventory == null || target == null || !SpoilageClock.IsValidClockValue(sourceClockValue))
+        if (inventory == null || target == null)
+        {
+            return false;
+        }
+
+        if (sourceSpoiled || SpoilageClock.IsSpoiled(target))
+        {
+            return CompleteKeepOriginalExpiry(target);
+        }
+
+        if (!SpoilageClock.IsValidClockValue(sourceClockValue))
         {
             return false;
         }
@@ -377,9 +405,19 @@ internal static class DecayRuntime
         if (movedAmount <= 0 ||
             target == null ||
             source == null ||
-            ReferenceEquals(target, source) ||
-            target.m_customData == null ||
-            !TryGetExpiryTicks(source, out long sourceClockValue))
+            ReferenceEquals(target, source))
+        {
+            return false;
+        }
+
+        bool sourceSpoiled = SpoilageClock.IsSpoiled(source);
+        bool targetSpoiled = SpoilageClock.IsSpoiled(target);
+        if (sourceSpoiled || targetSpoiled)
+        {
+            return CompleteKeepOriginalExpiry(target);
+        }
+
+        if (!TryGetExpiryTicks(source, out long sourceClockValue))
         {
             return false;
         }
@@ -417,8 +455,20 @@ internal static class DecayRuntime
         if (destination == null || source == null ||
             destination.m_nview == null || source.m_nview == null ||
             !destination.m_nview.IsValid() || !source.m_nview.IsValid() ||
-            !destination.m_nview.IsOwner() || !source.m_nview.IsOwner() ||
-            !TryGetExpiryTicks(source.m_itemData, out long sourceClockValue))
+            !destination.m_nview.IsOwner() || !source.m_nview.IsOwner())
+        {
+            return;
+        }
+
+        if (SpoilageClock.IsSpoiled(destination.m_itemData) ||
+            SpoilageClock.IsSpoiled(source.m_itemData))
+        {
+            CompleteKeepOriginalExpiry(destination.m_itemData);
+            RegisterGroundDrop(destination);
+            return;
+        }
+
+        if (!TryGetExpiryTicks(source.m_itemData, out long sourceClockValue))
         {
             return;
         }
@@ -449,6 +499,13 @@ internal static class DecayRuntime
         }
 
         int instanceId = drop.GetInstanceID();
+        if (SpoilageClock.IsSpoiled(drop.m_itemData))
+        {
+            GroundDropsByInstanceId.Remove(instanceId);
+            GroundEnvironmentSamples.Remove(instanceId);
+            return;
+        }
+
         if (ReconcileCreatorlessPlacedDrop(drop))
         {
             return;
@@ -509,6 +566,12 @@ internal static class DecayRuntime
     {
         if (drop == null || !HasValidGroundView(drop) || !IsPlacedGroundDrop(drop))
         {
+            return;
+        }
+
+        if (SpoilageClock.IsSpoiled(drop.m_itemData))
+        {
+            UnregisterGroundDrop(drop);
             return;
         }
 
@@ -673,7 +736,9 @@ internal static class DecayRuntime
     {
         foreach (ItemDrop.ItemData item in inventory.m_inventory)
         {
-            if (item != null && SpoilagePolicy.Resolve(item).State == SpoilageRuleState.NotReady)
+            if (item != null &&
+                !SpoilageClock.IsSpoiled(item) &&
+                SpoilagePolicy.Resolve(item).State == SpoilageRuleState.NotReady)
             {
                 return false;
             }
@@ -816,6 +881,13 @@ internal static class DecayRuntime
 
             if (!IsOwnedGroundDrop(drop))
             {
+                continue;
+            }
+
+            if (SpoilageClock.IsSpoiled(drop.m_itemData))
+            {
+                registrationsToRemove ??= new List<int>();
+                registrationsToRemove.Add(pair.Key);
                 continue;
             }
 
@@ -968,6 +1040,12 @@ internal static class DecayRuntime
             return;
         }
 
+        if (SpoilageClock.IsSpoiled(drop.m_itemData))
+        {
+            UnregisterGroundDrop(drop);
+            return;
+        }
+
         if (ReconcileCreatorlessPlacedDrop(drop))
         {
             return;
@@ -1047,12 +1125,44 @@ internal static class DecayRuntime
             changed |= drop.m_itemData.m_customData.Remove(PlacedAnchorDataKey);
         }
 
-        if (changed)
+        if (effectiveRemainingTicks <= 0L &&
+            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        {
+            Dictionary<string, string> previousCustomData =
+                new(drop.m_itemData.m_customData, StringComparer.Ordinal);
+            changed |= CompleteKeepOriginalExpiry(drop.m_itemData);
+            if (changed)
+            {
+                try
+                {
+                    drop.Save();
+                }
+                catch
+                {
+                    drop.m_itemData.m_customData.Clear();
+                    foreach (KeyValuePair<string, string> pair in previousCustomData)
+                    {
+                        drop.m_itemData.m_customData[pair.Key] = pair.Value;
+                    }
+
+                    RegisterGroundDrop(drop);
+                    throw;
+                }
+            }
+        }
+        else if (changed)
         {
             drop.Save();
         }
 
-        RegisterGroundDrop(drop);
+        if (SpoilageClock.IsSpoiled(drop.m_itemData))
+        {
+            UnregisterGroundDrop(drop);
+        }
+        else
+        {
+            RegisterGroundDrop(drop);
+        }
     }
 
     private static bool HasValidGroundView(ItemDrop drop)
@@ -1426,6 +1536,12 @@ internal static class DecayRuntime
                     continue;
                 }
 
+                if (SpoilageClock.IsSpoiled(item))
+                {
+                    changed |= CompleteKeepOriginalExpiry(item);
+                    continue;
+                }
+
                 ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(item);
                 if (rule.State == SpoilageRuleState.NotReady)
                 {
@@ -1444,7 +1560,6 @@ internal static class DecayRuntime
                     }
 
                     changed |= FreshnessRuntime.ClearTrackedMetadata(item);
-
                     continue;
                 }
 
@@ -1529,6 +1644,11 @@ internal static class DecayRuntime
             return false;
         }
 
+        if (SpoilageClock.IsSpoiled(item))
+        {
+            return false;
+        }
+
         bool metadataChanged = FreshnessRuntime.EnsureTrackedMetadata(item, rule.LifetimeTicks);
 
         if (TryGetSpoilageClock(item, nowTicks, out remainingTicks, out paused))
@@ -1558,6 +1678,25 @@ internal static class DecayRuntime
         long clockValue = SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused);
         item.m_customData[ExpiryDataKey] = clockValue.ToString(CultureInfo.InvariantCulture);
         return true;
+    }
+
+    internal static bool CompleteKeepOriginalExpiry(ItemDrop.ItemData? item)
+    {
+        if (item == null)
+        {
+            return false;
+        }
+
+        bool changed = SpoilageClock.MarkSpoiled(item);
+        if (item.m_customData == null)
+        {
+            return changed;
+        }
+
+        changed |= item.m_customData.Remove(ExpiryDataKey);
+        changed |= item.m_customData.Remove(PlacedAnchorDataKey);
+        changed |= FreshnessRuntime.ClearTrackedMetadata(item);
+        return changed;
     }
 
     private static ReplacementResolution ResolveReplacement(
@@ -1615,6 +1754,12 @@ internal static class DecayRuntime
         ItemDrop.ItemData item,
         ResolvedSpoilageRule rule)
     {
+        if (rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        {
+            CompleteKeepOriginalExpiry(item);
+            return true;
+        }
+
         ReplacementResolution resolution = ResolveReplacement(
             item,
             rule,
@@ -1746,6 +1891,30 @@ internal static class DecayRuntime
         if (sourceItem == null || sourceAmount <= 0)
         {
             drop.m_nview.Destroy();
+            return;
+        }
+
+        if (rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        {
+            Dictionary<string, string> previousCustomData =
+                new(sourceItem.m_customData, StringComparer.Ordinal);
+            CompleteKeepOriginalExpiry(sourceItem);
+            try
+            {
+                drop.Save();
+            }
+            catch
+            {
+                sourceItem.m_customData.Clear();
+                foreach (KeyValuePair<string, string> pair in previousCustomData)
+                {
+                    sourceItem.m_customData[pair.Key] = pair.Value;
+                }
+
+                throw;
+            }
+
+            UnregisterGroundDrop(drop);
             return;
         }
 
@@ -1944,6 +2113,7 @@ internal static class DecayRuntime
         replacement.m_worldLevel = sourceWorldLevel;
         replacement.m_equipped = false;
         replacement.m_customData.Remove(ExpiryDataKey);
+        SpoilageClock.ClearSpoiled(replacement);
         FreshnessRuntime.ClearTrackedMetadata(replacement);
         return replacement;
     }
@@ -1996,12 +2166,14 @@ internal static class DecayRuntime
     {
         int count = values.ContainsKey(ExpiryDataKey) ? 1 : 0;
         count += values.ContainsKey(FreshnessRuntime.AssignedLifetimeDataKey) ? 1 : 0;
+        count += values.ContainsKey(SpoiledDataKey) ? 1 : 0;
         return count;
     }
 
     private static bool IsStackMetadataKey(string key) =>
         key == ExpiryDataKey ||
-        key == FreshnessRuntime.AssignedLifetimeDataKey;
+        key == FreshnessRuntime.AssignedLifetimeDataKey ||
+        key == SpoiledDataKey;
 
     private static bool ApplyEarlierClock(
         ItemDrop.ItemData target,

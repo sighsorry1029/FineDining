@@ -48,6 +48,12 @@ internal enum SpoilageRuleState
     Enabled
 }
 
+internal enum SpoilageExpiryAction
+{
+    Replace,
+    KeepOriginal
+}
+
 internal readonly struct ResolvedSpoilageRule
 {
     internal ResolvedSpoilageRule(
@@ -55,13 +61,15 @@ internal readonly struct ResolvedSpoilageRule
         long lifetimeTicks = 0L,
         string replacementPrefab = "",
         SpoilageGroup group = SpoilageGroup.OtherEdible,
-        bool isOverride = false)
+        bool isOverride = false,
+        SpoilageExpiryAction expiryAction = SpoilageExpiryAction.Replace)
     {
         State = state;
         LifetimeTicks = lifetimeTicks;
         ReplacementPrefab = replacementPrefab;
         Group = group;
         IsOverride = isOverride;
+        ExpiryAction = expiryAction;
     }
 
     internal SpoilageRuleState State { get; }
@@ -73,4 +81,6 @@ internal readonly struct ResolvedSpoilageRule
     internal SpoilageGroup Group { get; }
 
     internal bool IsOverride { get; }
+
+    internal SpoilageExpiryAction ExpiryAction { get; }
 }
