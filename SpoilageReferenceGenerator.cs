@@ -8,63 +8,53 @@ using UnityEngine;
 
 namespace FineDining;
 
-internal enum SpoilageReferenceSection
-{
-    FarmingHarvest,
-    CookingStationInput,
-    CookingStationOutput,
-    FermentedFood,
-    FeastMaterial,
-    FeastResult,
-    Fish,
-    OtherEdible,
-    OverrideEnabled,
-    OverrideDisabled
-}
-
 internal sealed class SpoilageReferenceEntry
 {
     internal SpoilageReferenceEntry(
         string prefabName,
         string ownerName,
-        SpoilageReferenceSection section,
+        SpoilageGroup? group,
+        bool? overrideEnabled,
         double lifetimeHours,
         string replacementPrefab)
     {
         PrefabName = FoodIdentity.NormalizePrefabName(prefabName);
         OwnerName = FoodPrefabOwnerResolver.NormalizeOwnerName(ownerName);
-        Section = section;
+        Group = group;
+        OverrideEnabled = overrideEnabled;
         LifetimeHours = lifetimeHours <= 0d ? 0d : lifetimeHours;
         ReplacementPrefab = FoodIdentity.NormalizePrefabName(replacementPrefab);
     }
 
     internal string PrefabName { get; }
     internal string OwnerName { get; }
-    internal SpoilageReferenceSection Section { get; }
+    internal SpoilageGroup? Group { get; }
+    internal bool? OverrideEnabled { get; }
     internal double LifetimeHours { get; }
     internal string ReplacementPrefab { get; }
 }
 
 internal static class SpoilageReferenceGenerator
 {
-    internal const string ReferenceFileName = "FineDining.reference.yml";
+    internal const string ReferenceFileName = "Spoilage.reference.yml";
 
     private const float ReadyRetrySeconds = 1f;
     private const float FailureRetrySeconds = 5f;
     private const float ExistenceCheckSeconds = 5f;
     private const int OwnerResolutionRetryCount = 3;
-    private static readonly (SpoilageReferenceSection Section, string Label)[] SectionOrder =
+    private static readonly (SpoilageGroup? Group, bool? OverrideEnabled, string Label)[] SectionOrder =
     {
-        (SpoilageReferenceSection.FarmingHarvest, "automatic: farmingHarvest"),
-        (SpoilageReferenceSection.FeastMaterial, "automatic: feastMaterial"),
-        (SpoilageReferenceSection.FeastResult, "automatic: feastResult"),
-        (SpoilageReferenceSection.FermentedFood, "automatic: fermentedFood"),
-        (SpoilageReferenceSection.CookingStationOutput, "automatic: cookingStationOutput"),
-        (SpoilageReferenceSection.CookingStationInput, "automatic: cookingStationInput"),
-        (SpoilageReferenceSection.Fish, "automatic: fish"),
-        (SpoilageReferenceSection.OtherEdible, "automatic: otherEdible"),
-        (SpoilageReferenceSection.OverrideEnabled, "exact overrides: enabled"),
-        (SpoilageReferenceSection.OverrideDisabled, "exact overrides: disabled")
+        (SpoilageGroup.FarmingHarvest, null, "automatic: farmingHarvest"),
+        (SpoilageGroup.FeastMaterial, null, "automatic: feastMaterial"),
+        (SpoilageGroup.FeastResult, null, "automatic: feastResult"),
+        (SpoilageGroup.FermentedFood, null, "automatic: fermentedFood"),
+        (SpoilageGroup.CookingStationOutput, null, "automatic: cookingStationOutput"),
+        (SpoilageGroup.CookingStationInput, null, "automatic: cookingStationInput"),
+        (SpoilageGroup.Fish, null, "automatic: fish"),
+        (SpoilageGroup.UnfermentedFood, null, "automatic: unfermentedFood"),
+        (SpoilageGroup.OtherEdible, null, "automatic: otherEdible"),
+        (null, true, "exact overrides: enabled"),
+        (null, false, "exact overrides: disabled")
     };
 
     private static bool _dirty = true;
@@ -74,7 +64,7 @@ internal static class SpoilageReferenceGenerator
     private static int _ownerResolutionRetriesRemaining = OwnerResolutionRetryCount;
 
     private static string ReferenceFilePath =>
-        Path.Combine(SpoilagePolicy.ConfigDirectoryPath, ReferenceFileName);
+        Path.Combine(FineDiningPlugin.ConfigDirectoryPath, ReferenceFileName);
 
     internal static void Tick()
     {
@@ -87,7 +77,7 @@ internal static class SpoilageReferenceGenerator
             }
 
             _nextExistenceCheckAt = now + ExistenceCheckSeconds;
-            if (!SpoilagePolicy.IsRuntimeReferenceAuthority || File.Exists(ReferenceFilePath))
+            if (!FineDiningPlugin.IsRuntimeReferenceAuthority || File.Exists(ReferenceFilePath))
             {
                 return;
             }
@@ -102,7 +92,7 @@ internal static class SpoilageReferenceGenerator
         }
 
         _nextAttemptAt = now + ReadyRetrySeconds;
-        if (!SpoilagePolicy.IsRuntimeReferenceAuthority ||
+        if (!FineDiningPlugin.IsRuntimeReferenceAuthority ||
             !SpoilagePolicy.IsReady ||
             !FoodClassifier.IsReady ||
             !_dirty)
@@ -110,36 +100,9 @@ internal static class SpoilageReferenceGenerator
             return;
         }
 
-        try
-        {
-            List<SpoilageReferenceEntry> entries = CaptureReferenceEntries();
-            string content = BuildReferenceContent(entries);
-            bool wrote = WriteTextIfChanged(ReferenceFilePath, content);
-            bool hasUnknownOwner = entries.Any(entry => entry.OwnerName.Equals(
-                FoodPrefabOwnerResolver.UnknownOwnerName,
-                StringComparison.OrdinalIgnoreCase));
-            if (hasUnknownOwner && _ownerResolutionRetriesRemaining > 0)
-            {
-                _ownerResolutionRetriesRemaining--;
-                _dirty = true;
-                _nextAttemptAt = now + FailureRetrySeconds;
-            }
-            else
-            {
-                _dirty = false;
-                _ownerResolutionRetriesRemaining = 0;
-                _nextExistenceCheckAt = now + ExistenceCheckSeconds;
-            }
-
-            _failureLogged = false;
-            if (wrote)
-            {
-                FineDiningPlugin.Log.LogInfo(
-                    "Updated generated spoilage reference with " + entries.Count +
-                    " classified prefab(s): " + ReferenceFilePath);
-            }
-        }
-        catch (Exception exception)
+        if (!TryGenerateCurrentReference(
+                out ReferenceGeneration result,
+                out string error))
         {
             _nextAttemptAt = Time.realtimeSinceStartup + FailureRetrySeconds;
             if (!_failureLogged)
@@ -147,8 +110,31 @@ internal static class SpoilageReferenceGenerator
                 _failureLogged = true;
                 FineDiningPlugin.Log.LogWarning(
                     "Could not generate " + ReferenceFilePath + "; FineDining will retry: " +
-                    exception.GetBaseException().Message);
+                    error);
             }
+
+            return;
+        }
+
+        if (result.HasUnknownOwner && _ownerResolutionRetriesRemaining > 0)
+        {
+            _ownerResolutionRetriesRemaining--;
+            _dirty = true;
+            _nextAttemptAt = now + FailureRetrySeconds;
+        }
+        else
+        {
+            _dirty = false;
+            _ownerResolutionRetriesRemaining = 0;
+            _nextExistenceCheckAt = now + ExistenceCheckSeconds;
+        }
+
+        _failureLogged = false;
+        if (result.Changed)
+        {
+            FineDiningPlugin.Log.LogInfo(
+                "Updated generated spoilage reference with " + result.EntryCount +
+                " classified prefab(s): " + ReferenceFilePath);
         }
     }
 
@@ -160,6 +146,45 @@ internal static class SpoilageReferenceGenerator
     internal static void Reset()
     {
         ResetGenerationState(resetFailureLog: true);
+    }
+
+    private static bool TryGenerateCurrentReference(
+        out ReferenceGeneration result,
+        out string error)
+    {
+        result = default;
+        if (!SpoilagePolicy.IsReady)
+        {
+            error = "The synchronized spoilage policy is not ready yet.";
+            return false;
+        }
+
+        if (!FoodClassifier.IsReady)
+        {
+            error = "The food classifier is not ready yet. Wait until world loading finishes.";
+            return false;
+        }
+
+        try
+        {
+            List<SpoilageReferenceEntry> entries = CaptureReferenceEntries();
+            bool changed = WriteTextIfChanged(
+                ReferenceFilePath,
+                BuildReferenceContent(entries));
+            result = new ReferenceGeneration(
+                changed,
+                entries.Any(entry => entry.OwnerName.Equals(
+                    FoodPrefabOwnerResolver.UnknownOwnerName,
+                    StringComparison.OrdinalIgnoreCase)),
+                entries.Count);
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = exception.GetBaseException().Message;
+            return false;
+        }
     }
 
     private static void ResetGenerationState(bool resetFailureLog)
@@ -183,15 +208,15 @@ internal static class SpoilageReferenceGenerator
             .Append(FineDiningPlugin.ModVersion)
             .AppendLine(". This file is overwritten automatically.");
         builder.AppendLine("# It is a local lookup only; it is not loaded as configuration or synchronized to clients.");
-        builder.AppendLine("# Copy selected '- Prefab, hours[, replacement]' rows under 'overrides:' in FineDining.yml.");
+        builder.AppendLine("# Copy selected '- Prefab, hours[, replacement]' rows under 'overrides:' in Spoilage.yml.");
         builder.AppendLine("# Classification is primary; prefab owner is the secondary comment section.");
 
-        foreach ((SpoilageReferenceSection section, string label) in SectionOrder)
+        foreach ((SpoilageGroup? group, bool? overrideEnabled, string label) in SectionOrder)
         {
             builder.AppendLine();
             builder.Append("# ===== ").Append(label).AppendLine(" =====");
             List<SpoilageReferenceEntry> sectionEntries = entries
-                .Where(entry => entry.Section == section)
+                .Where(entry => IsInSection(entry, group, overrideEnabled))
                 .OrderBy(entry => FoodPrefabOwnerResolver.GetOwnerSortBucket(entry.OwnerName))
                 .ThenBy(entry => entry.OwnerName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.OwnerName, StringComparer.Ordinal)
@@ -277,7 +302,8 @@ internal static class SpoilageReferenceGenerator
         }
 
         List<(string PrefabName,
-            SpoilageReferenceSection Section,
+            SpoilageGroup? Group,
+            bool? OverrideEnabled,
             double LifetimeHours,
             string ReplacementPrefab)> candidates = new();
         HashSet<string> capturedPrefabs = new(StringComparer.OrdinalIgnoreCase);
@@ -301,7 +327,8 @@ internal static class SpoilageReferenceGenerator
 
             candidates.Add((
                 FoodIdentity.NormalizePrefabName(pair.Key),
-                GetReferenceSection(rule),
+                rule.IsOverride ? null : rule.Group,
+                rule.IsOverride ? rule.State == SpoilageRuleState.Enabled : null,
                 lifetimeHours <= 0d ? 0d : lifetimeHours,
                 FoodIdentity.NormalizePrefabName(
                     rule.State == SpoilageRuleState.Enabled ? rule.ReplacementPrefab : "")));
@@ -322,9 +349,8 @@ internal static class SpoilageReferenceGenerator
 
             candidates.Add((
                 FoodIdentity.NormalizePrefabName(itemOverride.PrefabName),
-                itemOverride.LifetimeTicks > 0L
-                    ? SpoilageReferenceSection.OverrideEnabled
-                    : SpoilageReferenceSection.OverrideDisabled,
+                null,
+                itemOverride.LifetimeTicks > 0L,
                 itemOverride.Hours <= 0d ? 0d : itemOverride.Hours,
                 FoodIdentity.NormalizePrefabName(
                     itemOverride.LifetimeTicks > 0L ? itemOverride.ReplacementPrefab : "")));
@@ -336,7 +362,8 @@ internal static class SpoilageReferenceGenerator
             .Select(candidate => new SpoilageReferenceEntry(
                 candidate.PrefabName,
                 ownerSnapshot.GetOwnerName(candidate.PrefabName),
-                candidate.Section,
+                candidate.Group,
+                candidate.OverrideEnabled,
                 candidate.LifetimeHours,
                 candidate.ReplacementPrefab))
             .ToList();
@@ -349,8 +376,8 @@ internal static class SpoilageReferenceGenerator
             .Where(entry => entry != null && entry.PrefabName.Length > 0)
             .GroupBy(entry => entry.PrefabName, StringComparer.OrdinalIgnoreCase)
             .Select(group => group
-                .OrderByDescending(entry => GetOverridePriority(entry.Section))
-                .ThenBy(entry => GetSectionIndex(entry.Section))
+                .OrderByDescending(GetOverridePriority)
+                .ThenBy(GetSectionIndex)
                 .ThenBy(entry => entry.OwnerName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.OwnerName, StringComparer.Ordinal)
                 .ThenBy(entry => entry.LifetimeHours)
@@ -361,21 +388,19 @@ internal static class SpoilageReferenceGenerator
                 .First());
     }
 
-    private static int GetOverridePriority(SpoilageReferenceSection section)
+    private static int GetOverridePriority(SpoilageReferenceEntry entry)
     {
-        return section switch
-        {
-            SpoilageReferenceSection.OverrideDisabled => 2,
-            SpoilageReferenceSection.OverrideEnabled => 1,
-            _ => 0
-        };
+        return entry.OverrideEnabled.HasValue
+            ? entry.OverrideEnabled.Value ? 1 : 2
+            : 0;
     }
 
-    private static int GetSectionIndex(SpoilageReferenceSection section)
+    private static int GetSectionIndex(SpoilageReferenceEntry entry)
     {
         for (int index = 0; index < SectionOrder.Length; index++)
         {
-            if (SectionOrder[index].Section == section)
+            (SpoilageGroup? group, bool? overrideEnabled, _) = SectionOrder[index];
+            if (IsInSection(entry, group, overrideEnabled))
             {
                 return index;
             }
@@ -384,30 +409,14 @@ internal static class SpoilageReferenceGenerator
         return int.MaxValue;
     }
 
-    private static SpoilageReferenceSection GetReferenceSection(ResolvedSpoilageRule rule)
+    private static bool IsInSection(
+        SpoilageReferenceEntry entry,
+        SpoilageGroup? group,
+        bool? overrideEnabled)
     {
-        if (rule.IsOverride)
-        {
-            return rule.State == SpoilageRuleState.Disabled
-                ? SpoilageReferenceSection.OverrideDisabled
-                : SpoilageReferenceSection.OverrideEnabled;
-        }
-
-        return rule.Group switch
-        {
-            SpoilageGroup.FarmingHarvest => SpoilageReferenceSection.FarmingHarvest,
-            SpoilageGroup.CookingStationInput => SpoilageReferenceSection.CookingStationInput,
-            SpoilageGroup.CookingStationOutput => SpoilageReferenceSection.CookingStationOutput,
-            SpoilageGroup.FermentedFood => SpoilageReferenceSection.FermentedFood,
-            SpoilageGroup.FeastMaterial => SpoilageReferenceSection.FeastMaterial,
-            SpoilageGroup.FeastResult => SpoilageReferenceSection.FeastResult,
-            SpoilageGroup.Fish => SpoilageReferenceSection.Fish,
-            SpoilageGroup.OtherEdible => SpoilageReferenceSection.OtherEdible,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(rule.Group),
-                rule.Group,
-                "Unknown spoilage group.")
-        };
+        return group.HasValue
+            ? !entry.OverrideEnabled.HasValue && entry.Group == group
+            : overrideEnabled.HasValue && entry.OverrideEnabled == overrideEnabled;
     }
 
     private static string FormatCompactOverride(SpoilageReferenceEntry entry)
@@ -449,6 +458,20 @@ internal static class SpoilageReferenceGenerator
             .Replace("\r\n", "\n")
             .Replace('\r', '\n')
             .TrimEnd('\n') + "\n";
+    }
+
+    private readonly struct ReferenceGeneration
+    {
+        internal ReferenceGeneration(bool changed, bool hasUnknownOwner, int entryCount)
+        {
+            Changed = changed;
+            HasUnknownOwner = hasUnknownOwner;
+            EntryCount = entryCount;
+        }
+
+        internal bool Changed { get; }
+        internal bool HasUnknownOwner { get; }
+        internal int EntryCount { get; }
     }
 
 }

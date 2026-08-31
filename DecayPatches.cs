@@ -205,37 +205,12 @@ internal static class ItemDropAutoStackSpoilagePatch
 
 internal static class SpoilageContentLifecycle
 {
-    internal static void Refresh(
-        ObjectDB? objectDb,
-        ZNetScene? zNetScene,
-        MonoBehaviour retryRunner)
+    internal static void Refresh()
     {
-        GeneratedPrefabRegistry.RegisterConfiguredContent(objectDb, zNetScene);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(retryRunner);
+        GeneratedPrefabRegistry.RefreshConfiguredContent();
         FoodClassifier.Invalidate();
+        DietModule.InvalidateChefTierCatalog();
         DecayRuntime.InvalidateAll();
-    }
-}
-
-[HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.Awake))]
-internal static class ObjectDbAwakeSpoilagePatch
-{
-    [HarmonyPriority(Priority.First)]
-    private static void Postfix(ObjectDB __instance)
-    {
-        // Registration must remain synchronous: saved ItemData can deserialize
-        // before a deferred refresh gets a chance to recreate its prefab.
-        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
-    }
-}
-
-[HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB))]
-internal static class ObjectDbCopySpoilagePatch
-{
-    [HarmonyPriority(Priority.First)]
-    private static void Postfix(ObjectDB __instance)
-    {
-        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
     }
 }
 
@@ -246,32 +221,9 @@ internal static class ObjectDbUpdateRegistersSpoilagePatch
     private static void Postfix(ObjectDB __instance)
     {
         // Late-registering content mods commonly update existing prefab data
-        // without changing ObjectDB or ZNetScene counts. Rebuild the direct
-        // relationship snapshot after their registration pass completes. The
-        // generated identities are already persistent; this also restores the
-        // Icebox recipe if a data mod replaced Hammer's PieceTable.
-        SpoilageContentLifecycle.Refresh(__instance, ZNetScene.instance, __instance);
-    }
-}
-
-[HarmonyPatch(typeof(ZNetScene), nameof(ZNetScene.Awake))]
-internal static class ZNetSceneAwakeSpoilagePatch
-{
-    [HarmonyPriority(Priority.First)]
-    private static void Postfix(ZNetScene __instance)
-    {
-        SpoilageContentLifecycle.Refresh(ObjectDB.instance, __instance, __instance);
-    }
-}
-
-[HarmonyPatch(typeof(Game), nameof(Game.Start))]
-internal static class GameStartGeneratedPrefabRegistrationPatch
-{
-    [HarmonyPriority(Priority.Last)]
-    private static void Postfix()
-    {
-        // Final synchronous checkpoint shared by clients and dedicated servers.
-        GeneratedPrefabRegistry.RegisterConfiguredContent(ObjectDB.instance, ZNetScene.instance);
+        // without changing ObjectDB counts. Refresh classification and the
+        // dynamic Icebox recipe after their registration pass completes.
+        SpoilageContentLifecycle.Refresh();
     }
 }
 
@@ -289,12 +241,19 @@ internal sealed class InventoryAddMergeState
 {
     internal readonly Dictionary<ItemDrop.ItemData, int> PreviousStacks = new();
     internal readonly Dictionary<ItemDrop.ItemData, AssignedLifetimeSnapshot> PreviousLifetimes = new();
+    internal bool SourceHadValidClock;
+    internal bool SourceHadExpiryKey;
+    internal string? OriginalSourceExpiryValue;
+    internal bool SourceHadLifetimeKey;
+    internal string? OriginalSourceLifetimeValue;
     internal long SourceClockValue;
     internal AssignedLifetimeSnapshot SourceLifetime;
 }
 
 internal static class InventoryAddMergeTracker
 {
+    private static bool _loggedTemporarySourceRestoreFailure;
+
     internal static InventoryAddMergeState? Prefix(Inventory inventory, ItemDrop.ItemData? source)
     {
         if (source == null ||
@@ -305,6 +264,7 @@ internal static class InventoryAddMergeTracker
         }
 
         InventoryAddMergeState state = new();
+        CaptureOriginalSourceMetadata(source, state);
         DecayRuntime.PrepareItemForAdd(inventory, source);
         PieceRecoverySpoilageTracker.ApplyToInventoryItem(inventory, source);
         state.SourceLifetime = FreshnessRuntime.CaptureAssignedLifetime(source);
@@ -333,29 +293,36 @@ internal static class InventoryAddMergeTracker
 
     internal static void Postfix(Inventory inventory, ItemDrop.ItemData? source, InventoryAddMergeState? state)
     {
-        if (state == null)
+        if (state == null || source == null)
         {
             return;
         }
 
         bool changedAfterVanillaSave = false;
-        if (state.SourceClockValue != 0L)
+        try
         {
-            foreach (KeyValuePair<ItemDrop.ItemData, int> previous in state.PreviousStacks)
+            if (state.SourceClockValue != 0L)
             {
-                ItemDrop.ItemData target = previous.Key;
-                if (ReferenceEquals(target, source) || target.m_stack <= previous.Value)
+                foreach (KeyValuePair<ItemDrop.ItemData, int> previous in state.PreviousStacks)
                 {
-                    continue;
-                }
+                    ItemDrop.ItemData target = previous.Key;
+                    if (ReferenceEquals(target, source) || target.m_stack <= previous.Value)
+                    {
+                        continue;
+                    }
 
-                changedAfterVanillaSave |= DecayRuntime.ComposeInventoryStackMetadata(
-                    inventory,
-                    target,
-                    state.SourceClockValue,
-                    state.PreviousLifetimes[target],
-                    state.SourceLifetime);
+                    changedAfterVanillaSave |= DecayRuntime.ComposeInventoryStackMetadata(
+                        inventory,
+                        target,
+                        state.SourceClockValue,
+                        state.PreviousLifetimes[target],
+                        state.SourceLifetime);
+                }
             }
+        }
+        finally
+        {
+            RestoreTemporarySourceMetadataSafe(inventory, source, state);
         }
 
         // Inventory.AddItem serializes before Harmony postfixes. Notify again only
@@ -363,6 +330,95 @@ internal static class InventoryAddMergeTracker
         if (changedAfterVanillaSave)
         {
             inventory.Changed();
+        }
+    }
+
+    internal static void RestoreTemporarySourceMetadataSafe(
+        Inventory inventory,
+        ItemDrop.ItemData? source,
+        InventoryAddMergeState? state)
+    {
+        if (source == null || state == null)
+        {
+            return;
+        }
+
+        try
+        {
+            RestoreTemporarySourceMetadata(inventory, source, state);
+        }
+        catch (Exception exception)
+        {
+            if (_loggedTemporarySourceRestoreFailure)
+            {
+                return;
+            }
+
+            _loggedTemporarySourceRestoreFailure = true;
+            FineDiningPlugin.Log.LogWarning(
+                "Could not restore a temporarily activated source stack after Inventory.AddItem: " +
+                exception);
+        }
+    }
+
+    private static void CaptureOriginalSourceMetadata(
+        ItemDrop.ItemData source,
+        InventoryAddMergeState state)
+    {
+        state.SourceHadValidClock = DecayRuntime.TryGetExpiryTicks(source, out _);
+        if (source.m_customData == null)
+        {
+            return;
+        }
+
+        state.SourceHadExpiryKey = source.m_customData.TryGetValue(
+            SpoilageClock.ExpiryDataKey,
+            out state.OriginalSourceExpiryValue);
+        state.SourceHadLifetimeKey = source.m_customData.TryGetValue(
+            FreshnessRuntime.AssignedLifetimeDataKey,
+            out state.OriginalSourceLifetimeValue);
+    }
+
+    private static void RestoreTemporarySourceMetadata(
+        Inventory inventory,
+        ItemDrop.ItemData source,
+        InventoryAddMergeState state)
+    {
+        // Prefix preparation lets vanilla clones and stack merges inherit the
+        // new player-inventory clock. If the source reference did not actually
+        // enter that inventory, restore its pre-call state so failed or partial
+        // transfers do not activate the remainder left in a container/world drop.
+        if (state.SourceHadValidClock || inventory.m_inventory.Contains(source))
+        {
+            return;
+        }
+
+        source.m_customData ??= new Dictionary<string, string>();
+        RestoreKey(
+            source.m_customData,
+            SpoilageClock.ExpiryDataKey,
+            state.SourceHadExpiryKey,
+            state.OriginalSourceExpiryValue);
+        RestoreKey(
+            source.m_customData,
+            FreshnessRuntime.AssignedLifetimeDataKey,
+            state.SourceHadLifetimeKey,
+            state.OriginalSourceLifetimeValue);
+    }
+
+    private static void RestoreKey(
+        Dictionary<string, string> customData,
+        string key,
+        bool hadKey,
+        string? originalValue)
+    {
+        if (hadKey)
+        {
+            customData[key] = originalValue ?? string.Empty;
+        }
+        else
+        {
+            customData.Remove(key);
         }
     }
 
@@ -397,6 +453,16 @@ internal static class InventoryAddItemSpoilagePatch
     {
         InventoryAddMergeTracker.Postfix(__instance, item, __state);
     }
+
+    private static Exception? Finalizer(
+        Inventory __instance,
+        ItemDrop.ItemData item,
+        InventoryAddMergeState? __state,
+        Exception? __exception)
+    {
+        InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
+        return __exception;
+    }
 }
 
 [HarmonyPatch(typeof(Inventory), nameof(Inventory.AddItem), typeof(ItemDrop.ItemData), typeof(Vector2i))]
@@ -416,6 +482,16 @@ internal static class InventoryAddItemAtPositionSpoilagePatch
     private static void Postfix(Inventory __instance, ItemDrop.ItemData item, InventoryAddMergeState? __state)
     {
         InventoryAddMergeTracker.Postfix(__instance, item, __state);
+    }
+
+    private static Exception? Finalizer(
+        Inventory __instance,
+        ItemDrop.ItemData item,
+        InventoryAddMergeState? __state,
+        Exception? __exception)
+    {
+        InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
+        return __exception;
     }
 }
 
@@ -442,5 +518,15 @@ internal static class InventoryAddItemAmountAtPositionSpoilagePatch
     private static void Postfix(Inventory __instance, ItemDrop.ItemData item, InventoryAddMergeState? __state)
     {
         InventoryAddMergeTracker.Postfix(__instance, item, __state);
+    }
+
+    private static Exception? Finalizer(
+        Inventory __instance,
+        ItemDrop.ItemData item,
+        InventoryAddMergeState? __state,
+        Exception? __exception)
+    {
+        InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
+        return __exception;
     }
 }

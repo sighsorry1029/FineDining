@@ -1,11 +1,12 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using BepInEx.Bootstrap;
+using Jotunn.Entities;
+using Jotunn.Utils;
 using UnityEngine;
 
 namespace FineDining;
@@ -33,11 +34,7 @@ internal static class FoodPrefabOwnerResolver
     internal const string VanillaOwnerName = "Valheim";
     internal const string UnknownOwnerName = "Unknown / Untracked";
 
-    private const string JotunnModQueryTypeName = "Jotunn.Utils.ModQuery";
-    private const string JotunnPrefabManagerTypeName = "Jotunn.Managers.PrefabManager";
     private const int MinimumHeuristicTokenLength = 5;
-    private static readonly BindingFlags AnyMember =
-        BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
     private static readonly HashSet<string> VanillaPrefabNames =
         new(StringComparer.OrdinalIgnoreCase);
     private static bool _vanillaCatalogLoaded;
@@ -145,61 +142,80 @@ internal static class FoodPrefabOwnerResolver
     private static Dictionary<string, string> CollectJotunnOwners(HashSet<string> targets)
     {
         Dictionary<string, string> owners = new(StringComparer.OrdinalIgnoreCase);
-        Assembly[] assemblies = GetLoadedAssemblies();
-        Type? modQueryType = assemblies
-            .Select(assembly => SafeGetType(assembly, JotunnModQueryTypeName))
-            .FirstOrDefault(type => type != null);
-        MethodInfo? getPrefabMethod = modQueryType?.GetMethod(
-            "GetPrefab",
-            AnyMember,
-            binder: null,
-            types: new[] { typeof(string) },
-            modifiers: null);
-        if (getPrefabMethod != null)
-        {
-            foreach (string target in targets)
-            {
-                foreach (string candidate in EnumerateLookupCandidates(target))
-                {
-                    try
-                    {
-                        object? holder = getPrefabMethod.Invoke(null, new object[] { candidate });
-                        if (holder != null && TryResolveSourceModOwner(holder, out string ownerName))
-                        {
-                            owners[target] = ownerName;
-                            break;
-                        }
-                    }
-                    catch
-                    {
-                        // Fall back to PrefabManager enumeration below.
-                    }
-                }
-            }
-        }
+        HashSet<string> lookupCandidates = new(
+            targets.SelectMany(EnumerateLookupCandidates),
+            StringComparer.OrdinalIgnoreCase);
 
-        Type? managerType = assemblies
-            .Select(assembly => SafeGetType(assembly, JotunnPrefabManagerTypeName))
-            .FirstOrDefault(type => type != null);
-        object? manager = TryGetStaticMemberValue(managerType, "Instance");
-        if (manager == null || !TryGetRawMemberValue(manager, "Prefabs", out object? prefabs))
+        try
         {
-            return owners;
-        }
-
-        foreach (object holder in EnumerateCollectionValues(prefabs))
-        {
-            string prefabName = FoodIdentity.NormalizePrefabName(GetPrefabNameFromHolder(holder));
-            if (prefabName.Length == 0 || !targets.Contains(prefabName) || owners.ContainsKey(prefabName) ||
-                !TryResolveSourceModOwner(holder, out string ownerName))
+            foreach (CustomPrefab customPrefab in ModRegistry.GetPrefabs())
             {
-                continue;
+                AddJotunnOwner(
+                    customPrefab.Prefab,
+                    customPrefab,
+                    lookupCandidates,
+                    owners);
             }
 
-            owners[prefabName] = ownerName;
+            foreach (CustomItem customItem in ModRegistry.GetItems())
+            {
+                AddJotunnOwner(
+                    customItem.ItemPrefab,
+                    customItem,
+                    lookupCandidates,
+                    owners);
+            }
+
+            foreach (CustomPiece customPiece in ModRegistry.GetPieces())
+            {
+                AddJotunnOwner(
+                    customPiece.PiecePrefab,
+                    customPiece,
+                    lookupCandidates,
+                    owners);
+            }
+        }
+        catch (Exception exception)
+        {
+            FineDiningPlugin.Log.LogDebug(
+                "Could not enumerate all Jotunn registry owners: " +
+                exception.GetBaseException().Message);
         }
 
         return owners;
+    }
+
+    private static void AddJotunnOwner(
+        GameObject? prefab,
+        CustomEntity customEntity,
+        HashSet<string> lookupCandidates,
+        Dictionary<string, string> owners)
+    {
+        string prefabName = FoodIdentity.NormalizePrefabName(prefab?.name);
+        if (prefabName.Length == 0 ||
+            !lookupCandidates.Contains(prefabName) ||
+            owners.ContainsKey(prefabName))
+        {
+            return;
+        }
+
+        string pluginGuid = (customEntity.SourceMod?.GUID ?? "").Trim();
+        if (pluginGuid.Length > 0 &&
+            Chainloader.PluginInfos.TryGetValue(pluginGuid, out var pluginInfo))
+        {
+            owners[prefabName] = NormalizeOwnerName(
+                string.IsNullOrWhiteSpace(pluginInfo.Metadata.Name)
+                    ? pluginInfo.Metadata.GUID
+                    : pluginInfo.Metadata.Name);
+            return;
+        }
+
+        string pluginName = (customEntity.SourceMod?.Name ?? "").Trim();
+        string ownerName = NormalizeOwnerName(pluginName.Length > 0 ? pluginName : pluginGuid);
+        if (!ownerName.Equals(UnknownOwnerName, StringComparison.OrdinalIgnoreCase))
+        {
+            owners[prefabName] = ownerName;
+        }
     }
 
     private static Dictionary<string, HashSet<string>> CollectAssetBundleOwners(
@@ -365,153 +381,6 @@ internal static class FoodPrefabOwnerResolver
         }
 
         return plugins;
-    }
-
-    private static bool TryResolveSourceModOwner(object holder, out string ownerName)
-    {
-        ownerName = "";
-        if (!TryGetRawMemberValue(holder, "SourceMod", out object? sourceMod) || sourceMod == null)
-        {
-            return false;
-        }
-
-        string pluginGuid = TryGetRawMemberValue(sourceMod, "GUID", out object? guidValue)
-            ? (guidValue?.ToString() ?? "").Trim()
-            : "";
-        if (pluginGuid.Length > 0 && Chainloader.PluginInfos.TryGetValue(pluginGuid, out var pluginInfo))
-        {
-            ownerName = NormalizeOwnerName(
-                string.IsNullOrWhiteSpace(pluginInfo.Metadata.Name)
-                    ? pluginInfo.Metadata.GUID
-                    : pluginInfo.Metadata.Name);
-            return true;
-        }
-
-        if (pluginGuid.Length > 0)
-        {
-            ownerName = NormalizeOwnerName(pluginGuid);
-            return true;
-        }
-
-        if (TryGetRawMemberValue(sourceMod, "Name", out object? nameValue))
-        {
-            ownerName = NormalizeOwnerName(nameValue?.ToString());
-            return !ownerName.Equals(UnknownOwnerName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return false;
-    }
-
-    private static string? GetPrefabNameFromHolder(object holder)
-    {
-        if (holder is GameObject gameObject)
-        {
-            return gameObject.name;
-        }
-
-        if (holder is Component component)
-        {
-            return component.gameObject != null ? component.gameObject.name : component.name;
-        }
-
-        if (!TryGetRawMemberValue(holder, "Prefab", out object? prefab))
-        {
-            return null;
-        }
-
-        return prefab switch
-        {
-            GameObject prefabObject => prefabObject.name,
-            Component prefabComponent => prefabComponent.gameObject != null
-                ? prefabComponent.gameObject.name
-                : prefabComponent.name,
-            _ => null
-        };
-    }
-
-    private static IEnumerable<object> EnumerateCollectionValues(object? value)
-    {
-        IEnumerable values = value is IDictionary dictionary
-            ? dictionary.Values
-            : value as IEnumerable ?? Array.Empty<object>();
-        foreach (object? entry in values)
-        {
-            if (entry != null)
-            {
-                yield return entry;
-            }
-        }
-    }
-
-    private static object? TryGetStaticMemberValue(Type? type, string memberName)
-    {
-        if (type == null)
-        {
-            return null;
-        }
-
-        try
-        {
-            PropertyInfo? property = type.GetProperty(memberName, AnyMember);
-            if (property != null)
-            {
-                return property.GetValue(null, null);
-            }
-
-            return type.GetField(memberName, AnyMember)?.GetValue(null);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool TryGetRawMemberValue(object value, string memberName, out object? result)
-    {
-        result = null;
-        try
-        {
-            Type type = value.GetType();
-            PropertyInfo? property = type.GetProperty(memberName, AnyMember);
-            if (property != null)
-            {
-                result = property.GetValue(value, null);
-                return true;
-            }
-
-            FieldInfo? field = type.GetField(memberName, AnyMember);
-            if (field == null)
-            {
-                return false;
-            }
-
-            result = field.GetValue(value);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static Type? SafeGetType(Assembly assembly, string typeName)
-    {
-        try
-        {
-            return assembly.GetType(typeName, throwOnError: false);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static Assembly[] GetLoadedAssemblies()
-    {
-        return AppDomain.CurrentDomain.GetAssemblies()
-            .Where(assembly => !assembly.IsDynamic)
-            .OrderBy(assembly => assembly.FullName ?? "", StringComparer.OrdinalIgnoreCase)
-            .ToArray();
     }
 
     private static string ResolveMappedOwner(

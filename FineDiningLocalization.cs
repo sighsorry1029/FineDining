@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Globalization;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
@@ -42,6 +43,83 @@ internal static class FineDiningLocalization
         {
             LoadLocalization(Localization.instance, Localization.instance.GetSelectedLanguage());
         }
+    }
+
+    internal static string LocalizeOrFallback(string token, string fallback)
+    {
+        Localization? localization = Localization.instance;
+        if ((object?)localization == null)
+        {
+            return fallback;
+        }
+
+        string localized = localization.Localize(token);
+        return string.IsNullOrWhiteSpace(localized) ||
+               string.Equals(localized, token, StringComparison.Ordinal)
+            ? fallback
+            : localized;
+    }
+
+    internal static string LocalizeOrFallback(
+        string token,
+        string fallback,
+        params string[] arguments)
+    {
+        string localized = Localization.instance?.Localize(token, arguments) ?? token;
+        if (!string.IsNullOrWhiteSpace(localized) &&
+            !string.Equals(localized, token, StringComparison.Ordinal))
+        {
+            return localized;
+        }
+
+        string result = fallback;
+        for (int index = 0; index < arguments.Length; index++)
+        {
+            result = result.Replace(
+                "$" + (index + 1).ToString(CultureInfo.InvariantCulture),
+                arguments[index]);
+        }
+
+        return result;
+    }
+
+    internal static string FormatOrFallback(
+        string token,
+        string fallback,
+        params object[] values)
+    {
+        string localizedFormat = LocalizeOrFallback(token, fallback);
+        try
+        {
+            string localized = string.Format(
+                CultureInfo.InvariantCulture,
+                localizedFormat,
+                values);
+            if (ContainsEveryValue(localized, values))
+            {
+                return localized;
+            }
+        }
+        catch (FormatException)
+        {
+            // Malformed translations fall through to the known English format.
+        }
+
+        return string.Format(CultureInfo.InvariantCulture, fallback, values);
+    }
+
+    private static bool ContainsEveryValue(string text, object[] values)
+    {
+        foreach (object value in values)
+        {
+            string required = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+            if (required.Length > 0 && text.IndexOf(required, StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     internal static void LoadLocalization(Localization __instance, string language)

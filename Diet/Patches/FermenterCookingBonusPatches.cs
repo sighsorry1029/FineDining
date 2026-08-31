@@ -9,227 +9,6 @@ using UnityObject = UnityEngine.Object;
 
 namespace FineDining;
 
-internal static class CookingStationBonusSystem
-{
-    private static readonly MethodInfo IsItemDoneMethod =
-        AccessTools.DeclaredMethod(
-            typeof(CookingStation),
-            "IsItemDone",
-            new[] { typeof(string) })
-        ?? throw new MissingMethodException(typeof(CookingStation).FullName, "IsItemDone");
-
-    private static bool _outputLookupWarningLogged;
-
-    internal static float ApplyConfiguredChance(
-        float calculatedChance,
-        CookingStation station)
-    {
-        if (IsFirstDoneOutputExcluded(station))
-        {
-            return 0f;
-        }
-
-        return CookingProductionBonusSystem.ApplyConfiguredOutputPercent(
-            calculatedChance);
-    }
-
-    internal static bool IsFirstDoneOutputExcluded(CookingStation station)
-    {
-        if (string.IsNullOrWhiteSpace(
-                DietConfig.GetCookingBonusExcludedOutputPrefabs()))
-        {
-            return false;
-        }
-
-        try
-        {
-            string? outputPrefabName = GetFirstDoneOutputPrefabName(station);
-            return outputPrefabName is { Length: > 0 } prefabName
-                   && CookingProductionBonusSystem.IsExcludedOutputPrefab(
-                       prefabName);
-        }
-        catch (Exception exception)
-        {
-            if (!_outputLookupWarningLogged)
-            {
-                _outputLookupWarningLogged = true;
-                FineDiningPlugin.Log.LogWarning(
-                    $"Could not resolve a CookingStation output for the exclusion list; "
-                    + $"the configured chance is still applied ({exception.Message}).");
-            }
-
-            return false;
-        }
-    }
-
-    private static string? GetFirstDoneOutputPrefabName(CookingStation station)
-    {
-        if ((UnityObject)(object)station == null || station.m_slots == null)
-        {
-            return null;
-        }
-
-        ZNetView nview = station.GetComponent<ZNetView>();
-        if ((UnityObject)(object)nview == null || !nview.IsValid())
-        {
-            return null;
-        }
-
-        ZDO zdo = nview.GetZDO();
-        if (zdo == null)
-        {
-            return null;
-        }
-
-        for (int slot = 0; slot < station.m_slots.Length; slot++)
-        {
-            string itemName = zdo.GetString("slot" + slot);
-            if (!string.IsNullOrEmpty(itemName) && IsItemDone(station, itemName))
-            {
-                return itemName;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool IsItemDone(CookingStation station, string itemName)
-    {
-        return IsItemDoneMethod.Invoke(station, new object[] { itemName }) is true;
-    }
-}
-
-[HarmonyPatch(typeof(CookingStation), "OnInteract")]
-[HarmonyPriority(Priority.Last)]
-internal static class CookingStationBonusChancePatch
-{
-    private static readonly MethodInfo RandomValueGetter = AccessTools.PropertyGetter(
-        typeof(UnityEngine.Random),
-        nameof(UnityEngine.Random.value))!;
-
-    private static readonly FieldInfo CraftBonusChanceField = AccessTools.Field(
-        typeof(InventoryGui),
-        nameof(InventoryGui.m_craftBonusChance))!;
-
-    private static readonly MethodInfo ApplyConfiguredChanceMethod = AccessTools.Method(
-        typeof(CookingStationBonusSystem),
-        nameof(CookingStationBonusSystem.ApplyConfiguredChance))!;
-
-    private static bool _patternWarningLogged;
-
-    [HarmonyTranspiler]
-    private static IEnumerable<CodeInstruction> Transpiler(
-        IEnumerable<CodeInstruction> instructions)
-    {
-        List<CodeInstruction> codes = new(instructions);
-        try
-        {
-            int randomIndex = FindCall(codes, RandomValueGetter, 0);
-            int chanceIndex = FindFieldLoad(codes, CraftBonusChanceField, randomIndex + 1);
-            int multiplyIndex = chanceIndex + 1;
-            int branchIndex = multiplyIndex + 1;
-            if (randomIndex < 0
-                || chanceIndex <= randomIndex
-                || branchIndex >= codes.Count
-                || codes[multiplyIndex].opcode != OpCodes.Mul
-                || !IsBranchGreaterOrEqualUnsigned(codes[branchIndex].opcode))
-            {
-                LogPatternFailure();
-                return codes;
-            }
-
-            CodeInstruction loadStation = new(OpCodes.Ldarg_0);
-            loadStation.labels.AddRange(codes[branchIndex].labels);
-            codes[branchIndex].labels.Clear();
-            loadStation.blocks.AddRange(codes[branchIndex].blocks);
-            codes[branchIndex].blocks.Clear();
-
-            codes.InsertRange(
-                branchIndex,
-                new[]
-                {
-                    loadStation,
-                    new CodeInstruction(OpCodes.Call, ApplyConfiguredChanceMethod)
-                });
-        }
-        catch (Exception exception)
-        {
-            LogPatternFailure(exception);
-        }
-
-        return codes;
-    }
-
-    private static int FindCall(
-        List<CodeInstruction> codes,
-        MethodInfo method,
-        int startIndex)
-    {
-        for (int index = Math.Max(0, startIndex); index < codes.Count; index++)
-        {
-            if ((codes[index].opcode == OpCodes.Call || codes[index].opcode == OpCodes.Callvirt)
-                && Equals(codes[index].operand, method))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int FindFieldLoad(
-        List<CodeInstruction> codes,
-        FieldInfo field,
-        int startIndex)
-    {
-        for (int index = Math.Max(0, startIndex); index < codes.Count; index++)
-        {
-            if (codes[index].opcode == OpCodes.Ldfld
-                && Equals(codes[index].operand, field))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private static bool IsBranchGreaterOrEqualUnsigned(OpCode opcode)
-    {
-        return opcode == OpCodes.Bge_Un || opcode == OpCodes.Bge_Un_S;
-    }
-
-    private static void LogPatternFailure(Exception? exception = null)
-    {
-        if (_patternWarningLogged)
-        {
-            return;
-        }
-
-        _patternWarningLogged = true;
-        string detail = exception == null ? string.Empty : $" ({exception})";
-        FineDiningPlugin.Log.LogWarning(
-            "CookingStation bonus settings were not applied; vanilla behavior remains active"
-            + detail
-            + ".");
-    }
-}
-
-[HarmonyPatch(typeof(CookingStation), "RPC_RemoveDoneItem")]
-[HarmonyPriority(Priority.Last)]
-internal static class CookingStationExcludedOutputGuardPatch
-{
-    [HarmonyPrefix]
-    private static void Prefix(CookingStation __instance, ref int amount)
-    {
-        if (amount > 1
-            && CookingStationBonusSystem.IsFirstDoneOutputExcluded(__instance))
-        {
-            amount = 1;
-        }
-    }
-}
-
 internal static class FermenterCookingBonusSystem
 {
     private const string RequestTapRpc = "FineDining_Fermenter_RequestTap";
@@ -239,28 +18,46 @@ internal static class FermenterCookingBonusSystem
     private const float RequestTimeoutSeconds = 10f;
     private const float InteractionDistanceTolerance = 2f;
 
-    private static readonly MethodInfo GetStatusMethod =
-        AccessTools.DeclaredMethod(typeof(Fermenter), "GetStatus", Type.EmptyTypes)
-        ?? throw new MissingMethodException(typeof(Fermenter).FullName, "GetStatus");
-    private static readonly MethodInfo RpcTapMethod =
-        AccessTools.DeclaredMethod(
-            typeof(Fermenter),
+    private const BindingFlags InstanceMemberFlags =
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+    private static readonly MethodInfo? GetStatusMethod =
+        typeof(Fermenter).GetMethod(
+            "GetStatus",
+            InstanceMemberFlags,
+            binder: null,
+            Type.EmptyTypes,
+            modifiers: null);
+    private static readonly MethodInfo? RpcTapMethod =
+        typeof(Fermenter).GetMethod(
             "RPC_Tap",
-            new[] { typeof(long) })
-        ?? throw new MissingMethodException(typeof(Fermenter).FullName, "RPC_Tap");
-    private static readonly AccessTools.FieldRef<Fermenter, string> DelayedTapItemField =
-        AccessTools.FieldRefAccess<Fermenter, string>("m_delayedTapItem");
+            InstanceMemberFlags,
+            binder: null,
+            new[] { typeof(long) },
+            modifiers: null);
+    private static readonly FieldInfo? DelayedTapItemField =
+        typeof(Fermenter).GetField("m_delayedTapItem", InstanceMemberFlags);
 
-    private static readonly ConditionalWeakTable<Fermenter, ClientTapRequest> ClientRequests = new();
-    private static readonly ConditionalWeakTable<Fermenter, OwnerTapContext> OwnerTapContexts = new();
+    private static ConditionalWeakTable<Fermenter, ClientTapRequest> ClientRequests = new();
+    private static ConditionalWeakTable<Fermenter, OwnerTapContext> OwnerTapContexts = new();
 
     private static int _nextRequestId = 1;
+    private static bool _contractWarningLogged;
     private static bool _requestWarningLogged;
     private static bool _completionWarningLogged;
 
+    internal static void ResetRuntime()
+    {
+        ClientRequests = new ConditionalWeakTable<Fermenter, ClientTapRequest>();
+        OwnerTapContexts = new ConditionalWeakTable<Fermenter, OwnerTapContext>();
+        _nextRequestId = 1;
+        _contractWarningLogged = false;
+        _requestWarningLogged = false;
+        _completionWarningLogged = false;
+    }
+
     internal static void RegisterRpcs(Fermenter fermenter)
     {
-        if ((UnityObject)(object)fermenter == null)
+        if ((UnityObject)(object)fermenter == null || !HasRuntimeContract())
         {
             return;
         }
@@ -309,8 +106,16 @@ internal static class FermenterCookingBonusSystem
 
         if ((UnityObject)(object)fermenter == null
             || user is not Player player
-            || (UnityObject)(object)player == null)
+            || (UnityObject)(object)player == null
+            || !HasRuntimeContract())
         {
+            nview.InvokeRPC(vanillaRpcName, vanillaParameters);
+            return;
+        }
+
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            ClientRequests.Remove(fermenter);
             nview.InvokeRPC(vanillaRpcName, vanillaParameters);
             return;
         }
@@ -333,7 +138,7 @@ internal static class FermenterCookingBonusSystem
         }
 
         long owner = zdo.GetOwner();
-        long batchTicks = StationModule.GetFermenterBatchToken(fermenter);
+        long batchTicks = FermenterEnvironmentSpeedSystem.GetBatchToken(fermenter);
         if (owner == 0L || batchTicks == 0L)
         {
             nview.InvokeRPC(vanillaRpcName, vanillaParameters);
@@ -387,6 +192,16 @@ internal static class FermenterCookingBonusSystem
         }
 
         OwnerTapContexts.Remove(fermenter);
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            RejectTapRequest(
+                fermenter,
+                context.Sender,
+                context.RequestId,
+                context.BatchTicks);
+            return null;
+        }
+
         return context;
     }
 
@@ -399,12 +214,22 @@ internal static class FermenterCookingBonusSystem
             return;
         }
 
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            RejectTapRequest(
+                fermenter,
+                context.Sender,
+                context.RequestId,
+                context.BatchTicks);
+            return;
+        }
+
         int spawnedBonusItems = 0;
         try
         {
-            Fermenter.ItemConversion conversion = GetItemConversion(
+            Fermenter.ItemConversion? conversion = GetItemConversion(
                 fermenter,
-                DelayedTapItemField(fermenter));
+                GetDelayedTapItem(fermenter));
             if (conversion == null
                 || (UnityObject)(object)conversion.m_to == null
                 || conversion.m_producedItems <= 0)
@@ -516,6 +341,7 @@ internal static class FermenterCookingBonusSystem
             || (UnityObject)(object)nview == null
             || !nview.IsValid()
             || !nview.IsOwner()
+            || !HasRuntimeContract()
             || !IsReady(fermenter)
             || OwnerTapContexts.TryGetValue(fermenter, out _))
         {
@@ -526,7 +352,7 @@ internal static class FermenterCookingBonusSystem
         ZDO zdo = nview.GetZDO();
         if (zdo == null
             || batchTicks == 0L
-            || StationModule.GetFermenterBatchToken(fermenter) != batchTicks)
+            || FermenterEnvironmentSpeedSystem.GetBatchToken(fermenter) != batchTicks)
         {
             RejectTapRequest(fermenter, sender, requestId, batchTicks);
             return;
@@ -543,8 +369,18 @@ internal static class FermenterCookingBonusSystem
             return;
         }
 
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            HandleExcludedTapRequest(
+                fermenter,
+                sender,
+                requestId,
+                batchTicks);
+            return;
+        }
+
         string content = GetContent(nview);
-        Fermenter.ItemConversion conversion = GetItemConversion(fermenter, content);
+        Fermenter.ItemConversion? conversion = GetItemConversion(fermenter, content);
         if (string.IsNullOrEmpty(content)
             || conversion == null
             || (UnityObject)(object)conversion.m_to == null
@@ -563,7 +399,7 @@ internal static class FermenterCookingBonusSystem
                 outputPrefabName,
                 baseItemCount,
                 skillPermille / 1000f,
-                CookingProductionBonusSystem.VanillaBonusChance);
+                DietConfig.GetFermenterOutputBonusChanceAtMaxCookingPercent());
         }
 
         OwnerTapContexts.Add(
@@ -579,7 +415,7 @@ internal static class FermenterCookingBonusSystem
         bool delayedTapWasAlreadyScheduled = HasScheduledDelayedTap(fermenter);
         try
         {
-            RpcTapMethod.Invoke(fermenter, new object[] { sender });
+            RpcTapMethod!.Invoke(fermenter, new object[] { sender });
             if (!string.IsNullOrEmpty(GetContent(nview))
                 && !TryRecoverScheduledTap(
                     fermenter,
@@ -608,6 +444,33 @@ internal static class FermenterCookingBonusSystem
                     batchTicks);
             }
         }
+    }
+
+    private static void HandleExcludedTapRequest(
+        Fermenter fermenter,
+        long sender,
+        int requestId,
+        long batchTicks)
+    {
+        if (HasScheduledDelayedTap(fermenter))
+        {
+            RejectTapRequest(fermenter, sender, requestId, batchTicks);
+            return;
+        }
+
+        try
+        {
+            RpcTapMethod!.Invoke(fermenter, new object[] { sender });
+        }
+        catch (Exception exception)
+        {
+            LogRequestFailure(exception);
+        }
+
+        // An outdated client may still use the custom request RPC after this
+        // fermenter becomes excluded. Let the validated tap follow the vanilla
+        // path, but explicitly terminate the custom request without bonus or XP.
+        RejectTapRequest(fermenter, sender, requestId, batchTicks);
     }
 
     private static void RejectOwnerTap(
@@ -671,7 +534,7 @@ internal static class FermenterCookingBonusSystem
                 return false;
             }
 
-            long currentBatchTicks = StationModule.GetFermenterBatchToken(fermenter);
+            long currentBatchTicks = FermenterEnvironmentSpeedSystem.GetBatchToken(fermenter);
             if (currentBatchTicks == 0L)
             {
                 if (!string.IsNullOrEmpty(GetContent(nview)))
@@ -679,7 +542,7 @@ internal static class FermenterCookingBonusSystem
                     zdo.Set(ZDOVars.s_content, string.Empty);
                 }
 
-                StationModule.NotifyFermenterBatchCleared(fermenter);
+                FermenterEnvironmentSpeedSystem.NotifyBatchCleared(fermenter);
                 return true;
             }
 
@@ -689,7 +552,7 @@ internal static class FermenterCookingBonusSystem
             }
 
             zdo.Set(ZDOVars.s_content, string.Empty);
-            StationModule.NotifyFermenterBatchCleared(fermenter);
+            FermenterEnvironmentSpeedSystem.NotifyBatchCleared(fermenter);
             return true;
         }
         catch (Exception exception)
@@ -730,7 +593,8 @@ internal static class FermenterCookingBonusSystem
         }
 
         ClientRequests.Remove(fermenter);
-        if (!completed)
+        if (!completed
+            || StationModule.IsFermenterBonusExcluded(fermenter))
         {
             return;
         }
@@ -752,21 +616,9 @@ internal static class FermenterCookingBonusSystem
         Vector3 effectPosition = (UnityObject)(object)fermenter.m_outputPoint != null
             ? fermenter.m_outputPoint.position + Vector3.up
             : fermenter.transform.position + Vector3.up;
-        if ((UnityObject)(object)DamageText.instance != null)
-        {
-            DamageText.instance.ShowText(
-                DamageText.TextType.Bonus,
-                effectPosition,
-                $"+{bonusItemCount}",
-                player: true);
-        }
-
-        if ((UnityObject)(object)InventoryGui.instance != null)
-        {
-            InventoryGui.instance.m_craftBonusEffect.Create(
-                effectPosition,
-                Quaternion.identity);
-        }
+        CookingProductionBonusSystem.ShowBonusEffect(
+            effectPosition,
+            bonusItemCount);
     }
 
     private static Player? FindRequestingPlayer(long sender, long playerId)
@@ -808,23 +660,69 @@ internal static class FermenterCookingBonusSystem
 
     private static bool IsReady(Fermenter fermenter)
     {
-        object? status = GetStatusMethod.Invoke(fermenter, null);
-        return string.Equals(status?.ToString(), "Ready", StringComparison.Ordinal);
+        try
+        {
+            object? status = GetStatusMethod?.Invoke(fermenter, null);
+            return string.Equals(status?.ToString(), "Ready", StringComparison.Ordinal);
+        }
+        catch (Exception exception)
+        {
+            LogRequestFailure(exception);
+            return false;
+        }
     }
 
-    private static Fermenter.ItemConversion GetItemConversion(
+    private static string GetDelayedTapItem(Fermenter fermenter)
+    {
+        try
+        {
+            return DelayedTapItemField?.GetValue(fermenter) as string ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            LogCompletionFailure(exception);
+            return string.Empty;
+        }
+    }
+
+    private static Fermenter.ItemConversion? GetItemConversion(
         Fermenter fermenter,
         string itemName)
     {
+        if (fermenter.m_conversion == null)
+        {
+            return null;
+        }
+
         foreach (Fermenter.ItemConversion conversion in fermenter.m_conversion)
         {
-            if (conversion.m_from.gameObject.name == itemName)
+            if (conversion?.m_from != null
+                && conversion.m_from.gameObject.name == itemName)
             {
                 return conversion;
             }
         }
 
-        return null!;
+        return null;
+    }
+
+    private static bool HasRuntimeContract()
+    {
+        if (GetStatusMethod != null
+            && RpcTapMethod != null
+            && DelayedTapItemField != null)
+        {
+            return true;
+        }
+
+        if (!_contractWarningLogged)
+        {
+            _contractWarningLogged = true;
+            FineDiningPlugin.Log.LogWarning(
+                "Fermenter Cooking bonus compatibility is unavailable because the expected private game members were not found; vanilla tapping remains active.");
+        }
+
+        return false;
     }
 
     private static int NextRequestId()
@@ -915,9 +813,13 @@ internal static class FermenterCookingBonusSystem
 internal static class FermenterCookingExperienceAddItemPatch
 {
     [HarmonyPostfix]
-    private static void Postfix(Humanoid user, bool __result)
+    private static void Postfix(
+        Fermenter __instance,
+        Humanoid user,
+        bool __result)
     {
         if (!__result
+            || StationModule.IsFermenterBonusExcluded(__instance)
             || user is not Player player
             || (UnityObject)(object)player == null
             || (UnityObject)(object)Player.m_localPlayer == null
@@ -1051,7 +953,7 @@ internal static class FermenterCookingBonusOutputPatch
     [HarmonyPostfix]
     private static void Postfix(
         Fermenter __instance,
-        FermenterCookingBonusSystem.OwnerTapContext? __state,
+        ref FermenterCookingBonusSystem.OwnerTapContext? __state,
         bool __runOriginal)
     {
         if (__runOriginal)
@@ -1062,5 +964,21 @@ internal static class FermenterCookingBonusOutputPatch
         {
             FermenterCookingBonusSystem.RejectDelayedTap(__instance, __state);
         }
+
+        __state = null;
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(
+        Fermenter __instance,
+        FermenterCookingBonusSystem.OwnerTapContext? __state,
+        Exception? __exception)
+    {
+        if (__exception != null && __state != null)
+        {
+            FermenterCookingBonusSystem.RejectDelayedTap(__instance, __state);
+        }
+
+        return __exception;
     }
 }

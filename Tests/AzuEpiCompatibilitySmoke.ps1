@@ -1,14 +1,60 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string] $AzuEpiAssemblyPath,
+    [string] $AzuEpiAssemblyPath = '',
     [string] $AssemblyPath = '',
+    [string] $JotunnAssemblyPath = '',
     [string] $GameDirectory = 'C:\Program Files (x86)\Steam\steamapps\common\Valheim'
 )
 
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -eq 'Core' -and $env:OS -eq 'Windows_NT')
+{
+    $windowsPowerShell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path -LiteralPath $windowsPowerShell -PathType Leaf))
+    {
+        throw 'AzuEPI IL smoke requires Windows PowerShell because Valheim ships Harmony 2.9 on .NET Framework.'
+    }
+
+    $relayArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+    if (-not [string]::IsNullOrWhiteSpace($AzuEpiAssemblyPath))
+    {
+        $relayArguments += @('-AzuEpiAssemblyPath', $AzuEpiAssemblyPath)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($AssemblyPath))
+    {
+        $relayArguments += @('-AssemblyPath', $AssemblyPath)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
+    {
+        $relayArguments += @('-JotunnAssemblyPath', $JotunnAssemblyPath)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GameDirectory))
+    {
+        $relayArguments += @('-GameDirectory', $GameDirectory)
+    }
+
+    & $windowsPowerShell @relayArguments
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Windows PowerShell AzuEPI smoke failed with exit code $LASTEXITCODE."
+    }
+
+    exit 0
+}
+
+$projectRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($AzuEpiAssemblyPath))
+{
+    $AzuEpiAssemblyPath = Join-Path $projectRoot 'LocalReferences\AzuExtendedPlayerInventory.dll'
+}
+
+if (-not (Test-Path -LiteralPath $AzuEpiAssemblyPath -PathType Leaf))
+{
+    throw "AzuEPI reference was not found at '$AzuEpiAssemblyPath'. Copy it to LocalReferences\AzuExtendedPlayerInventory.dll or pass -AzuEpiAssemblyPath."
+}
+
 if ([string]::IsNullOrWhiteSpace($AssemblyPath))
 {
-    $AssemblyPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\Debug\FineDining.dll'
+    $AssemblyPath = Join-Path $projectRoot 'bin\Debug\FineDining.dll'
 }
 
 $assemblyPath = (Resolve-Path -LiteralPath $AssemblyPath).Path
@@ -18,6 +64,11 @@ $azuEpiDirectory = Split-Path -Parent $azuEpiAssemblyPath
 $managedDirectory = Join-Path $GameDirectory 'valheim_Data\Managed'
 $publicizedDirectory = Join-Path $managedDirectory 'publicized_assemblies'
 $bepInExCoreDirectory = Join-Path $GameDirectory 'BepInEx\core'
+$jotunnDirectory = Join-Path $env:USERPROFILE '.nuget\packages\jotunnlib\2.29.2\lib\net462'
+if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
+{
+    $jotunnDirectory = Split-Path -Parent (Resolve-Path -LiteralPath $JotunnAssemblyPath).Path
+}
 
 [AppDomain]::CurrentDomain.add_AssemblyResolve({
     param($sender, $eventArgs)
@@ -26,6 +77,7 @@ $bepInExCoreDirectory = Join-Path $GameDirectory 'BepInEx\core'
     foreach ($directory in @(
         $assemblyDirectory,
         $azuEpiDirectory,
+        $jotunnDirectory,
         $bepInExCoreDirectory,
         $managedDirectory,
         $publicizedDirectory))

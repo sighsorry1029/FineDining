@@ -15,12 +15,7 @@ internal static class StationSmelterHoverTimePatch
             return;
         }
 
-        bool isWindmill = __instance.m_windmill != null;
-        int max = isWindmill
-            ? StationModule.WindmillMax.Value
-            : StationModule.SmelterMax.Value;
-        if (max <= 0
-            || !StationHoverTime.TryGetSmelterRemaining(
+        if (!StationHoverTime.TryGetSmelterRemaining(
                 __instance,
                 out int queueSize,
                 out double seconds))
@@ -32,30 +27,48 @@ internal static class StationSmelterHoverTimePatch
         __result = StationHoverTime.InsertAfter(
             __result,
             countText,
-            StationText.FormatTimer(seconds));
+            StationText.ColorizeTimer(
+                StationText.FormatSeconds(seconds, keepAtLeastOneSecond: true)));
     }
 }
 
 [HarmonyPatch(typeof(Fermenter), nameof(Fermenter.GetHoverText))]
 internal static class StationFermenterHoverTimePatch
 {
-    private const string EnvironmentColor = "#a8e6a1";
+    private const string DetailColor = "orange";
 
     private static void Postfix(Fermenter __instance, ref string __result)
     {
         if (!StationHoverTime.CanShow(__instance)
-            || StationModule.FermenterMax.Value <= 0
             || string.IsNullOrEmpty(__result))
         {
             return;
         }
 
-        if (StationHoverTime.TryGetFermenterRemaining(__instance, out double seconds))
+        if (StationModule.IsFermenterBonusExcluded(__instance))
         {
-            __result = StationHoverTime.InsertAtEndOfFirstLine(
-                __result,
-                StationText.FormatTimer(seconds));
+            if (FermenterEnvironmentSpeedSystem.TryGetRemainingSeconds(
+                    __instance,
+                    out double excludedSeconds,
+                    out _))
+            {
+                string excludedDuration = StationText.FormatDuration(excludedSeconds);
+                if (!string.IsNullOrEmpty(excludedDuration))
+                {
+                    InsertAfterFirstLine(
+                        ref __result,
+                        StationText.ColorizeTimer(excludedDuration));
+                }
+            }
+
+            return;
         }
+
+        bool hasRemainingTime =
+            FermenterEnvironmentSpeedSystem.TryGetRemainingSeconds(
+                __instance,
+                out double seconds,
+                out float speedMultiplier);
 
         FermenterEnvironmentSpeedSystem.EnvironmentStatus environment =
             FermenterEnvironmentSpeedSystem.GetEnvironmentStatus(__instance);
@@ -65,23 +78,38 @@ internal static class StationFermenterHoverTimePatch
         float depthMultiplier = environment.CanApplyBonus
             ? environment.DepthMultiplier
             : 1f;
-        string environmentText = ColorizeEnvironmentLine(
+        string detailText = ColorizeDetailLine(
             $"{StationText.CoverLabel}: {Mathf.RoundToInt(environment.Cover * 100f)}% "
             + $"({StationText.RateLabel}: {FormatMultiplier(coverMultiplier)})");
         if (environment.DepthKnown)
         {
-            environmentText += "\n" + ColorizeEnvironmentLine(
+            detailText += "\n" + ColorizeDetailLine(
                 $"{StationText.DepthLabel}: "
-                + $"{environment.DepthMeters.ToString("0.0", CultureInfo.InvariantCulture)} / "
-                + $"{FermenterEnvironmentSpeedSystem.MaximumDepthMeters.ToString("0.0", CultureInfo.InvariantCulture)} m "
+                + $"{environment.DepthMeters.ToString("0.0", CultureInfo.InvariantCulture)} m "
                 + $"({StationText.RateLabel}: {FormatMultiplier(depthMultiplier)})");
         }
 
-        InsertAfterFirstLine(ref __result, environmentText);
+        if (hasRemainingTime)
+        {
+            string duration = StationText.FormatDuration(seconds);
+            if (!string.IsNullOrEmpty(duration))
+            {
+                string timerText = StationText.ColorizeTimer(duration);
+                timerText +=
+                    $" ({StationText.FermentationSpeedLabel} "
+                    + $"{StationText.ColorizeTimer(FormatMultiplier(speedMultiplier))}"
+                    + ")";
+                detailText += "\n" + ColorizeDetailLine(timerText);
+                detailText += "\n" + ColorizeDetailLine(
+                    StationText.FermentationGuidanceLabel);
+            }
+        }
+
+        InsertAfterFirstLine(ref __result, detailText);
     }
 
-    private static string ColorizeEnvironmentLine(string line) =>
-        $"<color={EnvironmentColor}>{line}</color>";
+    private static string ColorizeDetailLine(string line) =>
+        $"<color={DetailColor}>{line}</color>";
 
     private static void InsertAfterFirstLine(ref string hoverText, string text)
     {
@@ -92,7 +120,7 @@ internal static class StationFermenterHoverTimePatch
     }
 
     private static string FormatMultiplier(float multiplier) =>
-        "x" + multiplier.ToString("0.#", CultureInfo.InvariantCulture);
+        "x" + multiplier.ToString("0.##", CultureInfo.InvariantCulture);
 }
 
 internal static class StationHoverTime
@@ -100,7 +128,7 @@ internal static class StationHoverTime
     private const float MinimumWindPower = 0.0001f;
 
     internal static bool CanShow(Component station) =>
-        StationModule.CanShowDisplay
+        StationModule.IsInitialized
         && Player.m_localPlayer != null
         && PrivateArea.CheckAccess(station.transform.position, 0f, false);
 
@@ -139,11 +167,6 @@ internal static class StationHoverTime
         seconds = remainingWork;
         return true;
     }
-
-    internal static bool TryGetFermenterRemaining(
-        Fermenter fermenter,
-        out double seconds) =>
-        FermenterEnvironmentSpeedSystem.TryGetRemainingSeconds(fermenter, out seconds);
 
     internal static string InsertAfter(string hoverText, string marker, string text)
     {

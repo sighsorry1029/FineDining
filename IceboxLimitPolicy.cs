@@ -10,31 +10,28 @@ namespace FineDining;
 
 internal sealed class IceboxLimitSnapshot
 {
-    internal IceboxLimitSnapshot(int defaultLimit, IReadOnlyDictionary<string, int> overrides)
+    internal IceboxLimitSnapshot(IReadOnlyDictionary<string, int> overrides)
     {
-        DefaultLimit = defaultLimit;
         Overrides = overrides;
     }
 
-    internal int DefaultLimit { get; }
     internal IReadOnlyDictionary<string, int> Overrides { get; }
 
-    internal int GetLimit(string accountId)
+    internal int GetLimit(string accountId, int defaultLimit)
     {
         string canonical = IceboxSubsystem.NormalizeAccountId(accountId);
-        return Overrides.TryGetValue(canonical, out int limit) ? limit : DefaultLimit;
+        return Overrides.TryGetValue(canonical, out int limit) ? limit : defaultLimit;
     }
 }
 
 /// <summary>
-/// Server-only, last-known-good Icebox count policy.  It is deliberately not a
-/// ServerSync value because it contains account identifiers that clients do not
-/// need and should not receive.
+/// Server-only, last-known-good per-Steam64 Icebox limit overrides. The shared
+/// default is synchronized through BepInEx; account identifiers remain server-only
+/// because clients do not need and should not receive them.
 /// </summary>
 internal static class IceboxLimitPolicy
 {
-    internal const string FileName = "FineDining.icebox-limits.yml";
-    internal const int BuiltInDefaultLimit = 2;
+    internal const string FileName = "Icebox.yml";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1d);
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
@@ -42,10 +39,10 @@ internal static class IceboxLimitPolicy
         .WithDuplicateKeyChecking()
         .Build();
 
-    private static readonly IceboxLimitSnapshot BuiltInSnapshot =
-        new(BuiltInDefaultLimit, new Dictionary<string, int>(StringComparer.Ordinal));
+    private static readonly IceboxLimitSnapshot EmptySnapshot =
+        new(new Dictionary<string, int>(StringComparer.Ordinal));
 
-    private static IceboxLimitSnapshot _current = BuiltInSnapshot;
+    private static IceboxLimitSnapshot _current = EmptySnapshot;
     private static DateTime _nextPollUtc = DateTime.MinValue;
     private static DateTime _lastProcessedWriteUtc = DateTime.MinValue;
     private static long _lastProcessedLength = -1L;
@@ -67,7 +64,7 @@ internal static class IceboxLimitPolicy
         }
 
         _initialized = true;
-        _current = BuiltInSnapshot;
+        _current = EmptySnapshot;
         _nextPollUtc = DateTime.MinValue;
         _lastProcessedWriteUtc = DateTime.MinValue;
         _lastProcessedLength = -1L;
@@ -105,7 +102,7 @@ internal static class IceboxLimitPolicy
     {
         _initialized = false;
         _authorityWasServer = false;
-        _current = BuiltInSnapshot;
+        _current = EmptySnapshot;
         _nextPollUtc = DateTime.MinValue;
         _lastProcessedWriteUtc = DateTime.MinValue;
         _lastProcessedLength = -1L;
@@ -123,10 +120,11 @@ internal static class IceboxLimitPolicy
             Directory.CreateDirectory(DirectoryPath);
             File.WriteAllText(
                 FilePath,
-                "# FineDining Icebox limits (server only).\n" +
+                "# FineDining per-Steam64 Icebox limit overrides (server only).\n" +
+                "# The synchronized Icebox Default Placement Limit config applies to unlisted accounts.\n" +
+                "# This file accepts only overrides; the legacy defaultLimit field is not supported.\n" +
                 "#  0: deny placement, -1: unlimited, positive: maximum count.\n" +
                 "# Quote Steam64 ids so YAML always treats them as strings.\n" +
-                "defaultLimit: " + BuiltInDefaultLimit.ToString(CultureInfo.InvariantCulture) + "\n" +
                 "overrides: {}\n" +
                 "# overrides:\n" +
                 "#   \"76561198000000000\": 6\n" +
@@ -184,8 +182,7 @@ internal static class IceboxLimitPolicy
 
         _current = snapshot!;
         FineDiningPlugin.Log.LogInfo(
-            $"Applied Icebox limit policy: default={snapshot!.DefaultLimit}, " +
-            $"overrides={snapshot.Overrides.Count}.");
+            $"Applied Icebox limit policy: overrides={snapshot!.Overrides.Count}.");
     }
 
     private static bool TryParse(
@@ -204,8 +201,6 @@ internal static class IceboxLimitPolicy
 
             IceboxLimitYaml document = Deserializer.Deserialize<IceboxLimitYaml>(yaml) ??
                 throw new InvalidDataException("The document cannot be null.");
-            int defaultLimit = document.DefaultLimit ?? BuiltInDefaultLimit;
-            ValidateLimit(defaultLimit, "defaultLimit");
 
             Dictionary<string, int> normalizedOverrides = new(StringComparer.Ordinal);
             if (document.Overrides != null)
@@ -231,7 +226,7 @@ internal static class IceboxLimitPolicy
                 }
             }
 
-            snapshot = new IceboxLimitSnapshot(defaultLimit, normalizedOverrides);
+            snapshot = new IceboxLimitSnapshot(normalizedOverrides);
             return true;
         }
         catch (Exception exception)
@@ -251,7 +246,6 @@ internal static class IceboxLimitPolicy
 
     private sealed class IceboxLimitYaml
     {
-        public int? DefaultLimit { get; set; }
         public Dictionary<string, int>? Overrides { get; set; }
     }
 }

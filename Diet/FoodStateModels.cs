@@ -27,8 +27,10 @@ internal sealed class ActiveFoodData
 [Serializable]
 internal sealed class PlayerFoodStateData
 {
+    public int UnlockedFoodSlots;
+    public float AppliedBaseSlotScale;
     public List<HistoryEntryData> Recent = new();
     public List<ChefEntryData> Chef = new();
-    public List<string> ChefQueue = new();
+    // Persisted oldest-to-newest consumption order for currently active foods.
     public List<ActiveFoodData> Active = new();
 }

@@ -1,4 +1,3 @@
-using System.Linq;
 using HarmonyLib;
 using UnityEngine;
 
@@ -19,12 +18,9 @@ internal static class StationHintHudAwakePatch
 [HarmonyPatch(typeof(Hud), nameof(Hud.UpdateCrosshair))]
 internal static class StationHintHudCrosshairPatch
 {
-    private static float _lastLogTime;
-    private static int _lastHoverId;
-
     private static void Postfix(Hud __instance, Player player)
     {
-        if (!StationModule.CanShowDisplay
+        if (!StationModule.IsInitialized
             || player == null
             || !__instance.IsVisible()
             || __instance.m_crosshair == null
@@ -46,104 +42,52 @@ internal static class StationHintHudCrosshairPatch
             return;
         }
 
-        Switch? switchRef = null;
-        object? useTarget = null;
-        CookingStation? cookingStation = null;
-        Smelter? smelter = null;
-        Fermenter? fermenter = null;
+        if (ValheimCuisineCompatibility.TryShow(
+                __instance,
+                hoverObject,
+                hoverable,
+                player))
+        {
+            return;
+        }
+
         if (hoverable is Switch selectedSwitch)
         {
-            switchRef = selectedSwitch;
-            useTarget = selectedSwitch.m_onUse?.Target;
-            if (useTarget is CookingStation targetCookingStation)
+            Component? resolvedTarget = ResolveSwitchTarget(selectedSwitch);
+            switch (resolvedTarget)
             {
-                cookingStation = targetCookingStation;
-                StationInputResolver.ShowCookingStation(cookingStation, selectedSwitch);
-            }
-            else if (useTarget is Smelter targetSmelter)
-            {
-                smelter = targetSmelter;
-                StationInputResolver.ShowSmelter(smelter, selectedSwitch);
-            }
-            else if (useTarget is Fermenter targetFermenter)
-            {
-                fermenter = targetFermenter;
-                StationInputResolver.ShowFermenter(fermenter);
-            }
-            else if ((cookingStation = selectedSwitch.GetComponentInParent<CookingStation>()) != null)
-            {
-                StationInputResolver.ShowCookingStation(cookingStation, selectedSwitch);
-            }
-            else if ((smelter = selectedSwitch.GetComponentInParent<Smelter>()) != null)
-            {
-                StationInputResolver.ShowSmelter(smelter, selectedSwitch);
-            }
-            else if ((fermenter = selectedSwitch.GetComponentInParent<Fermenter>()) != null)
-            {
-                StationInputResolver.ShowFermenter(fermenter);
+                case CookingStation cookingStation:
+                    StationInputResolver.ShowCookingStation(cookingStation, selectedSwitch);
+                    break;
+                case Smelter smelter:
+                    StationInputResolver.ShowSmelter(smelter, selectedSwitch);
+                    break;
+                case Fermenter fermenter:
+                    StationInputResolver.ShowFermenter(fermenter);
+                    break;
             }
         }
         else if (hoverable is CookingStation selectedCookingStation)
         {
-            cookingStation = selectedCookingStation;
-            StationInputResolver.ShowCookingStation(cookingStation, null);
+            StationInputResolver.ShowCookingStation(selectedCookingStation, null);
         }
         else if (hoverable is Fermenter selectedFermenter)
         {
-            fermenter = selectedFermenter;
-            StationInputResolver.ShowFermenter(fermenter);
+            StationInputResolver.ShowFermenter(selectedFermenter);
         }
-
-        LogDiagnostics(
-            hoverObject,
-            hoverable,
-            switchRef,
-            useTarget,
-            cookingStation,
-            smelter,
-            fermenter);
     }
 
-    private static void LogDiagnostics(
-        GameObject hoverObject,
-        Hoverable hoverable,
-        Switch? switchRef,
-        object? useTarget,
-        CookingStation? cookingStation,
-        Smelter? smelter,
-        Fermenter? fermenter)
+    private static Component? ResolveSwitchTarget(Switch selectedSwitch)
     {
-        if (!StationModule.Diagnostics.Value)
+        Component? directTarget = selectedSwitch.m_onUse?.Target as Component;
+        if (directTarget is CookingStation or Smelter or Fermenter)
         {
-            return;
+            return directTarget;
         }
 
-        int hoverId = hoverObject.GetInstanceID();
-        float now = Time.unscaledTime;
-        if (_lastHoverId == hoverId && now - _lastLogTime < 1f)
-        {
-            return;
-        }
-
-        _lastHoverId = hoverId;
-        _lastLogTime = now;
-
-        string hoverables = string.Join(
-            ", ",
-            hoverObject
-                .GetComponentsInParent<MonoBehaviour>(true)
-                .Where(component => component is Hoverable)
-                .Select(component => component.GetType().Name)
-                .Distinct());
-        FineDiningPlugin.Log.LogInfo(
-            "[Station Diagnostics] Hud hover object: "
-            + $"name='{hoverObject.name}', "
-            + $"selectedHoverable='{hoverable.GetType().Name}', "
-            + $"hoverables=[{hoverables}], "
-            + $"switch='{(switchRef != null ? switchRef.name : "<none>")}', "
-            + $"switchTarget='{useTarget?.GetType().FullName ?? "<none>"}', "
-            + $"cookingStation='{(cookingStation != null ? cookingStation.name : "<none>")}', "
-            + $"smelter='{(smelter != null ? smelter.name : "<none>")}', "
-            + $"fermenter='{(fermenter != null ? fermenter.name : "<none>")}'.");
+        Component? parentTarget = selectedSwitch.GetComponentInParent<CookingStation>();
+        parentTarget ??= selectedSwitch.GetComponentInParent<Smelter>();
+        parentTarget ??= selectedSwitch.GetComponentInParent<Fermenter>();
+        return parentTarget;
     }
 }

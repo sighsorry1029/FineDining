@@ -1,33 +1,46 @@
 using System;
+using System.Globalization;
 
 namespace FineDining;
 
 internal static class StationText
 {
+    internal const string TimerColorHex = "#FFD138";
     internal const string CoverToken = "$finedining_station_cover";
     internal const string DepthToken = "$finedining_station_depth";
     internal const string RateToken = "$finedining_station_rate";
-    internal const string TimerToken = "$finedining_station_timer";
+    internal const string FermentationSpeedToken = "$finedining_station_fermentation_speed";
+    internal const string FermentationGuidanceToken = "$finedining_station_fermentation_guidance";
+    internal const string SecondsToken = "$finedining_station_seconds";
+    internal const string AutoEjectToken = "$finedining_station_auto_eject";
 
-    internal static string CoverLabel => Localize(CoverToken, "Cover");
+    internal static string CoverLabel => FineDiningLocalization.LocalizeOrFallback(CoverToken, "Cover");
 
-    internal static string DepthLabel => Localize(DepthToken, "Depth");
+    internal static string DepthLabel => FineDiningLocalization.LocalizeOrFallback(DepthToken, "Depth");
 
-    internal static string RateLabel => Localize(RateToken, "Rate");
+    internal static string RateLabel => FineDiningLocalization.LocalizeOrFallback(RateToken, "Rate");
 
-    internal static string TimerLabel => Localize(TimerToken, "Time");
+    internal static string FermentationSpeedLabel =>
+        FineDiningLocalization.LocalizeOrFallback(FermentationSpeedToken, "Fermentation speed");
+
+    internal static string FermentationGuidanceLabel =>
+        FineDiningLocalization.LocalizeOrFallback(
+            FermentationGuidanceToken,
+            "More cover and greater depth make fermentation faster.");
+
+    internal static string AutoEjectLabel =>
+        FineDiningLocalization.LocalizeOrFallback(AutoEjectToken, "Auto eject");
+
+    internal static string ColorizeTimer(string text) =>
+        string.IsNullOrEmpty(text)
+            ? text
+            : $"<color={TimerColorHex}>{text}</color>";
 
     internal static string FormatDuration(double seconds, bool keepAtLeastOneSecond = false)
     {
-        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0d)
+        if (!TryGetTotalSeconds(seconds, keepAtLeastOneSecond, out long totalSeconds))
         {
             return string.Empty;
-        }
-
-        long totalSeconds = (long)Math.Ceiling(Math.Min(seconds, int.MaxValue));
-        if (keepAtLeastOneSecond && totalSeconds < 1L)
-        {
-            totalSeconds = 1L;
         }
 
         long hours = totalSeconds / 3600L;
@@ -38,23 +51,52 @@ internal static class StationText
             : $"{minutes:00}:{remainingSeconds:00}";
     }
 
-    internal static string FormatTimer(double seconds, bool keepAtLeastOneSecond = false)
+    internal static string FormatSeconds(double seconds, bool keepAtLeastOneSecond = false)
     {
-        string duration = FormatDuration(seconds, keepAtLeastOneSecond);
-        return string.IsNullOrEmpty(duration) ? string.Empty : $"{TimerLabel}: {duration}";
+        return FormatSecondsCore(
+            seconds,
+            keepAtLeastOneSecond,
+            FineDiningLocalization.LocalizeOrFallback(SecondsToken, "{0}s"));
     }
 
-    private static string Localize(string token, string fallback)
+    internal static string FormatSecondsCore(
+        double seconds,
+        bool keepAtLeastOneSecond,
+        string format)
     {
-        Localization? localization = Localization.instance;
-        if (localization == null)
+        if (!TryGetTotalSeconds(seconds, keepAtLeastOneSecond, out long totalSeconds))
         {
-            return fallback;
+            return string.Empty;
         }
 
-        string localized = localization.Localize(token);
-        return string.IsNullOrWhiteSpace(localized) || string.Equals(localized, token, StringComparison.Ordinal)
-            ? fallback
-            : localized;
+        try
+        {
+            return string.Format(CultureInfo.InvariantCulture, format, totalSeconds);
+        }
+        catch (FormatException)
+        {
+            return totalSeconds.ToString(CultureInfo.InvariantCulture) + "s";
+        }
     }
+
+    private static bool TryGetTotalSeconds(
+        double seconds,
+        bool keepAtLeastOneSecond,
+        out long totalSeconds)
+    {
+        totalSeconds = 0L;
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0d)
+        {
+            return false;
+        }
+
+        totalSeconds = (long)Math.Ceiling(Math.Min(seconds, int.MaxValue));
+        if (keepAtLeastOneSecond && totalSeconds < 1L)
+        {
+            totalSeconds = 1L;
+        }
+
+        return true;
+    }
+
 }

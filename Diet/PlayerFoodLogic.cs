@@ -10,6 +10,8 @@ internal static class PlayerFoodLogic
     internal static bool CanEat(Player player, ItemDrop.ItemData item, bool showMessages)
     {
         List<Player.Food> foods = player.GetFoods();
+        PlayerFoodStateData state = FoodStateStore.GetState(player);
+        int unlockedFoodSlots = FoodSlotProgression.GetCurrentSlots(player, state);
         string itemKey = FoodIdentity.GetCanonicalPrefabName(item);
         foreach (Player.Food food in foods)
         {
@@ -41,7 +43,7 @@ internal static class PlayerFoodLogic
             }
         }
 
-        if (foods.Count >= DietConfig.GetMaxFoodSlots())
+        if (foods.Count >= unlockedFoodSlots)
         {
             if (showMessages)
             {
@@ -62,30 +64,54 @@ internal static class PlayerFoodLogic
         }
 
         string key = FoodIdentity.GetCanonicalPrefabName(item);
-        Player.Food? targetFood = FindTargetFood(player, item);
+        PlayerFoodStateData state = FoodStateStore.GetState(player);
+        Player.Food? targetFood = FoodRules.FindTargetFood(player, state, item);
         if (targetFood == null || string.IsNullOrWhiteSpace(key))
         {
             return false;
         }
 
-        PlayerFoodStateData state = FoodStateStore.GetState(player);
+        bool replacesExistingFood = player.GetFoods().Contains(targetFood);
+        bool replacesDietFood = replacesExistingFood &&
+                                FoodIdentity.IsDirectlyEdible(targetFood.m_item);
+        if (replacesExistingFood)
+        {
+            FoodSlotProgression.ApplyPendingAfterFoodRemoval(
+                player,
+                state,
+                trimExcess: false);
+        }
+
         bool isChef = ChefCollectionService.TryConsumeChefEntry(
             player,
             state,
             key,
             out float chefMultiplier);
         int stack = RecentHistoryService.RegisterConsumption(state, key, isChef);
-        bool fullStraightActive = FoodRules.WillHaveFullStraightAfterEating(player, item);
+        if (isChef)
+        {
+            // Refill only after registering this consumption so the replacement
+            // sees the newly updated Health/Stamina/Eitr history composition.
+            ChefCollectionService.RefillAfterConsumption(player, state, key);
+        }
+
+        bool fullCourseActive = FoodRules.WillHaveFullCourseAfterEating(
+            player,
+            state,
+            item,
+            replacesExistingFood,
+            replacesDietFood);
         FoodEffect effect = FoodRules.CalculateFoodEffect(
             item,
             stack,
             isChef,
             chefMultiplier,
-            fullStraightActive);
+            fullCourseActive,
+            FoodSlotProgression.GetCurrentSlots(player, state));
 
         // This is the single persisted consumption snapshot. It already combines
         // slot/Chef/diminishing scale with this item's freshness, but deliberately
-        // excludes the dynamic Full Straight multiplier.
+        // excludes the dynamic Full Course multiplier.
         FoodRules.SetActiveFoodScale(state, key, effect.AppliedScale);
         ApplyFoodSnapshot(targetFood, item, key, effect.EffectiveScale);
 
@@ -94,6 +120,8 @@ internal static class PlayerFoodLogic
         {
             foods.Add(targetFood);
         }
+
+        FoodSlotProgression.TrimExcessFoods(player, state, targetFood);
 
         FoodStateStore.SaveState(player, state);
         string message = BuildFoodMessage(effect);
@@ -119,6 +147,7 @@ internal static class PlayerFoodLogic
             state = FoodStateStore.GetState(player);
             foodUpdateTimer -= 1f;
             bool removedFood = false;
+            int naturalExpiryCount = 0;
 
             for (int index = foods.Count - 1; index >= 0; index--)
             {
@@ -132,11 +161,21 @@ internal static class PlayerFoodLogic
                 player.Message(MessageHud.MessageType.Center, "$msg_food_done");
                 foods.RemoveAt(index);
                 removedFood = true;
+                if (!forceUpdate && FoodIdentity.IsDirectlyEdible(food.m_item))
+                {
+                    naturalExpiryCount++;
+                }
             }
 
             if (removedFood)
             {
+                FoodSlotProgression.ApplyPendingAfterFoodRemoval(player, state);
                 FoodStateStore.SaveState(player, state);
+            }
+
+            if (naturalExpiryCount > 0 && player == Player.m_localPlayer)
+            {
+                ChefCollectionService.RotateOldest(player, naturalExpiryCount);
             }
 
             RecalculateFoodStats(player, state);
@@ -157,12 +196,19 @@ internal static class PlayerFoodLogic
         foodRegenTimer = 0f;
         state ??= FoodStateStore.GetState(player);
         float regen = 0f;
+        float fullCourseScale = FoodRules.GetFullCourseScale(
+            player,
+            state,
+            FoodRules.CountActiveDietFoods(foods));
         foreach (Player.Food food in foods)
         {
-            regen += food.m_item.m_shared.m_foodRegen * FoodRules.GetAppliedScale(state, food);
+            bool isDietFood = FoodIdentity.IsDirectlyEdible(food.m_item);
+            float scale = isDietFood
+                ? FoodRules.GetAppliedScale(player, state, food) * fullCourseScale
+                : 1f;
+            regen += food.m_item.m_shared.m_foodRegen * scale;
         }
 
-        regen *= FoodRules.GetFullStraightScale(foods.Count);
         if (regen <= 0f)
         {
             return;
@@ -184,14 +230,20 @@ internal static class PlayerFoodLogic
     private static void RecalculateFoodStats(Player player, PlayerFoodStateData state)
     {
         List<Player.Food> foods = player.GetFoods();
-        float fullStraightScale = FoodRules.GetFullStraightScale(foods.Count);
+        float fullCourseScale = FoodRules.GetFullCourseScale(
+            player,
+            state,
+            FoodRules.CountActiveDietFoods(foods));
         foreach (Player.Food food in foods)
         {
             float normalizedTime = Mathf.Clamp01(
                 food.m_time / food.m_item.m_shared.m_foodBurnTime);
             normalizedTime = Mathf.Pow(normalizedTime, 0.3f);
 
-            float effectiveScale = FoodRules.GetAppliedScale(state, food) * fullStraightScale;
+            bool isDietFood = FoodIdentity.IsDirectlyEdible(food.m_item);
+            float effectiveScale = isDietFood
+                ? FoodRules.GetAppliedScale(player, state, food) * fullCourseScale
+                : 1f;
             food.m_health = food.m_item.m_shared.m_food * effectiveScale * normalizedTime;
             food.m_stamina = food.m_item.m_shared.m_foodStamina * effectiveScale * normalizedTime;
             food.m_eitr = food.m_item.m_shared.m_foodEitr * effectiveScale * normalizedTime;
@@ -205,37 +257,6 @@ internal static class PlayerFoodLogic
         {
             player.ShowTutorial("eitr");
         }
-    }
-
-    private static Player.Food? FindTargetFood(Player player, ItemDrop.ItemData item)
-    {
-        List<Player.Food> foods = player.GetFoods();
-        string itemKey = FoodIdentity.GetCanonicalPrefabName(item);
-        foreach (Player.Food food in foods)
-        {
-            if (FoodIdentity.GetCanonicalPrefabName(food) == itemKey)
-            {
-                return food.CanEatAgain() ? food : null;
-            }
-        }
-
-        return foods.Count < DietConfig.GetMaxFoodSlots()
-            ? new Player.Food()
-            : GetMostDepletedFood(foods);
-    }
-
-    private static Player.Food? GetMostDepletedFood(List<Player.Food> foods)
-    {
-        Player.Food? depleted = null;
-        foreach (Player.Food food in foods)
-        {
-            if (food.CanEatAgain() && (depleted == null || food.m_time < depleted.m_time))
-            {
-                depleted = food;
-            }
-        }
-
-        return depleted;
     }
 
     private static void GetTotalFoodValue(
@@ -288,11 +309,13 @@ internal static class PlayerFoodLogic
             message += $" +{FormatValue(effect.Eitr)} $item_food_eitr ";
         }
 
-        if (effect.FullStraightActive)
+        if (effect.FullCourseActive)
         {
             message += " " + Localization.instance.Localize(
-                "$finedining_diet_full_straight_message",
-                FoodRules.FullStraightMultiplier.ToString("0.00", CultureInfo.InvariantCulture));
+                "$finedining_diet_full_course_message",
+                DietConfig.GetFullCourseMultiplier().ToString(
+                    "0.00",
+                    CultureInfo.InvariantCulture));
         }
 
         return message;

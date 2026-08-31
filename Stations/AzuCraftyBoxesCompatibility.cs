@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using BepInEx.Bootstrap;
+using BepInEx.Configuration;
 using UnityEngine;
 
 namespace FineDining;
@@ -9,22 +11,35 @@ namespace FineDining;
 internal static class AzuCraftyBoxesCompatibility
 {
     internal const string PluginGuid = "Azumatt.AzuCraftyBoxes";
-
-    private const float MissingPluginRetrySeconds = 5f;
+    internal const string ContainerRangeSection = "2 - CraftyBoxes";
+    internal const string ContainerRangeKey = "Container Range";
 
     private static MethodInfo? _getNearbyContainersDefinition;
     private static MethodInfo? _countItemInContainer;
     private static MethodInfo? _canItemBePulled;
     private static MethodInfo? _getContainerPrefabName;
+    private static ConfigEntry<float>? _containerRange;
     private static bool _initialized;
     private static bool _isReady;
-    private static bool _broken;
-    private static float _nextLookupTime;
 
     internal static void Initialize()
     {
-        _nextLookupTime = 0f;
-        TryInitialize();
+        if (_initialized)
+        {
+            return;
+        }
+
+        _initialized = true;
+        if (!Chainloader.PluginInfos.TryGetValue(PluginGuid, out BepInEx.PluginInfo pluginInfo))
+        {
+            return;
+        }
+
+        BepInEx.BaseUnityPlugin? plugin = pluginInfo.Instance;
+        if (plugin != null)
+        {
+            TryInitialize(plugin);
+        }
     }
 
     internal static void Shutdown()
@@ -33,15 +48,14 @@ internal static class AzuCraftyBoxesCompatibility
         _countItemInContainer = null;
         _canItemBePulled = null;
         _getContainerPrefabName = null;
+        _containerRange = null;
         _initialized = false;
         _isReady = false;
-        _broken = false;
-        _nextLookupTime = 0f;
     }
 
-    internal static NearbyContainerQuery? CreateNearbyQuery(Component source, float range)
+    internal static NearbyContainerQuery? CreateNearbyQuery(Component source)
     {
-        if (source == null || !EnsureReady())
+        if (source == null || !_isReady)
         {
             return null;
         }
@@ -50,10 +64,12 @@ internal static class AzuCraftyBoxesCompatibility
         MethodInfo? countItemInContainer = _countItemInContainer;
         MethodInfo? canItemBePulled = _canItemBePulled;
         MethodInfo? getContainerPrefabName = _getContainerPrefabName;
+        ConfigEntry<float>? containerRange = _containerRange;
         if (getNearbyContainersDefinition == null
             || countItemInContainer == null
             || canItemBePulled == null
-            || getContainerPrefabName == null)
+            || getContainerPrefabName == null
+            || containerRange == null)
         {
             return null;
         }
@@ -61,7 +77,9 @@ internal static class AzuCraftyBoxesCompatibility
         try
         {
             MethodInfo getNearby = getNearbyContainersDefinition.MakeGenericMethod(source.GetType());
-            object? containersObject = getNearby.Invoke(null, new object[] { source, range });
+            object? containersObject = getNearby.Invoke(
+                null,
+                new object[] { source, containerRange.Value });
             if (containersObject is not IEnumerable containers)
             {
                 return null;
@@ -97,15 +115,15 @@ internal static class AzuCraftyBoxesCompatibility
     {
         if (string.IsNullOrEmpty(ownerPrefab)
             || string.IsNullOrEmpty(itemPrefab)
-            || !EnsureReady())
+            || !_isReady)
         {
-            return true;
+            return false;
         }
 
         MethodInfo? method = _canItemBePulled;
         if (method == null)
         {
-            return true;
+            return false;
         }
 
         try
@@ -115,41 +133,23 @@ internal static class AzuCraftyBoxesCompatibility
         catch (Exception exception)
         {
             Disable("AzuCraftyBoxes item filter failed.", exception);
-            return true;
+            return false;
         }
     }
 
-    private static bool EnsureReady()
+    private static void TryInitialize(BepInEx.BaseUnityPlugin plugin)
     {
-        if (_isReady)
-        {
-            return true;
-        }
-
-        TryInitialize();
-        return _isReady;
-    }
-
-    private static void TryInitialize()
-    {
-        if (_initialized || _broken || Time.unscaledTime < _nextLookupTime)
-        {
-            return;
-        }
-
         try
         {
-            Type? apiType = Type.GetType("AzuCraftyBoxes.API, AzuCraftyBoxes");
+            Assembly assembly = plugin.GetType().Assembly;
+            Type? apiType = assembly.GetType("AzuCraftyBoxes.API", throwOnError: false);
             if (apiType == null)
             {
-                // FineDining does not require the optional plugin to load first. Keep
-                // retrying lazily until the first station hover after all plugins load.
-                _nextLookupTime = Time.unscaledTime + MissingPluginRetrySeconds;
+                Disable("AzuCraftyBoxes compatibility disabled because its API type was not found.");
                 return;
             }
 
-            _initialized = true;
-            Type? containerType = apiType.Assembly.GetType(
+            Type? containerType = assembly.GetType(
                 "AzuCraftyBoxes.IContainers.IContainer",
                 false);
             if (containerType == null)
@@ -180,6 +180,7 @@ internal static class AzuCraftyBoxesCompatibility
                 null,
                 Type.EmptyTypes,
                 null);
+            ConfigEntry<float>? containerRange = TryGetContainerRangeEntry(plugin);
 
             if (getNearbyContainersDefinition == null
                 || countItemInContainer == null
@@ -190,10 +191,11 @@ internal static class AzuCraftyBoxesCompatibility
                 || canItemBePulled.ReturnType != typeof(bool)
                 || getContainerPrefabName == null
                 || getContainerPrefabName.IsGenericMethod
-                || getContainerPrefabName.ReturnType != typeof(string))
+                || getContainerPrefabName.ReturnType != typeof(string)
+                || containerRange == null)
             {
                 Disable(
-                    "AzuCraftyBoxes compatibility disabled because the expected API signature was not found.");
+                    "AzuCraftyBoxes compatibility disabled because the expected API or synchronized Container Range config was not found.");
                 return;
             }
 
@@ -201,6 +203,7 @@ internal static class AzuCraftyBoxesCompatibility
             _countItemInContainer = countItemInContainer;
             _canItemBePulled = canItemBePulled;
             _getContainerPrefabName = getContainerPrefabName;
+            _containerRange = containerRange;
             _isReady = true;
             FineDiningPlugin.Log.LogInfo("AzuCraftyBoxes station-hint compatibility enabled.");
         }
@@ -208,6 +211,16 @@ internal static class AzuCraftyBoxesCompatibility
         {
             Disable("AzuCraftyBoxes compatibility initialization failed.", exception);
         }
+    }
+
+    private static ConfigEntry<float>? TryGetContainerRangeEntry(BepInEx.BaseUnityPlugin plugin)
+    {
+        return plugin.Config.TryGetEntry(
+            ContainerRangeSection,
+            ContainerRangeKey,
+            out ConfigEntry<float> entry)
+            ? entry
+            : null;
     }
 
     private static MethodInfo? FindGetNearbyContainers(Type apiType, Type containerType)
@@ -264,11 +277,11 @@ internal static class AzuCraftyBoxesCompatibility
     private static void Disable(string message, Exception? exception = null)
     {
         _isReady = false;
-        _broken = true;
         _getNearbyContainersDefinition = null;
         _countItemInContainer = null;
         _canItemBePulled = null;
         _getContainerPrefabName = null;
+        _containerRange = null;
 
         FineDiningPlugin.Log.LogWarning(
             exception == null

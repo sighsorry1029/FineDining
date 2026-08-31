@@ -97,9 +97,10 @@ internal static class HudFoodSlots
         }
     }
 
-    internal static void LimitVisibleSlots(Hud hud)
+    internal static void LimitVisibleSlots(Hud hud, Player player)
     {
-        int visibleSlots = DietConfig.GetMaxFoodSlots();
+        PlayerFoodStateData state = FoodStateStore.GetState(player);
+        int visibleSlots = FoodSlotProgression.GetCurrentSlots(player, state);
         for (int index = 0; index < hud.m_foodBars.Length; index++)
         {
             bool visible = index < visibleSlots;
@@ -142,7 +143,12 @@ internal static class HudFoodSlots
             }
 
             bool hasFood = index < foods.Count && foods[index]?.m_item?.m_shared != null;
-            tooltip.Set(string.Empty, hasFood ? foods[index].m_item.m_shared.m_name : string.Empty);
+            string foodName = hasFood
+                ? Localization.instance.Localize(foods[index].m_item.m_shared.m_name)
+                : string.Empty;
+            tooltip.Set(
+                string.Empty,
+                HudFoodPanels.FormatFoodNameForTooltip(foodName));
             HudFoodPanels.UpdateTooltipHover(icon, tooltip, hasFood && icon.isActiveAndEnabled);
         }
     }
@@ -183,5 +189,3 @@ internal static class HudFoodSlots
         return current;
     }
 }
-
-

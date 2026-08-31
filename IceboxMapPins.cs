@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 
 namespace FineDining;
 
 /// <summary>
-/// Opt-in, client-local map pins. The server broadcasts only a position-free
+/// Client-local map pins. The server broadcasts only a position-free
 /// invalidation signal. Each enabled client then requests a full snapshot that
 /// is authenticated from its routed-RPC sender and contains only its account.
 /// </summary>
@@ -144,6 +145,30 @@ internal static class IceboxMapPins
         }
 
         InvalidateSnapshot();
+    }
+
+    internal static void ApplyPinScale(Minimap? minimap)
+    {
+        if (minimap == null || !ReferenceEquals(_boundMinimap, minimap))
+        {
+            return;
+        }
+
+        float baseSize = minimap.m_mode == Minimap.MapMode.Large
+            ? minimap.m_pinSizeLarge
+            : minimap.m_pinSizeSmall;
+        float pixels = baseSize;
+        foreach (Minimap.PinData pin in LocalPins.Values)
+        {
+            RectTransform? rect = pin?.m_uiElement;
+            if (rect == null)
+            {
+                continue;
+            }
+
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, pixels);
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, pixels);
+        }
     }
 
     internal static void HandleMinimapDestroyed(Minimap minimap)
@@ -642,5 +667,16 @@ internal static class IceboxMapPins
                 "Could not add an Icebox minimap pin: " + exception.GetBaseException().Message);
             return null;
         }
+    }
+}
+
+[HarmonyPatch(typeof(Minimap), nameof(Minimap.UpdatePins))]
+internal static class MinimapUpdatePinsIceboxMapPinsPatch
+{
+    [HarmonyPostfix]
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(Minimap __instance)
+    {
+        IceboxMapPins.ApplyPinScale(__instance);
     }
 }

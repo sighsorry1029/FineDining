@@ -1,5 +1,6 @@
 using System;
 using BepInEx.Configuration;
+using Jotunn.Managers;
 using ServerSync;
 
 namespace FineDining;
@@ -7,7 +8,8 @@ namespace FineDining;
 internal static class DietModule
 {
     private static bool _initialized;
-    private static bool _reconcileRequested;
+    private static bool _dietReconcileRequested;
+    private static bool _chefReconcileRequested;
 
     internal static void Initialize(ConfigFile config, ConfigSync configSync)
     {
@@ -18,16 +20,26 @@ internal static class DietModule
 
         DietConfig.Initialize(config, configSync);
         DietConfig.MaxFoodSlots.SettingChanged += FoodStateShapeChanged;
+        DietConfig.SixSlotFoodStatScale.SettingChanged += FoodStateShapeChanged;
+        DietConfig.NineSlotFoodStatScale.SettingChanged += FoodStateShapeChanged;
         DietConfig.RecentHistorySize.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefCollectionSize.SettingChanged += FoodStateShapeChanged;
+        DietConfig.ChefMultiplierMin.SettingChanged += FoodStateShapeChanged;
+        DietConfig.ChefMultiplierMax.SettingChanged += FoodStateShapeChanged;
         FineDiningLocalization.OnLocalizationComplete += HudFoodPanels.ResetAll;
-        _reconcileRequested = true;
+        ItemManager.OnItemsRegistered += ChefContentRegistered;
+        PrefabManager.OnPrefabsRegistered += ChefContentRegistered;
+        CookingStationAutoPopSystem.Reset();
+        FermenterCookingBonusSystem.ResetRuntime();
+        _dietReconcileRequested = true;
+        _chefReconcileRequested = true;
         _initialized = true;
     }
 
     internal static void Tick()
     {
-        if (!_initialized || !_reconcileRequested)
+        if (!_initialized ||
+            !_dietReconcileRequested && !_chefReconcileRequested)
         {
             return;
         }
@@ -38,13 +50,33 @@ internal static class DietModule
             return;
         }
 
-        _reconcileRequested = false;
-        HudFoodPanels.ResetAll();
-        TrimExcessFoods(player);
+        bool reconcileDiet = _dietReconcileRequested && ChefFoodTierCatalog.IsReady;
+        bool reconcileChef = _chefReconcileRequested && ChefFoodTierCatalog.IsReady;
+        if (!reconcileDiet && !reconcileChef)
+        {
+            return;
+        }
+
         PlayerFoodStateData state = FoodStateStore.GetState(player);
-        ChefCollectionService.EnsureChefCollection(player, state);
+        if (reconcileDiet)
+        {
+            _dietReconcileRequested = false;
+            HudFoodPanels.ResetAll();
+            FoodSlotProgression.ReconcileConfiguration(player, state);
+            FoodSlotProgression.TrimExcessFoods(player, state);
+        }
+
+        if (reconcileChef)
+        {
+            _chefReconcileRequested = false;
+            ChefCollectionService.EnsureChefCollection(player, state);
+        }
+
         FoodStateStore.SaveState(player, state);
-        PlayerFoodLogic.RefreshFoodStats(player);
+        if (reconcileDiet)
+        {
+            PlayerFoodLogic.RefreshFoodStats(player);
+        }
     }
 
     internal static void Shutdown()
@@ -52,39 +84,56 @@ internal static class DietModule
         if (_initialized)
         {
             DietConfig.MaxFoodSlots.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.SixSlotFoodStatScale.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.NineSlotFoodStatScale.SettingChanged -= FoodStateShapeChanged;
             DietConfig.RecentHistorySize.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefCollectionSize.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.ChefMultiplierMin.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.ChefMultiplierMax.SettingChanged -= FoodStateShapeChanged;
             FineDiningLocalization.OnLocalizationComplete -= HudFoodPanels.ResetAll;
+            ItemManager.OnItemsRegistered -= ChefContentRegistered;
+            PrefabManager.OnPrefabsRegistered -= ChefContentRegistered;
         }
 
         _initialized = false;
-        _reconcileRequested = false;
+        _dietReconcileRequested = false;
+        _chefReconcileRequested = false;
         HudFoodPanels.ResetAll();
         FoodStateStore.Reset();
+        FoodSlotProgression.Reset();
+        CookingStationAutoPopSystem.Reset();
+        FermenterCookingBonusSystem.ResetRuntime();
         DietConfig.Shutdown();
     }
 
     private static void FoodStateShapeChanged(object sender, EventArgs e)
     {
-        _reconcileRequested = true;
+        _dietReconcileRequested = true;
+        _chefReconcileRequested = true;
     }
 
-    private static void TrimExcessFoods(Player player)
+    internal static void InvalidateChefTierCatalog()
     {
-        var foods = player.GetFoods();
-        int maximum = DietConfig.GetMaxFoodSlots();
-        while (foods.Count > maximum)
-        {
-            int mostDepletedIndex = 0;
-            for (int index = 1; index < foods.Count; index++)
-            {
-                if (foods[index].m_time < foods[mostDepletedIndex].m_time)
-                {
-                    mostDepletedIndex = index;
-                }
-            }
-
-            foods.RemoveAt(mostDepletedIndex);
-        }
+        ChefFoodTierCatalog.Invalidate();
+        ChefTierReferenceGenerator.Invalidate();
+        FoodSlotProgression.Reset();
+        _dietReconcileRequested = true;
+        RequestChefCollectionReconcile();
     }
+
+    internal static void RequestChefCollectionReconcile()
+    {
+        _chefReconcileRequested = true;
+    }
+
+    internal static void RequestDietReconcile()
+    {
+        _dietReconcileRequested = true;
+    }
+
+    private static void ChefContentRegistered()
+    {
+        InvalidateChefTierCatalog();
+    }
+
 }

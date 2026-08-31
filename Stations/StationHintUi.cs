@@ -9,12 +9,15 @@ namespace FineDining;
 
 internal sealed class StationHintUi : MonoBehaviour
 {
-    private const int Columns = 5;
+    private const float CellWidth = 82f;
     private const float CellHeight = 96f;
+    private const float ColumnSpacing = 5f;
     private const float RowSpacing = 5f;
+    private const float HoverGap = 6f;
+    private const float ProgressInputGap = 12f;
+    private const float CookingProgressTextScale = 1.5f;
 
     private static StationHintUi? _instance;
-    private static bool _loggedMissingDependencies;
     private static bool _loggedCreationFailure;
     private static float _nextCreationAttemptTime;
 
@@ -23,6 +26,7 @@ internal sealed class StationHintUi : MonoBehaviour
     private GameObject? _root;
     private GameObject? _inputRoot;
     private GameObject? _progressRoot;
+    private TMP_Text? _hoverText;
     private int _visibleInputCount;
     private int _visibleProgressCount;
     private int _lastShowFrame = -100;
@@ -40,14 +44,6 @@ internal sealed class StationHintUi : MonoBehaviour
         GameObject? elementPrefab = playerGrid?.m_elementPrefab;
         if (hud == null || inventoryGui == null || playerGrid == null || elementPrefab == null)
         {
-            if (StationModule.Diagnostics.Value && !_loggedMissingDependencies)
-            {
-                _loggedMissingDependencies = true;
-                FineDiningPlugin.Log.LogInfo(
-                    $"[Station Diagnostics] UI not ready. hud={hud != null}, inventoryGui={inventoryGui != null}, "
-                    + $"playerGrid={playerGrid != null}, elementPrefab={elementPrefab != null}.");
-            }
-
             return;
         }
 
@@ -62,7 +58,6 @@ internal sealed class StationHintUi : MonoBehaviour
             candidate = hud.gameObject.AddComponent<StationHintUi>();
             candidate.Create(hud, elementPrefab);
             _instance = candidate;
-            _loggedMissingDependencies = false;
             _loggedCreationFailure = false;
             _nextCreationAttemptTime = 0f;
         }
@@ -89,7 +84,6 @@ internal sealed class StationHintUi : MonoBehaviour
         StationHintUi? instance = _instance;
         _instance = null;
         _nextCreationAttemptTime = 0f;
-        _loggedMissingDependencies = false;
         _loggedCreationFailure = false;
         if (instance != null)
         {
@@ -124,10 +118,19 @@ internal sealed class StationHintUi : MonoBehaviour
 
     private void Create(Hud hud, GameObject elementPrefab)
     {
-        Transform parent = hud.m_crosshair != null ? hud.m_crosshair.transform.parent : hud.transform;
-        _root = new GameObject("FineDining_StationHints");
+        _hoverText = hud.m_hoverName;
+        if (_hoverText == null)
+        {
+            throw new InvalidOperationException("HUD hover text is unavailable.");
+        }
+
+        Transform parent = _hoverText.rectTransform.parent;
+        _root = new GameObject("FineDining_StationHints", typeof(RectTransform));
         _root.SetActive(false);
         _root.transform.SetParent(parent, false);
+        ConfigureTopLeftRect(
+            (RectTransform)_root.transform,
+            Vector2.zero);
         _inputRoot = CreateGrid("FineDining_AvailableStationInputs", _root.transform);
         _progressRoot = CreateGrid("FineDining_CookingProgress", _root.transform);
 
@@ -136,11 +139,13 @@ internal sealed class StationHintUi : MonoBehaviour
             _inputElements.Add(new Element(
                 "FineDining_StationInputHint_" + index,
                 _inputRoot.transform,
-                elementPrefab));
+                elementPrefab,
+                emphasizeStatusText: false));
             _progressElements.Add(new Element(
                 "FineDining_CookingProgress_" + index,
                 _progressRoot.transform,
-                elementPrefab));
+                elementPrefab,
+                emphasizeStatusText: true));
         }
 
         ApplyConfiguration();
@@ -148,20 +153,37 @@ internal sealed class StationHintUi : MonoBehaviour
 
     private static GameObject CreateGrid(string name, Transform parent)
     {
-        GameObject root = new(name);
+        GameObject root = new(name, typeof(RectTransform));
         root.SetActive(false);
         root.transform.SetParent(parent, false);
+
+        int maximumRows = StationModule.MaxHintRows;
+        ConfigureTopLeftRect(
+            (RectTransform)root.transform,
+            new Vector2(
+                StationModule.HintColumns * CellWidth
+                + (StationModule.HintColumns - 1) * ColumnSpacing,
+                maximumRows * CellHeight + (maximumRows - 1) * RowSpacing));
 
         GridLayoutGroup layout = root.AddComponent<GridLayoutGroup>();
         layout.startCorner = GridLayoutGroup.Corner.UpperLeft;
         layout.startAxis = GridLayoutGroup.Axis.Horizontal;
         layout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-        layout.constraintCount = Columns;
-        layout.cellSize = new Vector2(82f, CellHeight);
-        layout.spacing = new Vector2(5f, RowSpacing);
-        layout.padding = new RectOffset(76, 0, 0, 46);
+        layout.constraintCount = StationModule.HintColumns;
+        layout.cellSize = new Vector2(CellWidth, CellHeight);
+        layout.spacing = new Vector2(ColumnSpacing, RowSpacing);
+        layout.padding = new RectOffset(0, 0, 0, 0);
         layout.childAlignment = TextAnchor.UpperLeft;
         return root;
+    }
+
+    private static void ConfigureTopLeftRect(RectTransform rect, Vector2 size)
+    {
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = rect.anchorMin;
+        rect.pivot = new Vector2(0f, 1f);
+        rect.sizeDelta = size;
+        rect.localPosition = Vector3.zero;
     }
 
     private void ShowGroups(
@@ -205,32 +227,62 @@ internal sealed class StationHintUi : MonoBehaviour
             return;
         }
 
-        _root.transform.localPosition = new Vector3(
-            StationModule.IconGroupOffsetX.Value,
-            StationModule.IconGroupOffsetY.Value,
-            0f);
         _root.transform.localScale = Vector3.one * StationModule.IconGroupScale.Value;
+        _progressRoot.transform.localPosition = Vector3.zero;
         _inputRoot.transform.localPosition = Vector3.zero;
 
-        float progressOffset = 0f;
         if (_visibleProgressCount > 0 && _visibleInputCount > 0)
         {
-            int progressRows = (_visibleProgressCount + Columns - 1) / Columns;
-            progressOffset = (progressRows - 1) * (CellHeight + RowSpacing)
-                             + CellHeight
-                             + StationModule.CookingGroupGap.Value;
+            int progressRows = (_visibleProgressCount + StationModule.HintColumns - 1)
+                               / StationModule.HintColumns;
+            float progressHeight = progressRows * CellHeight
+                                   + (progressRows - 1) * RowSpacing;
+            _inputRoot.transform.localPosition =
+                Vector3.down * (progressHeight + ProgressInputGap);
         }
-
-        _progressRoot.transform.localPosition = Vector3.up * progressOffset;
     }
 
     private void LateUpdate()
     {
-        if (_lastShowFrame != Time.frameCount)
+        if (_lastShowFrame == Time.frameCount)
         {
-            _root?.SetActive(false);
+            LayoutBelowHoverText();
+            return;
         }
+
+        _root?.SetActive(false);
     }
+
+    private void LayoutBelowHoverText()
+    {
+        if (_root == null || _hoverText == null)
+        {
+            return;
+        }
+
+        _hoverText.ForceMeshUpdate();
+        RectTransform hoverRect = _hoverText.rectTransform;
+        Vector3 bottomLeft = _hoverText.textInfo.characterCount > 0
+            ? _hoverText.textBounds.min
+            : new Vector3(hoverRect.rect.xMin, hoverRect.rect.yMin, 0f);
+        if (!IsFinite(bottomLeft.x) || !IsFinite(bottomLeft.y))
+        {
+            bottomLeft = new Vector3(hoverRect.rect.xMin, hoverRect.rect.yMin, 0f);
+        }
+
+        Vector3 worldBottomLeft = hoverRect.TransformPoint(bottomLeft);
+        Transform? parent = _root.transform.parent;
+        Vector3 localBottomLeft = parent != null
+            ? parent.InverseTransformPoint(worldBottomLeft)
+            : worldBottomLeft;
+        _root.transform.localPosition = new Vector3(
+            localBottomLeft.x,
+            localBottomLeft.y - HoverGap,
+            0f);
+    }
+
+    private static bool IsFinite(float value) =>
+        !float.IsNaN(value) && !float.IsInfinity(value);
 
     private void OnDestroy()
     {
@@ -248,6 +300,7 @@ internal sealed class StationHintUi : MonoBehaviour
         _root = null;
         _inputRoot = null;
         _progressRoot = null;
+        _hoverText = null;
         _inputElements.Clear();
         _progressElements.Clear();
         _visibleInputCount = 0;
@@ -266,11 +319,17 @@ internal sealed class StationHintUi : MonoBehaviour
         private readonly Image _icon;
         private readonly TMP_Text _label;
         private readonly TMP_Text _status;
+        private readonly TMP_Text _secondaryStatus;
 
-        internal Element(string name, Transform root, GameObject elementPrefab)
+        internal Element(
+            string name,
+            Transform root,
+            GameObject elementPrefab,
+            bool emphasizeStatusText)
         {
             _go = Instantiate(elementPrefab, root);
             _go.name = name;
+            float statusTextScale = emphasizeStatusText ? CookingProgressTextScale : 1f;
 
             foreach (MonoBehaviour behaviour in _go.GetComponents<MonoBehaviour>())
             {
@@ -307,11 +366,23 @@ internal sealed class StationHintUi : MonoBehaviour
 
             _status = status;
 
+            GameObject secondaryStatusObject = Instantiate(amountTransform.gameObject, _go.transform);
+            secondaryStatusObject.name = "FineDining_StationSecondaryStatus";
+            TMP_Text? secondaryStatus = secondaryStatusObject.GetComponent<TMP_Text>();
+            if (secondaryStatus == null)
+            {
+                throw new InvalidOperationException(
+                    "Inventory element prefab is missing a usable secondary status UI.");
+            }
+
+            _secondaryStatus = secondaryStatus;
+
             foreach (Transform child in _go.transform)
             {
                 if (child.name != "icon"
                     && child.name != "amount"
-                    && child.name != "FineDining_StationStatus")
+                    && child.name != "FineDining_StationStatus"
+                    && child.name != "FineDining_StationSecondaryStatus")
                 {
                     child.gameObject.SetActive(false);
                     Object.Destroy(child.gameObject);
@@ -338,17 +409,33 @@ internal sealed class StationHintUi : MonoBehaviour
             statusRect.anchorMin = new Vector2(0f, 1f);
             statusRect.anchorMax = new Vector2(1f, 1f);
             statusRect.pivot = new Vector2(0.5f, 1f);
-            statusRect.anchoredPosition = new Vector2(0f, -1f);
-            statusRect.sizeDelta = new Vector2(-4f, 24f);
+            statusRect.anchoredPosition = new Vector2(0f, -1f * statusTextScale);
+            statusRect.sizeDelta = new Vector2(-4f, 24f * statusTextScale);
             _status.textWrappingMode = TextWrappingModes.NoWrap;
             _status.overflowMode = TextOverflowModes.Ellipsis;
-            _status.fontSize = 12f;
+            _status.fontSize = 12f * statusTextScale;
             _status.enableAutoSizing = true;
-            _status.fontSizeMin = 7f;
-            _status.fontSizeMax = 12f;
+            _status.fontSizeMin = 7f * statusTextScale;
+            _status.fontSizeMax = 12f * statusTextScale;
             _status.maxVisibleLines = 1;
             _status.alignment = TextAlignmentOptions.Center;
-            _status.color = Color.white;
+            _status.color = new Color32(255, 165, 0, 255);
+
+            RectTransform secondaryStatusRect = _secondaryStatus.rectTransform;
+            secondaryStatusRect.anchorMin = new Vector2(0f, 1f);
+            secondaryStatusRect.anchorMax = new Vector2(1f, 1f);
+            secondaryStatusRect.pivot = new Vector2(0.5f, 1f);
+            secondaryStatusRect.anchoredPosition = new Vector2(0f, -19f * statusTextScale);
+            secondaryStatusRect.sizeDelta = new Vector2(-4f, 20f * statusTextScale);
+            _secondaryStatus.textWrappingMode = TextWrappingModes.NoWrap;
+            _secondaryStatus.overflowMode = TextOverflowModes.Ellipsis;
+            _secondaryStatus.fontSize = 10f * statusTextScale;
+            _secondaryStatus.enableAutoSizing = true;
+            _secondaryStatus.fontSizeMin = 7f * statusTextScale;
+            _secondaryStatus.fontSizeMax = 10f * statusTextScale;
+            _secondaryStatus.maxVisibleLines = 1;
+            _secondaryStatus.alignment = TextAlignmentOptions.Center;
+            _secondaryStatus.color = new Color32(159, 232, 112, 255);
 
             foreach (Graphic graphic in _go.GetComponentsInChildren<Graphic>(true))
             {
@@ -367,6 +454,8 @@ internal sealed class StationHintUi : MonoBehaviour
             _label.text = candidate.DisplayName;
             _status.enabled = !string.IsNullOrEmpty(candidate.StatusText);
             _status.text = candidate.StatusText;
+            _secondaryStatus.enabled = !string.IsNullOrEmpty(candidate.SecondaryStatusText);
+            _secondaryStatus.text = candidate.SecondaryStatusText;
         }
 
         internal void Hide()
@@ -374,4 +463,27 @@ internal sealed class StationHintUi : MonoBehaviour
             _go.SetActive(false);
         }
     }
+}
+
+internal sealed class StationHintCandidate
+{
+    internal StationHintCandidate(
+        string displayName,
+        Sprite? icon,
+        string statusText = "",
+        string secondaryStatusText = "")
+    {
+        DisplayName = displayName;
+        Icon = icon;
+        StatusText = statusText;
+        SecondaryStatusText = secondaryStatusText;
+    }
+
+    internal string DisplayName { get; }
+
+    internal Sprite? Icon { get; }
+
+    internal string StatusText { get; }
+
+    internal string SecondaryStatusText { get; }
 }

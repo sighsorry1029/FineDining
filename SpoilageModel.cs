@@ -6,6 +6,7 @@ internal enum SpoilageGroup
     CookingStationInput,
     CookingStationOutput,
     FermentedFood,
+    UnfermentedFood,
     FeastMaterial,
     FeastResult,
     Fish,
@@ -15,8 +16,8 @@ internal enum SpoilageGroup
 internal static class SpoilageDefaults
 {
     internal const string RottenMeatPrefabName = "RottenMeat";
-    internal const string RottenProducePrefabName = GeneratedPrefabRegistry.RottenProducePrefabName;
-    internal const string RottenFoodPrefabName = GeneratedPrefabRegistry.RottenFoodPrefabName;
+    internal const string RottenProducePrefabName = "FineDining_RottenProduce";
+    internal const string RottenFoodPrefabName = "FineDining_RottenFood";
 
     internal static string GetReplacementPrefab(SpoilageGroup group)
     {
@@ -27,6 +28,7 @@ internal static class SpoilageDefaults
             SpoilageGroup.CookingStationOutput => RottenMeatPrefabName,
             SpoilageGroup.Fish => RottenMeatPrefabName,
             SpoilageGroup.FermentedFood => RottenFoodPrefabName,
+            SpoilageGroup.UnfermentedFood => RottenFoodPrefabName,
             SpoilageGroup.FeastMaterial => RottenFoodPrefabName,
             SpoilageGroup.FeastResult => RottenFoodPrefabName,
             SpoilageGroup.OtherEdible => RottenFoodPrefabName,

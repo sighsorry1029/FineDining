@@ -1,0 +1,29 @@
+# FineDining spoilage policy.
+# Lifetime values are hours. Valid values are 0 through 720; 0 disables that group.
+version: 1
+lifetimes:
+  farmingHarvest: 72
+  cookingStationInput: 24
+  cookingStationOutput: 48
+  unfermentedFood: 48
+  fermentedFood: 72
+  feastMaterial: 72
+  feastResult: 48
+  fish: 24
+  otherEdible: 24
+
+# Exact prefab names excluded only from Chef's Choice selection.
+# Health regeneration by itself is never treated as an edible food stat, so
+# vanilla RottenMeat does not need to be listed here.
+chefChoiceBlacklist: []
+
+# Compact override schema:
+#   - <prefab>, <hours>[, <replacement prefab>]
+# A positive override force-includes that exact prefab. 0 disables it.
+# Examples:
+# Without the optional replacement, the item's automatic classification chooses
+# the fixed group replacement; unclassified force-includes use RottenMeat.
+#   - ModdedEdible, 100
+#   - ModdedProduce, 100, FineDining_RottenProduce
+#   - DecorativeFoodLikeItem, 0
+overrides: []

@@ -13,18 +13,15 @@ namespace FineDining;
 
 internal static class SpoilagePolicy
 {
-    private const string PolicyFileName = "FineDining.yml";
-    private const string DefaultPolicyResourceName = "FineDining.Resources.Defaults.FineDining.yml";
+    private const string PolicyFileName = "Spoilage.yml";
+    private const string DefaultPolicyResourceName = "FineDining.Resources.Defaults.Spoilage.yml";
     private const string SyncedYamlIdentifier = "finedining_spoilage_yaml";
     private const int SupportedVersion = 1;
-    private const double MaximumLifetimeHours = 5040d;
+    private const double MaximumLifetimeHours = 720d;
     private const double ReloadDebounceMilliseconds = 350d;
 
-    internal static string ConfigDirectoryPath =>
-        Path.Combine(Paths.ConfigPath, FineDiningPlugin.ModName);
-
     private static string PolicyFilePath =>
-        Path.Combine(ConfigDirectoryPath, PolicyFileName);
+        Path.Combine(FineDiningPlugin.ConfigDirectoryPath, PolicyFileName);
 
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
@@ -55,10 +52,15 @@ internal static class SpoilagePolicy
 
     internal static bool IsReady => _isReady && _policy != null;
 
-    internal static bool IsRuntimeReferenceAuthority =>
-        _configSync?.IsSourceOfTruth == true &&
-        ZNet.instance != null &&
-        ZNet.instance.IsServer();
+    internal static bool IsChefChoiceBlacklisted(string? prefabName)
+    {
+        if (string.IsNullOrWhiteSpace(prefabName))
+        {
+            return false;
+        }
+
+        return _policy?.ChefChoiceBlacklist.Contains(prefabName!.Trim()) == true;
+    }
 
     internal static void Initialize(ConfigSync sync)
     {
@@ -221,6 +223,25 @@ internal static class SpoilagePolicy
             group);
     }
 
+    internal static string NormalizeReplacementPrefabName(string? prefabName)
+    {
+        string normalized = FoodIdentity.NormalizePrefabName(prefabName);
+        if (string.Equals(
+                normalized,
+                SpoilageDefaults.RottenProducePrefabName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return SpoilageDefaults.RottenProducePrefabName;
+        }
+
+        return string.Equals(
+            normalized,
+            SpoilageDefaults.RottenFoodPrefabName,
+            StringComparison.OrdinalIgnoreCase)
+            ? SpoilageDefaults.RottenFoodPrefabName
+            : normalized;
+    }
+
     internal static bool TryGetReferenceOverrides(
         out List<SpoilagePolicyReferenceOverride> overrides)
     {
@@ -301,7 +322,7 @@ internal static class SpoilagePolicy
         };
         _reloadTimer.Elapsed += OnReloadTimerElapsed;
 
-        _watcher = new FileSystemWatcher(ConfigDirectoryPath, "*.yml")
+        _watcher = new FileSystemWatcher(FineDiningPlugin.ConfigDirectoryPath, "*.yml")
         {
             IncludeSubdirectories = false,
             SynchronizingObject = ThreadingHelper.SynchronizingObject,
@@ -446,8 +467,10 @@ internal static class SpoilagePolicy
         _isReady = true;
         DecayRuntime.InvalidateAll();
         SpoilageReferenceGenerator.Invalidate();
+        DietModule.RequestChefCollectionReconcile();
         FineDiningPlugin.Log.LogInfo(
-            $"Applied spoilage policy with {policy.Overrides.Count} item override(s).");
+            $"Applied FineDining policy with {policy.Overrides.Count} spoilage override(s) and " +
+            $"{policy.ChefChoiceBlacklist.Count} Chef Choice blacklist entry/entries.");
     }
 
     private static bool TryParseAndNormalize(
@@ -488,6 +511,9 @@ internal static class SpoilagePolicy
             double cookingStationOutputHours = RequireHours(
                 lifetimes.CookingStationOutput,
                 "lifetimes.cookingStationOutput");
+            double unfermentedFoodHours = RequireHours(
+                lifetimes.UnfermentedFood,
+                "lifetimes.unfermentedFood");
             double fermentedFoodHours = RequireHours(
                 lifetimes.FermentedFood,
                 "lifetimes.fermentedFood");
@@ -512,6 +538,8 @@ internal static class SpoilagePolicy
                     (cookingStationInputHours, HoursToTicks(cookingStationInputHours)),
                 [SpoilageGroup.CookingStationOutput] =
                     (cookingStationOutputHours, HoursToTicks(cookingStationOutputHours)),
+                [SpoilageGroup.UnfermentedFood] =
+                    (unfermentedFoodHours, HoursToTicks(unfermentedFoodHours)),
                 [SpoilageGroup.FermentedFood] =
                     (fermentedFoodHours, HoursToTicks(fermentedFoodHours)),
                 [SpoilageGroup.FeastMaterial] =
@@ -543,6 +571,18 @@ internal static class SpoilagePolicy
                 overrides.Add(entry.PrefabName, entry);
             }
 
+            HashSet<string> chefChoiceBlacklist =
+                new(StringComparer.OrdinalIgnoreCase);
+            foreach (string? rawPrefab in document.ChefChoiceBlacklist ?? new List<string>())
+            {
+                string prefab = RequirePrefab(rawPrefab, "chefChoiceBlacklist entry");
+                if (!chefChoiceBlacklist.Add(prefab))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate Chef Choice blacklist entry '{prefab}'.");
+                }
+            }
+
             HashSet<string> replacementPrefabs = new(StringComparer.OrdinalIgnoreCase)
             {
                 SpoilageDefaults.RottenMeatPrefabName,
@@ -571,7 +611,8 @@ internal static class SpoilagePolicy
             policy = new NormalizedPolicy(
                 normalizedLifetimes,
                 overrides,
-                replacementPrefabs);
+                replacementPrefabs,
+                chefChoiceBlacklist);
 
             SpoilageYamlDocument normalizedDocument = new()
             {
@@ -581,12 +622,17 @@ internal static class SpoilagePolicy
                     FarmingHarvest = farmingHarvestHours,
                     CookingStationInput = cookingStationInputHours,
                     CookingStationOutput = cookingStationOutputHours,
+                    UnfermentedFood = unfermentedFoodHours,
                     FermentedFood = fermentedFoodHours,
                     FeastMaterial = feastMaterialHours,
                     FeastResult = feastResultHours,
                     Fish = fishHours,
                     OtherEdible = otherEdibleHours
                 },
+                ChefChoiceBlacklist = chefChoiceBlacklist
+                    .OrderBy(prefab => prefab, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(prefab => prefab, StringComparer.Ordinal)
+                    .ToList(),
                 Overrides = overrides.Values
                     .OrderBy(entry => entry.PrefabName, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(entry => entry.PrefabName, StringComparer.Ordinal)
@@ -627,7 +673,8 @@ internal static class SpoilagePolicy
         }
 
         string replacement = hasReplacement
-            ? RequirePrefab(fields[2], $"Override '{prefab}' replacement")
+            ? NormalizeReplacementPrefabName(
+                RequirePrefab(fields[2], $"Override '{prefab}' replacement"))
             : SpoilageDefaults.RottenMeatPrefabName;
         if (hours > 0d && prefab.Equals(replacement, StringComparison.OrdinalIgnoreCase))
         {
@@ -736,7 +783,7 @@ internal static class SpoilagePolicy
 
     private static void EnsureLocalPolicyFileExists()
     {
-        Directory.CreateDirectory(ConfigDirectoryPath);
+        Directory.CreateDirectory(FineDiningPlugin.ConfigDirectoryPath);
         if (File.Exists(PolicyFilePath))
         {
             return;
@@ -756,11 +803,13 @@ internal static class SpoilagePolicy
         internal NormalizedPolicy(
             Dictionary<SpoilageGroup, (double Hours, long Ticks)> lifetimes,
             Dictionary<string, NormalizedItemOverride> overrides,
-            HashSet<string> replacementPrefabs)
+            HashSet<string> replacementPrefabs,
+            HashSet<string> chefChoiceBlacklist)
         {
             Lifetimes = lifetimes;
             Overrides = overrides;
             ReplacementPrefabs = replacementPrefabs;
+            ChefChoiceBlacklist = chefChoiceBlacklist;
         }
 
         internal Dictionary<SpoilageGroup, (double Hours, long Ticks)> Lifetimes { get; }
@@ -768,6 +817,8 @@ internal static class SpoilagePolicy
         internal Dictionary<string, NormalizedItemOverride> Overrides { get; }
 
         internal HashSet<string> ReplacementPrefabs { get; }
+
+        internal HashSet<string> ChefChoiceBlacklist { get; }
 
         internal long GetLifetimeTicks(SpoilageGroup group)
         {
@@ -834,6 +885,8 @@ internal sealed class SpoilageYamlDocument
 
     public SpoilageYamlLifetimes? Lifetimes { get; set; }
 
+    public List<string>? ChefChoiceBlacklist { get; set; }
+
     public List<string>? Overrides { get; set; }
 }
 
@@ -844,6 +897,8 @@ internal sealed class SpoilageYamlLifetimes
     public double? CookingStationInput { get; set; }
 
     public double? CookingStationOutput { get; set; }
+
+    public double? UnfermentedFood { get; set; }
 
     public double? FermentedFood { get; set; }
 

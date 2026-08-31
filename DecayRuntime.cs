@@ -10,7 +10,9 @@ internal static class DecayRuntime
 {
     // One atomic persisted clock: positive values are running absolute ZNet
     // deadlines, negative values are preservation-frozen remaining durations.
-    internal const string ExpiryDataKey = "sighsorry.FineDining.ExpiryWorldTicks";
+    // Compatibility surface used by the Harmony/UI integrations. SpoilageClock
+    // owns the persisted key and all clock interpretation.
+    private const string ExpiryDataKey = SpoilageClock.ExpiryDataKey;
     internal const string PlacedAnchorDataKey = "sighsorry.FineDining.PlacedWorldTicks";
 
     private sealed class InventoryState
@@ -55,9 +57,6 @@ internal static class DecayRuntime
     private static readonly List<KeyValuePair<int, WeakReference<ItemDrop>>> GroundDropSnapshot = new();
     private static readonly HashSet<string> LoggedReplacementWarnings = new(StringComparer.OrdinalIgnoreCase);
     private static float _nextTickAt;
-    private static bool _loggedFirstInventoryCheck;
-    private static bool _loggedFirstGroundRegistration;
-    private static bool _loggedFirstGroundExpiration;
     private static bool _loggedFirstGroundLoadFailure;
 
     internal static void Tick()
@@ -171,9 +170,6 @@ internal static class DecayRuntime
         GroundDropSnapshot.Clear();
         LoggedReplacementWarnings.Clear();
         _nextTickAt = 0f;
-        _loggedFirstInventoryCheck = false;
-        _loggedFirstGroundRegistration = false;
-        _loggedFirstGroundExpiration = false;
         _loggedFirstGroundLoadFailure = false;
     }
 
@@ -186,10 +182,11 @@ internal static class DecayRuntime
         }
 
         // Display remains read-only for inventories this peer does not own. An
-        // authoritative player/container inventory is reconciled immediately only
-        // after every visible rule is ready. World time is still returned while
-        // policy sync/ObjectDB discovery is pending so persisted timers remain
-        // visible without risking premature mutation.
+        // authoritative inventory is reconciled immediately only after every
+        // visible rule is ready. Player inventories may initialize missing
+        // clocks; containers only resume clocks that were activated previously.
+        // World time is still returned while policy sync/ObjectDB discovery is
+        // pending so persisted timers remain visible without premature mutation.
         if (IsAuthoritativeInventory(inventory))
         {
             InventoryState state = GetState(inventory);
@@ -207,35 +204,25 @@ internal static class DecayRuntime
     }
 
     internal static bool TryGetExpiryTicks(ItemDrop.ItemData? item, out long clockValue)
-    {
-        clockValue = 0L;
-        return item?.m_customData != null &&
-               item.m_customData.TryGetValue(ExpiryDataKey, out string value) &&
-               TryParseClockValue(value, out clockValue);
-    }
+        => SpoilageClock.TryGetExpiryTicks(item, out clockValue);
 
     internal static bool TryGetSpoilageClock(
         ItemDrop.ItemData? item,
         long nowTicks,
         out long remainingTicks,
         out bool paused)
-    {
-        remainingTicks = 0L;
-        paused = false;
-        return TryGetExpiryTicks(item, out long clockValue) &&
-               TryDecodeClockValue(clockValue, nowTicks, out remainingTicks, out paused);
-    }
+        => SpoilageClock.TryGetSpoilageClock(item, nowTicks, out remainingTicks, out paused);
 
     internal static string? ComposeStackClockValues(string? destinationValue, string? sourceValue)
     {
-        if (!TryParseClockValue(sourceValue, out long sourceClock))
+        if (!SpoilageClock.TryParseClockValue(sourceValue, out long sourceClock))
         {
             // Preserve an unknown destination format; a malformed source must
             // never erase or propagate metadata.
             return destinationValue;
         }
 
-        if (!TryParseClockValue(destinationValue, out long destinationClock))
+        if (!SpoilageClock.TryParseClockValue(destinationValue, out long destinationClock))
         {
             // A genuinely missing destination inherits the source. An unknown
             // future destination format remains exact identity and is left for
@@ -252,7 +239,7 @@ internal static class DecayRuntime
         }
 
         long nowTicks = hasWorldTicks ? worldTicks : 0L;
-        long composed = ComposeClockValues(
+        long composed = SpoilageClock.ComposeClockValues(
             destinationClock,
             sourceClock,
             nowTicks,
@@ -260,10 +247,47 @@ internal static class DecayRuntime
         return composed.ToString(CultureInfo.InvariantCulture);
     }
 
+    internal static bool CanMergeStackClockValues(
+        string? destinationValue,
+        string? sourceValue)
+    {
+        bool hasDestination = destinationValue != null;
+        bool hasSource = sourceValue != null;
+        long destinationClock = 0L;
+        long sourceClock = 0L;
+        if (hasDestination &&
+            !SpoilageClock.TryParseClockValue(destinationValue, out destinationClock))
+        {
+            return false;
+        }
+
+        if (hasSource &&
+            !SpoilageClock.TryParseClockValue(sourceValue, out sourceClock))
+        {
+            return false;
+        }
+
+        if (!hasDestination || !hasSource || (destinationClock < 0L) == (sourceClock < 0L))
+        {
+            return true;
+        }
+
+        // Running absolute deadlines and paused remaining durations can be
+        // compared only against the same authoritative world clock.
+        return TryGetWorldTicks(out _);
+    }
+
     internal static bool PrepareItemForAdd(Inventory inventory, ItemDrop.ItemData? item)
     {
         if (item == null ||
-            !IsAuthoritativeInventory(inventory) ||
+            !IsAuthoritativeInventory(inventory))
+        {
+            return false;
+        }
+
+        bool isPlayerInventory = IsLocalPlayerInventory(inventory);
+        bool hasClock = TryGetExpiryTicks(item, out _);
+        if (!ShouldProcessInventorySpoilageClock(isPlayerInventory, hasClock) ||
             !TryGetWorldTicks(out long nowTicks))
         {
             return false;
@@ -280,6 +304,11 @@ internal static class DecayRuntime
                    out _,
                    out _);
     }
+
+    internal static bool ShouldProcessInventorySpoilageClock(
+        bool isPlayerInventory,
+        bool hasClock) =>
+        isPlayerInventory || hasClock;
 
     internal static bool PrepareInheritedItemForAdd(
         Inventory inventory,
@@ -307,7 +336,7 @@ internal static class DecayRuntime
         ItemDrop.ItemData? target,
         long sourceClockValue)
     {
-        if (target == null || !IsValidClockValue(sourceClockValue) ||
+        if (target == null || !SpoilageClock.IsValidClockValue(sourceClockValue) ||
             !TryGetWorldTicks(out long nowTicks))
         {
             return false;
@@ -327,7 +356,7 @@ internal static class DecayRuntime
         AssignedLifetimeSnapshot targetLifetime,
         AssignedLifetimeSnapshot sourceLifetime)
     {
-        if (inventory == null || target == null || !IsValidClockValue(sourceClockValue))
+        if (inventory == null || target == null || !SpoilageClock.IsValidClockValue(sourceClockValue))
         {
             return false;
         }
@@ -420,6 +449,11 @@ internal static class DecayRuntime
         }
 
         int instanceId = drop.GetInstanceID();
+        if (ReconcileCreatorlessPlacedDrop(drop))
+        {
+            return;
+        }
+
         if (!HasValidGroundView(drop) ||
             !TryGetExpiryTicks(drop.m_itemData, out _) && !IsPlacedGroundDrop(drop))
         {
@@ -438,12 +472,6 @@ internal static class DecayRuntime
         }
 
         GroundDropsByInstanceId[instanceId] = new WeakReference<ItemDrop>(drop);
-        if (!_loggedFirstGroundRegistration)
-        {
-            _loggedFirstGroundRegistration = true;
-            FineDiningPlugin.Log.LogInfo(
-                "World spoilage tracking active; registered the first timestamped ItemDrop or placed food Piece.");
-        }
     }
 
     internal static void RefreshOwnedPlacedDrop(ItemDrop? drop)
@@ -480,6 +508,11 @@ internal static class DecayRuntime
         long placementTicks = 0L)
     {
         if (drop == null || !HasValidGroundView(drop) || !IsPlacedGroundDrop(drop))
+        {
+            return;
+        }
+
+        if (ReconcileCreatorlessPlacedDrop(drop))
         {
             return;
         }
@@ -572,8 +605,7 @@ internal static class DecayRuntime
             return false;
         }
 
-        Player localPlayer = Player.m_localPlayer;
-        if (localPlayer != null && ReferenceEquals(localPlayer.GetInventory(), inventory))
+        if (IsLocalPlayerInventory(inventory))
         {
             GetState(inventory);
             return true;
@@ -586,6 +618,14 @@ internal static class DecayRuntime
         }
 
         return IsOwnedContainer(container);
+    }
+
+    private static bool IsLocalPlayerInventory(Inventory? inventory)
+    {
+        Player localPlayer = Player.m_localPlayer;
+        return inventory != null &&
+               localPlayer != null &&
+               ReferenceEquals(localPlayer.GetInventory(), inventory);
     }
 
     internal static bool IsContainerLoading(Inventory? inventory)
@@ -717,6 +757,13 @@ internal static class DecayRuntime
             }
 
             bool isPlacedDrop = IsPlacedGroundDrop(drop);
+            if (isPlacedDrop && ReconcileCreatorlessPlacedDrop(drop))
+            {
+                registrationsToRemove ??= new List<int>();
+                registrationsToRemove.Add(pair.Key);
+                continue;
+            }
+
             if (isPlacedDrop && IsOwnedGroundDrop(drop) &&
                 drop.m_itemData?.m_customData.ContainsKey(PlacedAnchorDataKey) == true)
             {
@@ -859,6 +906,11 @@ internal static class DecayRuntime
         out bool expired)
     {
         expired = false;
+        if (ReconcileCreatorlessPlacedDrop(drop))
+        {
+            return false;
+        }
+
         ItemDrop.ItemData? groundItem = drop.m_itemData;
         if (groundItem == null)
         {
@@ -869,7 +921,7 @@ internal static class DecayRuntime
             groundItem,
             rule,
             nowTicks,
-            ResolveWorldDropPausedState(drop),
+            ResolveWorldDropPausedState(drop, rule.Group),
             transitionExisting: true,
             out long remainingTicks,
             out bool paused);
@@ -912,6 +964,11 @@ internal static class DecayRuntime
         bool keepPendingWhenNotReady)
     {
         if (!IsOwnedGroundDrop(drop))
+        {
+            return;
+        }
+
+        if (ReconcileCreatorlessPlacedDrop(drop))
         {
             return;
         }
@@ -970,17 +1027,17 @@ internal static class DecayRuntime
             return;
         }
 
-        bool pausedByCold = ResolveWorldDropPausedState(drop);
+        bool pausedByEnvironment = ResolveWorldDropPausedState(drop, rule.Group);
         long effectiveRemainingTicks = CalculateEffectiveRemainingTicks(
             nowTicks,
             effectiveAnchorTicks,
             rule.LifetimeTicks,
             inheritedRemainingTicks,
-            pausedByCold);
-        long clockValue = EncodeClockValue(
+            pausedByEnvironment);
+        long clockValue = SpoilageClock.EncodeClockValue(
             nowTicks,
             effectiveRemainingTicks,
-            pausedByCold && effectiveRemainingTicks > 0L);
+            pausedByEnvironment && effectiveRemainingTicks > 0L);
         changed |= SetClockValue(drop.m_itemData, clockValue);
         changed |= FreshnessRuntime.EnsureTrackedMetadata(
             drop.m_itemData,
@@ -1039,6 +1096,45 @@ internal static class DecayRuntime
         }
     }
 
+    internal static bool IsCreatorlessPlacedDrop(ItemDrop? drop)
+    {
+        try
+        {
+            // Infinity Hammer's NoCreator mode removes the ZDO field after
+            // vanilla SetCreator and ItemDrop.MakePiece have already run.  The
+            // Piece component can therefore retain a stale non-zero m_creator
+            // cache until the next load; the persisted ZDO is authoritative.
+            return drop != null &&
+                   IsPlacedGroundDrop(drop) &&
+                   drop.m_nview.GetZDO().GetLong(ZDOVars.s_creator, 0L) == 0L;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ReconcileCreatorlessPlacedDrop(ItemDrop? drop)
+    {
+        if (!IsCreatorlessPlacedDrop(drop))
+        {
+            return false;
+        }
+
+        // Only the current network owner may persist the cleanup. Other peers
+        // still stop tracking and rendering the stale clock immediately.
+        if (IsOwnedGroundDrop(drop!))
+        {
+            ClearOwnedGroundExpiry(drop!);
+        }
+        else
+        {
+            UnregisterGroundDrop(drop);
+        }
+
+        return true;
+    }
+
     private static bool TryGetPositiveCustomTicks(
         ItemDrop.ItemData? item,
         string key,
@@ -1056,15 +1152,15 @@ internal static class DecayRuntime
     {
         InventoryState state = GetState(inventory);
         Player localPlayer = Player.m_localPlayer;
-        if (localPlayer != null && ReferenceEquals(localPlayer.GetInventory(), inventory))
+        if (IsLocalPlayerInventory(inventory))
         {
-            return SampleInventoryBiome(state, localPlayer.transform.position);
+            return SampleInventoryBiome(state, localPlayer!.transform.position);
         }
 
         if (ContainersByInventory.TryGetValue(inventory, out WeakReference<Container> weak) &&
             weak.TryGetTarget(out Container container) && container != null)
         {
-            if (GeneratedPrefabRegistry.IsIcebox(container))
+            if (IceboxSubsystem.IsIcebox(container))
             {
                 return PreservationState.Paused;
             }
@@ -1087,8 +1183,15 @@ internal static class DecayRuntime
         return state.EnvironmentKnown && state.PausedByCold;
     }
 
-    private static bool ResolveWorldDropPausedState(ItemDrop drop)
+    private static bool ResolveWorldDropPausedState(
+        ItemDrop drop,
+        SpoilageGroup? knownGroup = null)
     {
+        if (IsFishPreservedInWater(drop, knownGroup))
+        {
+            return true;
+        }
+
         int instanceId = drop.GetInstanceID();
         Vector3 position = drop.transform.position;
         if (GroundEnvironmentSamples.TryGetValue(instanceId, out GroundEnvironmentSample sample) &&
@@ -1112,6 +1215,68 @@ internal static class DecayRuntime
         }
 
         return TryGetExpiryTicks(drop.m_itemData, out long clockValue) && clockValue < 0L;
+    }
+
+    private static bool IsFishPreservedInWater(
+        ItemDrop? drop,
+        SpoilageGroup? knownGroup)
+    {
+        if (drop == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            SpoilageGroup group;
+            if (knownGroup.HasValue)
+            {
+                group = knownGroup.Value;
+            }
+            else
+            {
+                ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(drop.m_itemData);
+                if (rule.State != SpoilageRuleState.Enabled)
+                {
+                    return false;
+                }
+
+                group = rule.Group;
+            }
+
+            if (group != SpoilageGroup.Fish)
+            {
+                return false;
+            }
+
+            Fish? fish = drop.GetComponent<Fish>() ??
+                         drop.GetComponentInParent<Fish>() ??
+                         drop.GetComponentInChildren<Fish>(true);
+            if (fish != null)
+            {
+                return !fish.IsOutOfWater();
+            }
+
+            // Modded Fish pickup items may be separate ItemDrop prefabs without
+            // a Fish component. Use their existing water-only Floating state as
+            // a bounded fallback; do not treat tar as preservation.
+            Floating? floating = drop.m_floating ?? drop.GetComponent<Floating>();
+            if (floating == null || floating.m_waterLevel <= -10000f)
+            {
+                return false;
+            }
+
+            float sampleY = floating.m_body != null
+                ? floating.m_body.worldCenterOfMass.y
+                : drop.transform.position.y;
+            return sampleY - floating.m_waterLevel - floating.m_waterLevelOffset <= 0.05f;
+        }
+        catch
+        {
+            // A malformed third-party Fish hierarchy must not interrupt the
+            // authoritative world-item decay loop.
+            return false;
+        }
     }
 
     private static PreservationState SampleInventoryBiome(InventoryState state, Vector3 position)
@@ -1190,7 +1355,7 @@ internal static class DecayRuntime
             {
                 pausedClocks.Add(new KeyValuePair<ItemDrop.ItemData, string>(item, originalValue));
                 item.m_customData[ExpiryDataKey] =
-                    EncodeClockValue(nowTicks, remainingTicks, paused: false)
+                    SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused: false)
                         .ToString(CultureInfo.InvariantCulture);
             }
         }
@@ -1247,15 +1412,12 @@ internal static class DecayRuntime
 
         state.Reconciling = true;
         bool changed = state.PendingNotification;
-        int foodItemCount = 0;
-        int existingTimerCount = 0;
-        int initializedTimerCount = 0;
         long nextExpiryTicks = long.MaxValue;
         bool pausedByCold = state.EnvironmentKnown && state.PausedByCold;
+        bool isPlayerInventory = IsLocalPlayerInventory(inventory);
         try
         {
             List<ItemDrop.ItemData> items = inventory.m_inventory;
-            int inspectedItemCount = items.Count;
             for (int index = items.Count - 1; index >= 0; index--)
             {
                 ItemDrop.ItemData item = items[index];
@@ -1286,10 +1448,13 @@ internal static class DecayRuntime
                     continue;
                 }
 
-                foodItemCount++;
-                if (TryGetExpiryTicks(item, out _))
+                bool hasClock = TryGetExpiryTicks(item, out _);
+                if (!ShouldProcessInventorySpoilageClock(isPlayerInventory, hasClock))
                 {
-                    existingTimerCount++;
+                    // Loading or populating a container must not begin spoilage.
+                    // A timer starts only after this stack first enters a player
+                    // inventory; persisted timers continue to run in containers.
+                    continue;
                 }
 
                 if (EnsureItemState(
@@ -1302,7 +1467,6 @@ internal static class DecayRuntime
                         out bool paused))
                 {
                     changed = true;
-                    initializedTimerCount++;
                 }
 
                 if (paused)
@@ -1322,7 +1486,7 @@ internal static class DecayRuntime
                     continue;
                 }
 
-                long expiryTicks = AddTicksSaturating(nowTicks, remainingTicks);
+                long expiryTicks = SpoilageClock.AddTicksSaturating(nowTicks, remainingTicks);
                 nextExpiryTicks = Math.Min(nextExpiryTicks, expiryTicks);
             }
 
@@ -1336,15 +1500,6 @@ internal static class DecayRuntime
 
             state.Dirty = false;
             state.NextExpiryTicks = nextExpiryTicks;
-            if (inspectedItemCount > 0 && !_loggedFirstInventoryCheck)
-            {
-                _loggedFirstInventoryCheck = true;
-                FineDiningPlugin.Log.LogInfo(
-                    "Spoilage runtime check: inspected " + inspectedItemCount +
-                    " stack(s), classified " + foodItemCount + " food stack(s), found " +
-                    existingTimerCount + " existing timer(s), initialized " +
-                    initializedTimerCount + " timer(s).");
-            }
         }
         catch (Exception ex)
         {
@@ -1362,7 +1517,7 @@ internal static class DecayRuntime
         ItemDrop.ItemData item,
         ResolvedSpoilageRule rule,
         long nowTicks,
-        bool pausedByCold,
+        bool shouldPause,
         bool transitionExisting,
         out long remainingTicks,
         out bool paused)
@@ -1378,29 +1533,29 @@ internal static class DecayRuntime
 
         if (TryGetSpoilageClock(item, nowTicks, out remainingTicks, out paused))
         {
-            if (!transitionExisting || paused == pausedByCold)
+            if (!transitionExisting || paused == shouldPause)
             {
                 return metadataChanged;
             }
 
-            // Expired warm food is resolved before a cold environment can
-            // freeze it. This prevents carrying a due stack into preservation from
-            // reviving it with a paused zero-duration clock.
+            // Expired running food is resolved before a preserving environment
+            // can freeze it. This prevents carrying a due stack into preservation
+            // from reviving it with a paused zero-duration clock.
             if (!paused && remainingTicks <= 0L)
             {
                 return metadataChanged;
             }
 
-            paused = pausedByCold;
-            long transitionedValue = EncodeClockValue(nowTicks, remainingTicks, paused);
+            paused = shouldPause;
+            long transitionedValue = SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused);
             item.m_customData[ExpiryDataKey] = transitionedValue.ToString(CultureInfo.InvariantCulture);
             return true;
         }
 
         long lifetimeTicks = Math.Max(TimeSpan.TicksPerSecond, rule.LifetimeTicks);
         remainingTicks = lifetimeTicks;
-        paused = pausedByCold;
-        long clockValue = EncodeClockValue(nowTicks, remainingTicks, paused);
+        paused = shouldPause;
+        long clockValue = SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused);
         item.m_customData[ExpiryDataKey] = clockValue.ToString(CultureInfo.InvariantCulture);
         return true;
     }
@@ -1411,7 +1566,7 @@ internal static class DecayRuntime
         out string configuredPrefab,
         out ItemDrop replacementDrop)
     {
-        configuredPrefab = FoodIdentity.NormalizePrefabName(rule.ReplacementPrefab);
+        configuredPrefab = SpoilagePolicy.NormalizeReplacementPrefabName(rule.ReplacementPrefab);
         replacementDrop = null!;
 
         ObjectDB objectDb = ObjectDB.instance;
@@ -1431,10 +1586,9 @@ internal static class DecayRuntime
         GameObject? replacementPrefab = ResolveItemPrefab(objectDb, configuredPrefab);
         if (replacementPrefab == null && generatedReplacement)
         {
-            // EnsureGeneratedReplacementAvailable succeeded only after both
-            // registries pointed at the same owned prefab.  A failed ObjectDB
-            // lookup here means another late registry mutation raced this
-            // expiry pass, so preserve the original and retry next tick.
+            // Jotunn had installed the same prefab in both registries. A failed
+            // lookup here means a late mutation raced this expiry pass, so
+            // preserve the original and retry next tick.
             return ReplacementResolution.NotReady;
         }
 
@@ -1560,6 +1714,11 @@ internal static class DecayRuntime
             return;
         }
 
+        if (ReconcileCreatorlessPlacedDrop(drop))
+        {
+            return;
+        }
+
         ZDO sourceZdo = drop.m_nview.GetZDO();
         ZDOID sourceZdoId = sourceZdo.m_uid;
         if (!TryGetExpiryTicks(drop.m_itemData, out long sourceExpiryTicks))
@@ -1587,7 +1746,6 @@ internal static class DecayRuntime
         if (sourceItem == null || sourceAmount <= 0)
         {
             drop.m_nview.Destroy();
-            LogFirstGroundExpiration(sourceAmount, replacementStackCount: 0);
             return;
         }
 
@@ -1606,7 +1764,6 @@ internal static class DecayRuntime
         if (resolution == ReplacementResolution.Invalid)
         {
             drop.m_nview.Destroy();
-            LogFirstGroundExpiration(sourceAmount, replacementStackCount: 0);
             return;
         }
 
@@ -1678,7 +1835,6 @@ internal static class DecayRuntime
         }
 
         drop.m_nview.Destroy();
-        LogFirstGroundExpiration(sourceAmount, replacementStackCount: 1);
     }
 
     private static bool GroundSourceStillMatches(
@@ -1688,7 +1844,8 @@ internal static class DecayRuntime
         string sourcePrefab,
         int sourceAmount)
     {
-        if (!IsOwnedGroundDrop(drop) || drop.m_nview.GetZDO().m_uid != sourceZdoId ||
+        if (!IsOwnedGroundDrop(drop) || IsCreatorlessPlacedDrop(drop) ||
+            drop.m_nview.GetZDO().m_uid != sourceZdoId ||
             drop.m_itemData == null || drop.m_itemData.m_stack != sourceAmount ||
             !TryGetExpiryTicks(drop.m_itemData, out long currentExpiryTicks) ||
             currentExpiryTicks != sourceExpiryTicks)
@@ -1758,19 +1915,6 @@ internal static class DecayRuntime
         // one-for-one transformation: 50 source items become 50 replacements,
         // including a deliberate 50/20 over-stack when the target is smaller.
         return Math.Max(0, sourceAmount);
-    }
-
-    private static void LogFirstGroundExpiration(int sourceAmount, int replacementStackCount)
-    {
-        if (_loggedFirstGroundExpiration)
-        {
-            return;
-        }
-
-        _loggedFirstGroundExpiration = true;
-        FineDiningPlugin.Log.LogInfo(
-            "Ground spoilage runtime expired a stack of " + sourceAmount +
-            " item(s); created " + replacementStackCount + " replacement stack(s).");
     }
 
     private static int InsertReplacementStack(
@@ -1859,103 +2003,23 @@ internal static class DecayRuntime
         key == ExpiryDataKey ||
         key == FreshnessRuntime.AssignedLifetimeDataKey;
 
-    internal static bool TryParseClockValue(string? value, out long clockValue)
-    {
-        clockValue = 0L;
-        return value != null &&
-               long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out clockValue) &&
-               IsValidClockValue(clockValue) &&
-               string.Equals(
-                   value,
-                   clockValue.ToString(CultureInfo.InvariantCulture),
-                   StringComparison.Ordinal);
-    }
-
-    private static bool IsValidClockValue(long clockValue)
-    {
-        return clockValue != 0L && clockValue != long.MinValue;
-    }
-
-    internal static bool TryDecodeClockValue(
-        long clockValue,
-        long nowTicks,
-        out long remainingTicks,
-        out bool paused)
-    {
-        remainingTicks = 0L;
-        paused = false;
-        if (!IsValidClockValue(clockValue))
-        {
-            return false;
-        }
-
-        if (clockValue < 0L)
-        {
-            paused = true;
-            remainingTicks = -clockValue;
-            return true;
-        }
-
-        remainingTicks = nowTicks > 0L
-            ? Math.Max(0L, clockValue - Math.Min(clockValue, nowTicks))
-            : clockValue;
-        return true;
-    }
-
-    internal static long EncodeClockValue(long nowTicks, long remainingTicks, bool paused)
-    {
-        long normalizedRemaining = Math.Max(0L, Math.Min(long.MaxValue, remainingTicks));
-        if (paused && normalizedRemaining > 0L)
-        {
-            return -normalizedRemaining;
-        }
-
-        if (normalizedRemaining <= 0L)
-        {
-            return Math.Max(1L, nowTicks);
-        }
-
-        return AddTicksSaturating(Math.Max(0L, nowTicks), normalizedRemaining);
-    }
-
-    private static long AddTicksSaturating(long left, long right)
-    {
-        long normalizedLeft = Math.Max(0L, left);
-        long normalizedRight = Math.Max(0L, right);
-        return normalizedRight >= long.MaxValue - normalizedLeft
-            ? long.MaxValue
-            : normalizedLeft + normalizedRight;
-    }
-
-    internal static long ComposeClockValues(
-        long destinationClock,
-        long sourceClock,
-        long nowTicks,
-        bool destinationPaused)
-    {
-        if (!TryDecodeClockValue(destinationClock, nowTicks, out long destinationRemaining, out _) ||
-            !TryDecodeClockValue(sourceClock, nowTicks, out long sourceRemaining, out _))
-        {
-            return destinationClock;
-        }
-
-        long remaining = Math.Min(destinationRemaining, sourceRemaining);
-        return EncodeClockValue(nowTicks, remaining, destinationPaused && remaining > 0L);
-    }
-
     private static bool ApplyEarlierClock(
         ItemDrop.ItemData target,
         long sourceClockValue,
         long nowTicks,
         bool destinationPaused)
     {
-        if (!IsValidClockValue(sourceClockValue))
+        if (!SpoilageClock.IsValidClockValue(sourceClockValue))
         {
             return false;
         }
 
         long composed = TryGetExpiryTicks(target, out long targetClockValue)
-            ? ComposeClockValues(targetClockValue, sourceClockValue, nowTicks, destinationPaused)
+            ? SpoilageClock.ComposeClockValues(
+                targetClockValue,
+                sourceClockValue,
+                nowTicks,
+                destinationPaused)
             : ReencodeClockValue(sourceClockValue, nowTicks, destinationPaused);
         return SetClockValue(target, composed);
     }
@@ -1971,20 +2035,23 @@ internal static class DecayRuntime
         }
 
         long nowTicks = TryGetWorldTicks(out long worldTicks) ? worldTicks : 0L;
-        long sourceClockValue = EncodeClockValue(nowTicks, sourceRemainingTicks, destinationPaused);
+        long sourceClockValue = SpoilageClock.EncodeClockValue(
+            nowTicks,
+            sourceRemainingTicks,
+            destinationPaused);
         return ApplyEarlierClock(target, sourceClockValue, nowTicks, destinationPaused);
     }
 
     private static long ReencodeClockValue(long clockValue, long nowTicks, bool paused)
     {
-        return TryDecodeClockValue(clockValue, nowTicks, out long remainingTicks, out _)
-            ? EncodeClockValue(nowTicks, remainingTicks, paused && remainingTicks > 0L)
+        return SpoilageClock.TryDecodeClockValue(clockValue, nowTicks, out long remainingTicks, out _)
+            ? SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused && remainingTicks > 0L)
             : clockValue;
     }
 
     private static bool SetClockValue(ItemDrop.ItemData target, long clockValue)
     {
-        if (!IsValidClockValue(clockValue))
+        if (!SpoilageClock.IsValidClockValue(clockValue))
         {
             return false;
         }
@@ -2007,23 +2074,6 @@ internal static class DecayRuntime
         }
     }
 
-    internal static bool TryGetWorldTicks(out long ticks)
-    {
-        ticks = 0L;
-        ZNet znet = ZNet.instance;
-        if (znet == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            ticks = znet.GetTime().Ticks;
-            return ticks > 0L;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    private static bool TryGetWorldTicks(out long ticks)
+        => SpoilageClock.TryGetWorldTicks(out ticks);
 }

@@ -28,7 +28,7 @@ internal static class PlacementSpoilageTracker
             if (player != null && piece != null && player == Player.m_localPlayer)
             {
                 state.TargetPrefabName = FoodIdentity.NormalizePrefabName(piece.gameObject.name);
-                DecayRuntime.TryGetWorldTicks(out state.PlacementTicks);
+                SpoilageClock.TryGetWorldTicks(out state.PlacementTicks);
                 if (!IsNoCostPlacement(player, piece))
                 {
                     state.InheritedRemainingTicks = CaptureConsumedRemaining(player.GetInventory(), piece);
@@ -114,7 +114,7 @@ internal static class PlacementSpoilageTracker
 
         bool initializedTimer = false;
         long earliestRemainingTicks = -1L;
-        if (!DecayRuntime.TryGetWorldTicks(out long nowTicks))
+        if (!SpoilageClock.TryGetWorldTicks(out long nowTicks))
         {
             return earliestRemainingTicks;
         }
@@ -226,7 +226,8 @@ internal static class PieceRecoverySpoilageTracker
                     // The local item data may still contain a valid persisted value.
                 }
 
-                if (DecayRuntime.TryGetWorldTicks(out long nowTicks))
+                if (!DecayRuntime.IsCreatorlessPlacedDrop(placedDrop) &&
+                    SpoilageClock.TryGetWorldTicks(out long nowTicks))
                 {
                     if (DecayRuntime.TryGetSpoilageClock(
                             placedDrop.m_itemData,

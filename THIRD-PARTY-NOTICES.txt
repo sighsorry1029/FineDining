@@ -1,5 +1,10 @@
 THIRD-PARTY NOTICES
 
+Jotunn 2.29.2
+Required external runtime dependency; not bundled into FineDining.
+https://github.com/Valheim-Modding/Jotunn
+Licensed under the MIT License.
+
 YamlDotNet 16.3.0
 https://github.com/aaubry/YamlDotNet
 

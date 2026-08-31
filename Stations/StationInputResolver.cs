@@ -26,8 +26,6 @@ internal static class StationInputResolver
         AccessTools.Method(typeof(CookingStation), "GetFreeSlot");
     private static readonly MethodInfo? CookingStationGetFuelMethod =
         AccessTools.Method(typeof(CookingStation), "GetFuel");
-    private static readonly MethodInfo? SmelterGetFuelMethod =
-        AccessTools.Method(typeof(Smelter), "GetFuel");
     private static readonly MethodInfo? SmelterGetQueueSizeMethod =
         AccessTools.Method(typeof(Smelter), "GetQueueSize");
     private static readonly MethodInfo? FermenterGetStatusMethod =
@@ -36,7 +34,6 @@ internal static class StationInputResolver
         AccessTools.Field(typeof(Fermenter), "m_hasRoof");
     private static readonly FieldInfo? FermenterExposedField =
         AccessTools.Field(typeof(Fermenter), "m_exposed");
-    private static readonly Dictionary<string, float> LastDiagnosticLogTimes = new();
 
     private static Component? _cachedStation;
     private static string _cachedMode = string.Empty;
@@ -52,7 +49,6 @@ internal static class StationInputResolver
         _cachedMax = 0;
         _cacheExpiresAt = 0f;
         _cachedCandidates = Array.Empty<StationHintCandidate>();
-        LastDiagnosticLogTimes.Clear();
     }
 
     internal static void ShowCookingStation(CookingStation station, Switch? switchRef)
@@ -62,7 +58,8 @@ internal static class StationInputResolver
             return;
         }
 
-        int max = StationModule.CookingStationMax.Value;
+        int max = StationModule.GetHintLimit(
+            StationModule.CookingStationRows.Value);
         if (max <= 0)
         {
             return;
@@ -87,7 +84,6 @@ internal static class StationInputResolver
             }
 
             inputs.Add(fuelItem);
-            LogGate("CookingStation", station, "fuel", "accepted gate");
         }
         else if (switchRef == null || switchRef == addFoodSwitch)
         {
@@ -95,48 +91,33 @@ internal static class StationInputResolver
             bool fireBlocked = station.m_requireFire
                                && !InvokeBool(CookingStationIsFireLitMethod, station);
             bool slotBlocked = InvokeInt(CookingStationGetFreeSlotMethod, station, -1) == -1;
-            if (fireBlocked || slotBlocked)
-            {
-                LogGate(
-                    "CookingStation",
-                    station,
-                    "food",
-                    $"input blocked fire={fireBlocked} slotsFull={slotBlocked}");
-            }
-            else if (station.m_conversion != null)
+            if (!fireBlocked && !slotBlocked && station.m_conversion != null)
             {
                 inputs.AddRange(station.m_conversion
                     .Where(conversion => conversion != null && IsValidItem(conversion.m_from))
                     .Select(conversion => conversion.m_from));
             }
-
-            if (StationModule.Diagnostics.Value)
-            {
-                LogGate(
-                    "CookingStation",
-                    station,
-                    "food",
-                    $"accepted gate rawInputs={inputs.Count}");
-            }
         }
         else
         {
-            LogGate(
-                "CookingStation",
-                station,
-                "unknown switch",
-                "switch did not match add food/fuel");
             return;
         }
 
-        IReadOnlyList<StationHintCandidate> inputCandidates = GetCachedOrBuild(
-            "CookingStation",
-            mode,
-            station,
-            inputs,
-            max);
         IReadOnlyList<StationHintCandidate> progressCandidates =
-            CookingProgressResolver.GetCandidates(station);
+            CookingProgressResolver.GetCandidates(station, max);
+        int progressRows =
+            (progressCandidates.Count + StationModule.HintColumns - 1)
+            / StationModule.HintColumns;
+        int inputLimit = Math.Max(
+            0,
+            max - progressRows * StationModule.HintColumns);
+        IReadOnlyList<StationHintCandidate> inputCandidates = inputLimit > 0
+            ? GetCachedOrBuild(
+                mode,
+                station,
+                inputs,
+                inputLimit)
+            : Array.Empty<StationHintCandidate>();
         StationHintUi.ShowCookingStation(progressCandidates, inputCandidates);
     }
 
@@ -149,9 +130,10 @@ internal static class StationInputResolver
 
         bool isWindmill = smelter.m_windmill != null;
         string componentName = isWindmill ? "Windmill" : "Smelter";
-        int max = isWindmill
-            ? StationModule.WindmillMax.Value
-            : StationModule.SmelterMax.Value;
+        int max = StationModule.GetHintLimit(
+            isWindmill
+                ? StationModule.WindmillRows.Value
+                : StationModule.SmelterRows.Value);
         if (max <= 0)
         {
             return;
@@ -163,19 +145,7 @@ internal static class StationInputResolver
         Switch? addOreSwitch = smelter.m_addOreSwitch;
         if (switchRef != null && switchRef == addWoodSwitch)
         {
-            mode = componentName + "Fuel";
-            ItemDrop? fuelItem = smelter.m_fuelItem;
-            int maxFuel = smelter.m_maxFuel;
-            if (fuelItem == null
-                || maxFuel <= 0
-                || InvokeFloat(SmelterGetFuelMethod, smelter, maxFuel) > maxFuel - 1
-                || !IsValidItem(fuelItem))
-            {
-                return;
-            }
-
-            inputs.Add(fuelItem);
-            LogGate(componentName, smelter, "fuel", "accepted gate");
+            return;
         }
         else if (switchRef != null && switchRef == addOreSwitch)
         {
@@ -184,7 +154,6 @@ internal static class StationInputResolver
             if (maxOre <= 0
                 || InvokeInt(SmelterGetQueueSizeMethod, smelter, maxOre) >= maxOre)
             {
-                LogGate(componentName, smelter, "input", "blocked by queue gate");
                 return;
             }
 
@@ -195,26 +164,13 @@ internal static class StationInputResolver
                     .Select(conversion => conversion.m_from));
             }
 
-            if (StationModule.Diagnostics.Value)
-            {
-                LogGate(
-                    componentName,
-                    smelter,
-                    "input",
-                    $"accepted gate rawInputs={inputs.Count}");
-            }
         }
         else
         {
-            LogGate(
-                componentName,
-                smelter,
-                "unknown switch",
-                "switch did not match add input/fuel");
             return;
         }
 
-        ShowFor(componentName, mode, smelter, inputs, max);
+        ShowFor(mode, smelter, inputs, max);
     }
 
     internal static void ShowFermenter(Fermenter fermenter)
@@ -224,9 +180,9 @@ internal static class StationInputResolver
             return;
         }
 
-        int max = StationModule.FermenterMax.Value;
-        bool diagnostics = StationModule.Diagnostics.Value;
-        if (max <= 0 && !diagnostics)
+        int max = StationModule.GetHintLimit(
+            StationModule.FermenterRows.Value);
+        if (max <= 0)
         {
             return;
         }
@@ -234,23 +190,13 @@ internal static class StationInputResolver
         FermenterStatus status = GetFermenterStatus(fermenter);
         bool hasRoof = ReadBool(FermenterHasRoofField, fermenter);
         bool exposed = ReadBool(FermenterExposedField, fermenter);
-        if (max <= 0 || status != FermenterStatus.Empty || !hasRoof || exposed)
+        if (status != FermenterStatus.Empty || !hasRoof || exposed)
         {
-            if (diagnostics)
-            {
-                LogGate(
-                    "Fermenter",
-                    fermenter,
-                    "input",
-                    $"blocked gate max={max} status={status} hasRoof={hasRoof} exposed={exposed}");
-            }
-
             return;
         }
 
         if (!PrivateArea.CheckAccess(fermenter.transform.position, 0f, false))
         {
-            LogGate("Fermenter", fermenter, "input", "blocked by private area");
             return;
         }
 
@@ -260,30 +206,19 @@ internal static class StationInputResolver
                 .Where(conversion => conversion != null && IsValidItem(conversion.m_from))
                 .Select(conversion => conversion.m_from)
                 .ToList();
-        if (diagnostics)
-        {
-            LogGate(
-                "Fermenter",
-                fermenter,
-                "input",
-                $"accepted gate rawInputs={inputs.Count}");
-        }
-
-        ShowFor("Fermenter", "FermenterInput", fermenter, inputs, max);
+        ShowFor("FermenterInput", fermenter, inputs, max);
     }
 
     private static bool CanShow() =>
-        StationModule.CanShowDisplay && Player.m_localPlayer != null;
+        StationModule.IsInitialized && Player.m_localPlayer != null;
 
     private static void ShowFor(
-        string componentName,
         string mode,
         Component station,
         IEnumerable<ItemDrop> inputs,
         int max)
     {
         IReadOnlyList<StationHintCandidate> candidates = GetCachedOrBuild(
-            componentName,
             mode,
             station,
             inputs,
@@ -295,7 +230,6 @@ internal static class StationInputResolver
     }
 
     private static IReadOnlyList<StationHintCandidate> GetCachedOrBuild(
-        string componentName,
         string mode,
         Component station,
         IEnumerable<ItemDrop> inputs,
@@ -309,29 +243,16 @@ internal static class StationInputResolver
             return _cachedCandidates;
         }
 
-        CandidateBuildResult build = BuildCandidates(station, inputs, max);
+        IReadOnlyList<StationHintCandidate> candidates = BuildCandidates(station, inputs, max);
         _cachedStation = station;
         _cachedMode = mode;
         _cachedMax = max;
         _cacheExpiresAt = Time.unscaledTime + CandidateCacheSeconds;
-        _cachedCandidates = build.Candidates;
-
-        if (StationModule.Diagnostics.Value)
-        {
-            LogGate(
-                componentName,
-                station,
-                "build",
-                $"raw={build.Raw}, invalid={build.Invalid}, duplicate={build.Duplicate}, "
-                + $"unknown={build.Unknown}, azuBlocked={build.BlockedByAzuCraftyBoxes}, "
-                + $"unavailable={build.Unavailable}, player={build.PlayerAvailable}, "
-                + $"nearbyOnly={build.NearbyOnlyAvailable}, shown={build.Candidates.Count}");
-        }
-
-        return build.Candidates;
+        _cachedCandidates = candidates;
+        return candidates;
     }
 
-    private static CandidateBuildResult BuildCandidates(
+    private static IReadOnlyList<StationHintCandidate> BuildCandidates(
         Component station,
         IEnumerable<ItemDrop> inputs,
         int max)
@@ -343,28 +264,23 @@ internal static class StationInputResolver
         List<StationHintCandidate> playerCandidates = new(max);
         List<StationHintCandidate> nearbyOnlyCandidates = new(max);
         List<StationHintCandidate> result = new(max);
-        CandidateBuildResult build = new(result);
         AzuCraftyBoxesCompatibility.NearbyContainerQuery? nearbyQuery = null;
         bool nearbyQueryResolved = false;
 
         foreach (ItemDrop input in inputs)
         {
-            build.Raw++;
             if (!TryReadItem(input, out string prefabName, out string sharedName, out Sprite? icon))
             {
-                build.Invalid++;
                 continue;
             }
 
             if (!seen.Add(prefabName))
             {
-                build.Duplicate++;
                 continue;
             }
 
             if (!IsKnown(player, prefabName, sharedName))
             {
-                build.Unknown++;
                 continue;
             }
 
@@ -373,22 +289,18 @@ internal static class StationInputResolver
             {
                 if (!AzuCraftyBoxesCompatibility.CanItemBePulled(stationPrefab, prefabName))
                 {
-                    build.BlockedByAzuCraftyBoxes++;
                     continue;
                 }
 
                 if (!nearbyQueryResolved)
                 {
                     nearbyQueryResolved = true;
-                    nearbyQuery = AzuCraftyBoxesCompatibility.CreateNearbyQuery(
-                        station,
-                        StationModule.NearbyContainerRange.Value);
+                    nearbyQuery = AzuCraftyBoxesCompatibility.CreateNearbyQuery(station);
                 }
 
                 int nearbyAvailable = nearbyQuery?.CountAvailable(prefabName, sharedName) ?? 0;
                 if (nearbyAvailable <= 0)
                 {
-                    build.Unavailable++;
                     continue;
                 }
             }
@@ -399,19 +311,17 @@ internal static class StationInputResolver
             StationHintCandidate candidate = new(displayName, icon);
             if (playerAvailable > 0)
             {
-                build.PlayerAvailable++;
                 playerCandidates.Add(candidate);
             }
             else
             {
-                build.NearbyOnlyAvailable++;
                 nearbyOnlyCandidates.Add(candidate);
             }
         }
 
         AppendUpToMax(result, playerCandidates, max);
         AppendUpToMax(result, nearbyOnlyCandidates, max);
-        return build;
+        return result;
     }
 
     private static void AppendUpToMax(
@@ -532,49 +442,4 @@ internal static class StationInputResolver
         }
     }
 
-    private static void LogGate(
-        string componentName,
-        Component component,
-        string stage,
-        string message)
-    {
-        if (!StationModule.IsInitialized || !StationModule.Diagnostics.Value)
-        {
-            return;
-        }
-
-        string key = $"{componentName}:{component.GetInstanceID()}:{stage}";
-        float now = Time.unscaledTime;
-        if (LastDiagnosticLogTimes.TryGetValue(key, out float last) && now - last < 1f)
-        {
-            return;
-        }
-
-        if (LastDiagnosticLogTimes.Count >= 256)
-        {
-            LastDiagnosticLogTimes.Clear();
-        }
-
-        LastDiagnosticLogTimes[key] = now;
-        FineDiningPlugin.Log.LogInfo(
-            $"[Station Diagnostics] {componentName} {stage}: {message}");
-    }
-
-    private struct CandidateBuildResult
-    {
-        internal CandidateBuildResult(List<StationHintCandidate> candidates) : this()
-        {
-            Candidates = candidates;
-        }
-
-        internal List<StationHintCandidate> Candidates { get; }
-        internal int Raw { get; set; }
-        internal int Invalid { get; set; }
-        internal int Duplicate { get; set; }
-        internal int Unknown { get; set; }
-        internal int BlockedByAzuCraftyBoxes { get; set; }
-        internal int Unavailable { get; set; }
-        internal int PlayerAvailable { get; set; }
-        internal int NearbyOnlyAvailable { get; set; }
-    }
 }

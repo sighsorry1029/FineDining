@@ -8,32 +8,66 @@ internal static class FoodClassifier
 {
     private static readonly StringComparer PrefabComparer = StringComparer.OrdinalIgnoreCase;
 
-    private static readonly HashSet<string> FarmingHarvestPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> CookingStationInputPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> CookingStationOutputPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> FermentedFoodPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> FeastMaterialPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> FeastResultPrefabs = new(PrefabComparer);
-    private static readonly HashSet<string> FishPrefabs = new(PrefabComparer);
+    private sealed class ClassificationSnapshot
+    {
+        internal ClassificationSnapshot(
+            ObjectDB objectDb,
+            ZNetScene scene,
+            HashSet<string> farmingHarvestPrefabs,
+            HashSet<string> cookingStationInputPrefabs,
+            HashSet<string> cookingStationOutputPrefabs,
+            HashSet<string> fermentedFoodPrefabs,
+            HashSet<string> unfermentedFoodPrefabs,
+            HashSet<string> feastMaterialPrefabs,
+            HashSet<string> feastResultPrefabs,
+            HashSet<string> fishPrefabs)
+        {
+            ObjectDbId = objectDb.GetInstanceID();
+            ZNetSceneId = scene.GetInstanceID();
+            ItemCount = objectDb.m_items.Count;
+            NamedPrefabCount = scene.m_namedPrefabs.Count;
+            NetPrefabCount = scene.m_prefabs.Count;
+            NonNetPrefabCount = scene.m_nonNetViewPrefabs.Count;
+            FarmingHarvestPrefabs = farmingHarvestPrefabs;
+            CookingStationInputPrefabs = cookingStationInputPrefabs;
+            CookingStationOutputPrefabs = cookingStationOutputPrefabs;
+            FermentedFoodPrefabs = fermentedFoodPrefabs;
+            UnfermentedFoodPrefabs = unfermentedFoodPrefabs;
+            FeastMaterialPrefabs = feastMaterialPrefabs;
+            FeastResultPrefabs = feastResultPrefabs;
+            FishPrefabs = fishPrefabs;
+        }
 
-    private static bool _cacheReady;
-    private static int _cachedObjectDbId = -1;
-    private static int _cachedZNetSceneId = -1;
-    private static int _cachedItemCount = -1;
-    private static int _cachedNamedPrefabCount = -1;
-    private static int _cachedNetPrefabCount = -1;
-    private static int _cachedNonNetPrefabCount = -1;
+        private int ObjectDbId { get; }
+        private int ZNetSceneId { get; }
+        private int ItemCount { get; }
+        private int NamedPrefabCount { get; }
+        private int NetPrefabCount { get; }
+        private int NonNetPrefabCount { get; }
+
+        internal HashSet<string> FarmingHarvestPrefabs { get; }
+        internal HashSet<string> CookingStationInputPrefabs { get; }
+        internal HashSet<string> CookingStationOutputPrefabs { get; }
+        internal HashSet<string> FermentedFoodPrefabs { get; }
+        internal HashSet<string> UnfermentedFoodPrefabs { get; }
+        internal HashSet<string> FeastMaterialPrefabs { get; }
+        internal HashSet<string> FeastResultPrefabs { get; }
+        internal HashSet<string> FishPrefabs { get; }
+
+        internal bool Matches(ObjectDB objectDb, ZNetScene scene) =>
+            ObjectDbId == objectDb.GetInstanceID() &&
+            ZNetSceneId == scene.GetInstanceID() &&
+            ItemCount == objectDb.m_items.Count &&
+            NamedPrefabCount == scene.m_namedPrefabs.Count &&
+            NetPrefabCount == scene.m_prefabs.Count &&
+            NonNetPrefabCount == scene.m_nonNetViewPrefabs.Count;
+    }
+
+    private static ClassificationSnapshot? _snapshot;
 
     internal static void Invalidate()
     {
-        _cacheReady = false;
-        _cachedObjectDbId = -1;
-        _cachedZNetSceneId = -1;
-        _cachedItemCount = -1;
-        _cachedNamedPrefabCount = -1;
-        _cachedNetPrefabCount = -1;
-        _cachedNonNetPrefabCount = -1;
-        ClearClassificationSets();
+        _snapshot = null;
         SpoilageReferenceGenerator.Invalidate();
     }
 
@@ -47,20 +81,27 @@ internal static class FoodClassifier
             return false;
         }
 
-        string prefabName = GetPrefabName(item);
+        ClassificationSnapshot? snapshot = _snapshot;
+        if (snapshot == null)
+        {
+            return false;
+        }
+
+        string prefabName = FoodIdentity.GetCanonicalPrefabName(item);
         if (string.IsNullOrWhiteSpace(prefabName))
         {
             return false;
         }
 
         return TrySelectGroup(
-            FarmingHarvestPrefabs.Contains(prefabName),
-            CookingStationInputPrefabs.Contains(prefabName),
-            CookingStationOutputPrefabs.Contains(prefabName),
-            FermentedFoodPrefabs.Contains(prefabName),
-            FeastMaterialPrefabs.Contains(prefabName),
-            FeastResultPrefabs.Contains(prefabName),
-            FishPrefabs.Contains(prefabName),
+            snapshot.FarmingHarvestPrefabs.Contains(prefabName),
+            snapshot.CookingStationInputPrefabs.Contains(prefabName),
+            snapshot.CookingStationOutputPrefabs.Contains(prefabName),
+            snapshot.FermentedFoodPrefabs.Contains(prefabName),
+            snapshot.UnfermentedFoodPrefabs.Contains(prefabName),
+            snapshot.FeastMaterialPrefabs.Contains(prefabName),
+            snapshot.FeastResultPrefabs.Contains(prefabName),
+            snapshot.FishPrefabs.Contains(prefabName),
             IsEdible(item),
             out group);
     }
@@ -70,6 +111,7 @@ internal static class FoodClassifier
         bool cookingStationInput,
         bool cookingStationOutput,
         bool fermentedFood,
+        bool unfermentedFood,
         bool feastMaterial,
         bool feastResult,
         bool fish,
@@ -110,6 +152,10 @@ internal static class FoodClassifier
         {
             group = SpoilageGroup.Fish;
         }
+        else if (unfermentedFood)
+        {
+            group = SpoilageGroup.UnfermentedFood;
+        }
         else if (!edible)
         {
             return false;
@@ -121,24 +167,6 @@ internal static class FoodClassifier
     internal static bool IsEdible(ItemDrop.ItemData? item) =>
         FoodIdentity.IsDirectlyEdible(item);
 
-    private static bool HasDirectFoodStats(ItemDrop.ItemData.SharedData shared)
-    {
-        return shared.m_food > 0f || shared.m_foodStamina > 0f || shared.m_foodEitr > 0f;
-    }
-
-    private static bool LooksLikeFeastRoutingFood(ItemDrop.ItemData.SharedData shared)
-    {
-        // Feaster-compatible routing also accepts drink-like linked results.
-        // This helper never participates in runtime edible classification.
-        return HasDirectFoodStats(shared) || shared.m_isDrink;
-    }
-
-    private static string GetPrefabName(ItemDrop.ItemData? item) =>
-        FoodIdentity.GetCanonicalPrefabName(item);
-
-    private static string CleanPrefabName(string? name) =>
-        FoodIdentity.NormalizePrefabName(name);
-
     private static bool EnsureCache()
     {
         ObjectDB objectDb = ObjectDB.instance;
@@ -148,35 +176,17 @@ internal static class FoodClassifier
             return false;
         }
 
-        int objectDbId = objectDb.GetInstanceID();
-        int sceneId = scene.GetInstanceID();
-        int itemCount = objectDb.m_items.Count;
-        int namedPrefabCount = scene.m_namedPrefabs.Count;
-        int netPrefabCount = scene.m_prefabs.Count;
-        int nonNetPrefabCount = scene.m_nonNetViewPrefabs.Count;
-
-        if (_cacheReady &&
-            _cachedObjectDbId == objectDbId &&
-            _cachedZNetSceneId == sceneId &&
-            _cachedItemCount == itemCount &&
-            _cachedNamedPrefabCount == namedPrefabCount &&
-            _cachedNetPrefabCount == netPrefabCount &&
-            _cachedNonNetPrefabCount == nonNetPrefabCount)
+        ClassificationSnapshot? current = _snapshot;
+        if (current != null && current.Matches(objectDb, scene))
         {
             return true;
         }
 
-        bool rebuiltExistingCache = _cacheReady;
+        bool rebuiltExistingCache = current != null;
         try
         {
-            BuildCache(objectDb, scene);
-            _cachedObjectDbId = objectDbId;
-            _cachedZNetSceneId = sceneId;
-            _cachedItemCount = itemCount;
-            _cachedNamedPrefabCount = namedPrefabCount;
-            _cachedNetPrefabCount = netPrefabCount;
-            _cachedNonNetPrefabCount = nonNetPrefabCount;
-            _cacheReady = true;
+            ClassificationSnapshot rebuilt = BuildCache(objectDb, scene);
+            _snapshot = rebuilt;
             if (rebuiltExistingCache)
             {
                 // Mods can append ObjectDB or scene prefabs after the first
@@ -205,7 +215,7 @@ internal static class FoodClassifier
                scene.m_namedPrefabs.Count + scene.m_prefabs.Count + scene.m_nonNetViewPrefabs.Count > 0;
     }
 
-    private static void BuildCache(ObjectDB objectDb, ZNetScene scene)
+    private static ClassificationSnapshot BuildCache(ObjectDB objectDb, ZNetScene scene)
     {
         List<GameObject> scenePrefabs = CollectScenePrefabs(scene);
         HashSet<string> cultivatedRootNames = AddGrownPrefabRoots(scenePrefabs);
@@ -215,18 +225,36 @@ internal static class FoodClassifier
             cultivatedRootNames);
         HashSet<string> cookingInputs = new(PrefabComparer);
         HashSet<string> cookingOutputs = new(PrefabComparer);
-        AddCookingStationConversions(scenePrefabs, cookingInputs, cookingOutputs);
-        HashSet<string> fermentedFoods = BuildFermentedFoodPrefabSet(scenePrefabs);
+        // A shared directed graph lets Fermenter inputs reach food through any
+        // mixture of Fermenter and CookingStation conversion stages.
+        Dictionary<string, HashSet<string>> reverseConversionEdges = new(PrefabComparer);
+        HashSet<string> directlyEdiblePrefabs = new(PrefabComparer);
+        AddCookingStationConversions(
+            scenePrefabs,
+            cookingInputs,
+            cookingOutputs,
+            reverseConversionEdges,
+            directlyEdiblePrefabs);
+        BuildFermenterFoodPrefabSets(
+            scenePrefabs,
+            reverseConversionEdges,
+            directlyEdiblePrefabs,
+            out HashSet<string> unfermentedFoods,
+            out HashSet<string> fermentedFoods);
         BuildFeastPrefabSets(objectDb, out HashSet<string> feastMaterials, out HashSet<string> feastResults);
         HashSet<string> fishPrefabs = BuildFishPrefabSet(scenePrefabs);
 
-        ReplaceContents(FarmingHarvestPrefabs, farmingHarvests);
-        ReplaceContents(CookingStationInputPrefabs, cookingInputs);
-        ReplaceContents(CookingStationOutputPrefabs, cookingOutputs);
-        ReplaceContents(FermentedFoodPrefabs, fermentedFoods);
-        ReplaceContents(FeastMaterialPrefabs, feastMaterials);
-        ReplaceContents(FeastResultPrefabs, feastResults);
-        ReplaceContents(FishPrefabs, fishPrefabs);
+        return new ClassificationSnapshot(
+            objectDb,
+            scene,
+            farmingHarvests,
+            cookingInputs,
+            cookingOutputs,
+            fermentedFoods,
+            unfermentedFoods,
+            feastMaterials,
+            feastResults,
+            fishPrefabs);
     }
 
     private static List<GameObject> CollectScenePrefabs(ZNetScene scene)
@@ -298,7 +326,7 @@ internal static class FoodClassifier
                         }
 
                         int grownId = grownPrefab.GetInstanceID();
-                        string grownName = CleanPrefabName(grownPrefab.name);
+                        string grownName = FoodIdentity.NormalizePrefabName(grownPrefab.name);
                         if (grownName.Length > 0)
                         {
                             cultivatedRootNames.Add(grownName);
@@ -332,7 +360,8 @@ internal static class FoodClassifier
                 continue;
             }
 
-            bool cultivatedRoot = cultivatedRootNames.Contains(CleanPrefabName(root.name));
+            bool cultivatedRoot = cultivatedRootNames.Contains(
+                FoodIdentity.NormalizePrefabName(root.name));
             try
             {
                 foreach (Pickable pickable in root.GetComponentsInChildren<Pickable>(true))
@@ -364,7 +393,7 @@ internal static class FoodClassifier
 
     internal static bool HasSeedPrefabSuffix(string? prefabName)
     {
-        string normalized = CleanPrefabName(prefabName);
+        string normalized = FoodIdentity.NormalizePrefabName(prefabName);
         return normalized.EndsWith("Seed", StringComparison.OrdinalIgnoreCase) ||
                normalized.EndsWith("Seeds", StringComparison.OrdinalIgnoreCase);
     }
@@ -408,7 +437,9 @@ internal static class FoodClassifier
     private static void AddCookingStationConversions(
         IEnumerable<GameObject> scanRoots,
         ISet<string> inputs,
-        ISet<string> outputs)
+        ISet<string> outputs,
+        IDictionary<string, HashSet<string>> reverseConversionEdges,
+        ISet<string> directlyEdiblePrefabs)
     {
         HashSet<int> seenStationIds = new();
         foreach (GameObject root in scanRoots)
@@ -418,9 +449,20 @@ internal static class FoodClassifier
                 continue;
             }
 
+            CookingStation[] stations;
             try
             {
-                foreach (CookingStation station in root.GetComponentsInChildren<CookingStation>(true))
+                stations = root.GetComponentsInChildren<CookingStation>(true);
+            }
+            catch
+            {
+                // Isolate a malformed mod prefab from every other scan root.
+                continue;
+            }
+
+            foreach (CookingStation station in stations)
+            {
+                try
                 {
                     if (station == null || !seenStationIds.Add(station.GetInstanceID()) ||
                         station.m_conversion == null)
@@ -430,27 +472,46 @@ internal static class FoodClassifier
 
                     foreach (CookingStation.ItemConversion conversion in station.m_conversion)
                     {
-                        if (conversion == null)
+                        try
                         {
-                            continue;
-                        }
+                            if (conversion == null)
+                            {
+                                continue;
+                            }
 
-                        AddItemDropPrefab(inputs, conversion.m_from);
-                        AddItemDropPrefab(outputs, conversion.m_to);
+                            ItemDrop? input = conversion.m_from;
+                            ItemDrop? output = conversion.m_to;
+                            AddItemDropPrefab(inputs, input);
+                            AddItemDropPrefab(outputs, output);
+                            AddConversionEdge(
+                                input,
+                                output,
+                                reverseConversionEdges,
+                                directlyEdiblePrefabs);
+                        }
+                        catch
+                        {
+                            // One broken conversion must not hide valid conversions on the same station.
+                        }
                     }
                 }
-            }
-            catch
-            {
-                // A broken mod prefab must not prevent other station conversions
-                // and vanilla food from being classified.
+                catch
+                {
+                    // Continue with the remaining stations supplied by other mods.
+                }
             }
         }
     }
 
-    private static HashSet<string> BuildFermentedFoodPrefabSet(IEnumerable<GameObject> scanRoots)
+    private static void BuildFermenterFoodPrefabSets(
+        IEnumerable<GameObject> scanRoots,
+        IDictionary<string, HashSet<string>> reverseConversionEdges,
+        ISet<string> directlyEdiblePrefabs,
+        out HashSet<string> unfermentedFoods,
+        out HashSet<string> fermentedFoods)
     {
-        HashSet<string> fermentedFoods = new(PrefabComparer);
+        fermentedFoods = new HashSet<string>(PrefabComparer);
+        List<KeyValuePair<string, string>> fermenterConversions = new();
         HashSet<int> seenFermenterIds = new();
         foreach (GameObject root in scanRoots)
         {
@@ -484,15 +545,26 @@ internal static class FoodClassifier
                     {
                         try
                         {
+                            ItemDrop? input = conversion?.m_from;
                             ItemDrop? output = conversion?.m_to;
                             if (output?.m_itemData?.m_shared != null && IsEdible(output.m_itemData))
                             {
                                 AddItemDropPrefab(fermentedFoods, output);
                             }
+
+                            if (AddConversionEdge(
+                                    input,
+                                    output,
+                                    reverseConversionEdges,
+                                    directlyEdiblePrefabs,
+                                    out KeyValuePair<string, string> edge))
+                            {
+                                fermenterConversions.Add(edge);
+                            }
                         }
                         catch
                         {
-                            // One broken conversion must not hide valid outputs on the same station.
+                            // One broken conversion must not hide valid conversions on the same station.
                         }
                     }
                 }
@@ -503,7 +575,102 @@ internal static class FoodClassifier
             }
         }
 
-        return fermentedFoods;
+        unfermentedFoods = FindFoodReachableFermenterInputs(
+            fermenterConversions,
+            reverseConversionEdges,
+            directlyEdiblePrefabs);
+    }
+
+    private static bool AddConversionEdge(
+        ItemDrop? input,
+        ItemDrop? output,
+        IDictionary<string, HashSet<string>> reverseConversionEdges,
+        ISet<string> directlyEdiblePrefabs)
+    {
+        return AddConversionEdge(
+            input,
+            output,
+            reverseConversionEdges,
+            directlyEdiblePrefabs,
+            out _);
+    }
+
+    private static bool AddConversionEdge(
+        ItemDrop? input,
+        ItemDrop? output,
+        IDictionary<string, HashSet<string>> reverseConversionEdges,
+        ISet<string> directlyEdiblePrefabs,
+        out KeyValuePair<string, string> edge)
+    {
+        edge = default;
+        string inputPrefab = GetItemDropPrefabName(input);
+        string outputPrefab = GetItemDropPrefabName(output);
+        if (inputPrefab.Length == 0 || outputPrefab.Length == 0)
+        {
+            return false;
+        }
+
+        if (!reverseConversionEdges.TryGetValue(outputPrefab, out HashSet<string> inputPrefabs))
+        {
+            inputPrefabs = new HashSet<string>(PrefabComparer);
+            reverseConversionEdges.Add(outputPrefab, inputPrefabs);
+        }
+
+        inputPrefabs.Add(inputPrefab);
+        try
+        {
+            if (IsEdible(output?.m_itemData))
+            {
+                directlyEdiblePrefabs.Add(outputPrefab);
+            }
+        }
+        catch
+        {
+            // A malformed endpoint remains an edge but cannot seed food reachability.
+        }
+
+        edge = new KeyValuePair<string, string>(inputPrefab, outputPrefab);
+        return true;
+    }
+
+    private static HashSet<string> FindFoodReachableFermenterInputs(
+        IEnumerable<KeyValuePair<string, string>> fermenterConversions,
+        IDictionary<string, HashSet<string>> reverseConversionEdges,
+        IEnumerable<string> directlyEdiblePrefabs)
+    {
+        // Traverse the graph backwards once instead of walking every Fermenter
+        // chain separately. Cycles terminate when a prefab has already been seen.
+        HashSet<string> foodReachablePrefabs = new(directlyEdiblePrefabs, PrefabComparer);
+        Queue<string> pending = new(foodReachablePrefabs);
+        while (pending.Count > 0)
+        {
+            string outputPrefab = pending.Dequeue();
+            if (!reverseConversionEdges.TryGetValue(outputPrefab, out HashSet<string> inputPrefabs))
+            {
+                continue;
+            }
+
+            foreach (string inputPrefab in inputPrefabs)
+            {
+                if (foodReachablePrefabs.Add(inputPrefab))
+                {
+                    pending.Enqueue(inputPrefab);
+                }
+            }
+        }
+
+        HashSet<string> result = new(PrefabComparer);
+        foreach (KeyValuePair<string, string> conversion in fermenterConversions)
+        {
+            // Test this conversion's target, not merely its source: an edible
+            // input whose own output leads nowhere is not unfermented food.
+            if (foodReachablePrefabs.Contains(conversion.Value))
+            {
+                result.Add(conversion.Key);
+            }
+        }
+
+        return result;
     }
 
     private static void BuildFeastPrefabSets(
@@ -517,7 +684,9 @@ internal static class FoodClassifier
             try
             {
                 ItemDrop? itemDrop = itemPrefab != null ? itemPrefab.GetComponent<ItemDrop>() : null;
-                string prefabName = itemDrop != null ? CleanPrefabName(itemDrop.gameObject.name) : "";
+                string prefabName = itemDrop != null
+                    ? FoodIdentity.NormalizePrefabName(itemDrop.gameObject.name)
+                    : "";
                 if (prefabName.Length > 0 && !itemDropsByPrefab.ContainsKey(prefabName))
                 {
                     itemDropsByPrefab.Add(prefabName, itemDrop!);
@@ -555,7 +724,7 @@ internal static class FoodClassifier
                                               linkedShared != null &&
                                               (linkedShared.m_itemType ==
                                                    ItemDrop.ItemData.ItemType.Consumable ||
-                                               LooksLikeFeastRoutingFood(linkedShared)));
+                                               FoodIdentity.LooksLikeFeastRoutingFood(linkedShared)));
 
                 // Match the structural feast routing used by Feaster-compatible
                 // placement. The source material is never added to the result set.
@@ -574,7 +743,7 @@ internal static class FoodClassifier
                 // the actual consumable/placed result in m_foodItem.
                 if (hasDifferentLinkedFood && linkedLooksLikeResult &&
                     shared.m_itemType != ItemDrop.ItemData.ItemType.Consumable &&
-                    !LooksLikeFeastRoutingFood(shared))
+                    !FoodIdentity.LooksLikeFeastRoutingFood(shared))
                 {
                     feastMaterials.Add(entry.Key);
                     feastResults.Add(linkedName);
@@ -665,7 +834,9 @@ internal static class FoodClassifier
 
     private static string GetItemDropPrefabName(ItemDrop? itemDrop)
     {
-        return itemDrop == null ? "" : CleanPrefabName(itemDrop.gameObject.name);
+        return itemDrop == null
+            ? ""
+            : FoodIdentity.NormalizePrefabName(itemDrop.gameObject.name);
     }
 
     private static void AddItemDropPrefab(ISet<string> target, ItemDrop? itemDrop)
@@ -684,30 +855,11 @@ internal static class FoodClassifier
             return;
         }
 
-        string prefabName = CleanPrefabName(prefab.name);
+        string prefabName = FoodIdentity.NormalizePrefabName(prefab.name);
         if (!string.IsNullOrWhiteSpace(prefabName))
         {
             target.Add(prefabName);
         }
     }
 
-    private static void ReplaceContents(ISet<string> target, IEnumerable<string> source)
-    {
-        target.Clear();
-        foreach (string value in source)
-        {
-            target.Add(value);
-        }
-    }
-
-    private static void ClearClassificationSets()
-    {
-        FarmingHarvestPrefabs.Clear();
-        CookingStationInputPrefabs.Clear();
-        CookingStationOutputPrefabs.Clear();
-        FermentedFoodPrefabs.Clear();
-        FeastMaterialPrefabs.Clear();
-        FeastResultPrefabs.Clear();
-        FishPrefabs.Clear();
-    }
 }

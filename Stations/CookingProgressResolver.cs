@@ -14,18 +14,21 @@ internal static class CookingProgressResolver
         Burnt
     }
 
-    internal static IReadOnlyList<StationHintCandidate> GetCandidates(CookingStation station)
+    internal static IReadOnlyList<StationHintCandidate> GetCandidates(
+        CookingStation station,
+        int maxCandidates)
     {
         if (station.m_slots == null
             || station.m_slots.Length == 0
+            || maxCandidates <= 0
             || !TryGetZdo(station, out ZDO? zdo))
         {
             return Array.Empty<StationHintCandidate>();
         }
 
-        int slotCount = Math.Min(station.m_slots.Length, StationModule.MaxHints);
-        List<StationHintCandidate> candidates = new(slotCount);
-        for (int slot = 0; slot < slotCount; slot++)
+        List<StationHintCandidate> candidates = new(
+            Math.Min(station.m_slots.Length, maxCandidates));
+        for (int slot = 0; slot < station.m_slots.Length; slot++)
         {
             string itemName = zdo!.GetString("slot" + slot);
             if (string.IsNullOrEmpty(itemName))
@@ -34,6 +37,11 @@ internal static class CookingProgressResolver
             }
 
             CookingStatus status = (CookingStatus)zdo.GetInt("slotstatus" + slot);
+            if (status == CookingStatus.Burnt && itemName == "Coal")
+            {
+                continue;
+            }
+
             CookingStation.ItemConversion? conversion = FindConversion(station, itemName);
             float cookedTime = zdo.GetFloat("slot" + slot);
             ItemDrop? item;
@@ -43,7 +51,7 @@ internal static class CookingProgressResolver
             {
                 item = FindItemPrefab(itemName) ?? conversion?.m_from;
                 timerText = conversion != null && conversion.m_cookTime > 0f
-                    ? StationText.FormatTimer(
+                    ? StationText.FormatSeconds(
                         Math.Max(0d, conversion.m_cookTime - cookedTime),
                         keepAtLeastOneSecond: true)
                     : string.Empty;
@@ -54,21 +62,39 @@ internal static class CookingProgressResolver
                 timerText = conversion != null
                             && conversion.m_cookTime > 0f
                             && station.m_overCookedItem != null
-                    ? StationText.FormatTimer(
+                    ? StationText.FormatSeconds(
                         Math.Max(0d, conversion.m_cookTime * 2d - cookedTime),
                         keepAtLeastOneSecond: true)
-                    : StationText.FormatTimer(0d);
+                    : StationText.FormatSeconds(0d);
             }
             else
             {
                 item = FindItemPrefab(itemName) ?? station.m_overCookedItem;
-                timerText = StationText.FormatTimer(0d);
+                timerText = StationText.FormatSeconds(0d);
             }
 
-            StationHintCandidate? candidate = CreateCandidate(item, timerText);
+            bool showAutoEject = !string.IsNullOrEmpty(timerText)
+                                  && status != CookingStatus.Burnt
+                                  && CookingStationAutoPopSystem.ShouldShowAutoEject(
+                                      station,
+                                      slot,
+                                      itemName,
+                                      conversion?.m_to != null
+                                          ? Utils.GetPrefabName(conversion.m_to.gameObject)
+                                          : string.Empty,
+                                      outputPhase: status == CookingStatus.Done);
+            timerText = StationText.ColorizeTimer(timerText);
+            StationHintCandidate? candidate = CreateCandidate(
+                item,
+                timerText,
+                showAutoEject ? StationText.AutoEjectLabel : string.Empty);
             if (candidate != null)
             {
                 candidates.Add(candidate);
+                if (candidates.Count >= maxCandidates)
+                {
+                    break;
+                }
             }
         }
 
@@ -113,7 +139,10 @@ internal static class CookingProgressResolver
         return prefab != null ? prefab.GetComponent<ItemDrop>() : null;
     }
 
-    private static StationHintCandidate? CreateCandidate(ItemDrop? item, string timerText)
+    private static StationHintCandidate? CreateCandidate(
+        ItemDrop? item,
+        string timerText,
+        string secondaryStatusText)
     {
         if (item == null || item.m_itemData == null || item.m_itemData.m_shared == null)
         {
@@ -136,7 +165,11 @@ internal static class CookingProgressResolver
         string displayName = Localization.instance != null
             ? Localization.instance.Localize(sharedName)
             : sharedName;
-        return new StationHintCandidate(displayName, icon, timerText);
+        return new StationHintCandidate(
+            displayName,
+            icon,
+            timerText,
+            secondaryStatusText);
     }
 
     private static bool TryGetZdo(Component component, out ZDO? zdo)

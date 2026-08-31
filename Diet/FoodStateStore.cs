@@ -7,7 +7,7 @@ namespace FineDining;
 internal static class FoodStateStore
 {
     private const string CustomDataKey = "sighsorry.FineDining.DietState";
-    private const string StatePrefix = "v1:";
+    private const string StatePrefix = "v3:";
     private static readonly Dictionary<Player, PlayerFoodStateData> Cache = new();
 
     internal static PlayerFoodStateData GetState(Player? player)
@@ -104,11 +104,10 @@ internal static class FoodStateStore
     {
         state.Recent ??= new List<HistoryEntryData>();
         state.Chef ??= new List<ChefEntryData>();
-        state.ChefQueue ??= new List<string>();
         state.Active ??= new List<ActiveFoodData>();
         NormalizeRecent(state);
         NormalizeChef(state);
-        NormalizeQueue(state);
+        FoodSlotProgression.NormalizeState(player, state);
         NormalizeActive(player, state);
     }
 
@@ -180,21 +179,6 @@ internal static class FoodStateStore
         state.Chef = normalized;
     }
 
-    private static void NormalizeQueue(PlayerFoodStateData state)
-    {
-        List<string> normalized = new();
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (string key in state.ChefQueue)
-        {
-            if (!string.IsNullOrWhiteSpace(key) && seen.Add(key))
-            {
-                normalized.Add(key);
-            }
-        }
-
-        state.ChefQueue = normalized;
-    }
-
     private static void NormalizeActive(Player player, PlayerFoodStateData state)
     {
         HashSet<string> activeKeys = new(StringComparer.Ordinal);
@@ -221,13 +205,13 @@ internal static class FoodStateStore
             float scale = entry.AppliedScale;
             if (float.IsNaN(scale) || float.IsInfinity(scale) || scale < 0f)
             {
-                scale = DietConfig.GetBaseSlotScale();
+                scale = state.AppliedBaseSlotScale;
             }
 
             ActiveFoodData normalizedEntry = new()
             {
                 Key = entry.Key,
-                AppliedScale = Math.Min(25f, scale)
+                AppliedScale = scale
             };
 
             if (indexByKey.TryGetValue(entry.Key, out int existingIndex))

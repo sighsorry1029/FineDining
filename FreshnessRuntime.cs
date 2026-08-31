@@ -43,13 +43,15 @@ internal static class FreshnessRuntime
 
     internal static ConfigEntry<float> BindMinimumFoodMultiplier(ConfigFile config) =>
         config.Bind(
-            "01 - Food Effects",
-            "Minimum Food Effect Multiplier",
+            ConfigPresentation.Spoilage.Name,
+            "Stale Food Minimum Multiplier",
             DefaultMinimumFoodMultiplier,
-            new ConfigDescription(
+            ConfigPresentation.Synced(
                 "Minimum multiplier applied to a directly edible item's health, stamina, eitr, " +
                 "and health regeneration at zero freshness. Intermediate freshness is interpolated " +
-                "linearly between this value and 1. This gameplay setting is synchronized with the server.",
+                "linearly between this value and 1.",
+                ConfigPresentation.Spoilage,
+                500,
                 new AcceptableValueRange<float>(0f, 1f)));
 
     internal static void Shutdown()
@@ -88,9 +90,12 @@ internal static class FreshnessRuntime
     {
         ratio = 1f;
         if (item == null ||
-            !DecayRuntime.TryGetExpiryTicks(item, out long clock) ||
-            !DecayRuntime.TryGetWorldTicks(out long nowTicks) ||
-            !DecayRuntime.TryDecodeClockValue(clock, nowTicks, out long remainingTicks, out _))
+            !SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
+            !SpoilageClock.TryGetSpoilageClock(
+                item,
+                nowTicks,
+                out long remainingTicks,
+                out _))
         {
             return false;
         }
@@ -135,7 +140,7 @@ internal static class FreshnessRuntime
         }
 
         destination.m_customData ??= new Dictionary<string, string>();
-        CopyOrRemove(source, destination, DecayRuntime.ExpiryDataKey);
+        CopyOrRemove(source, destination, SpoilageClock.ExpiryDataKey);
         CopyOrRemove(source, destination, AssignedLifetimeDataKey);
     }
 
@@ -206,6 +211,12 @@ internal static class FreshnessRuntime
 
         return Math.Max(destination, source).ToString(CultureInfo.InvariantCulture);
     }
+
+    internal static bool CanMergeAssignedLifetimeValues(
+        string? destinationValue,
+        string? sourceValue) =>
+        (destinationValue == null || TryParsePositiveLong(destinationValue, out _)) &&
+        (sourceValue == null || TryParsePositiveLong(sourceValue, out _));
 
     internal static bool TryGetAssignedLifetime(ItemData? item, out long lifetime)
     {

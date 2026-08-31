@@ -9,7 +9,7 @@ using UnityEngine;
 namespace FineDining;
 
 /// <summary>
-/// Lifecycle, identity, and local configuration for the Icebox runtime.
+/// Lifecycle, identity, and configuration for the Icebox runtime.
 ///
 /// The generated-prefab code must keep <see cref="PrefabName"/> stable.  ZDOs in
 /// existing worlds refer to its stable hash, so changing this value is a world
@@ -17,7 +17,7 @@ namespace FineDining;
 /// </summary>
 internal static class IceboxSubsystem
 {
-    internal const string PrefabName = GeneratedPrefabRegistry.IceboxPrefabName;
+    internal const string PrefabName = "FineDining_Icebox";
     internal const string OwnerAccountIdKey = "sighsorry.FineDining.IceboxOwnerAccountId";
     internal const string LimitRefundProcessedKey = "sighsorry.FineDining.IceboxLimitRefundProcessed";
     internal const string PlacedRecipeKey = "sighsorry.FineDining.IceboxPlacedRecipe";
@@ -25,9 +25,11 @@ internal static class IceboxSubsystem
     internal const int DefaultStorageRows = 4;
     internal const int MinimumStorageRows = 4;
     internal const int MaximumStorageRows = 20;
-    internal const string DefaultRecipe = "FineWood:10,Iron:2";
+    internal const int DefaultPlacementLimit = 2;
+    internal const string DefaultRecipe = "TrophySGolem:1,Obsidian:8,Crystal:16,Silver:32";
+    internal const bool DefaultShowMapPins = true;
 
-    internal static int PrefabHash => GeneratedPrefabRegistry.IceboxPrefabHash;
+    internal static int PrefabHash => PrefabName.GetStableHashCode();
 
     private static readonly AccessTools.FieldRef<Inventory, int> InventoryWidth =
         AccessTools.FieldRefAccess<Inventory, int>("m_width");
@@ -35,11 +37,14 @@ internal static class IceboxSubsystem
         AccessTools.FieldRefAccess<Inventory, int>("m_height");
 
     private static FineDiningPlugin? _owner;
+    private static ConfigEntry<int>? _defaultPlacementLimit;
     private static ConfigEntry<int>? _storageRows;
     private static ConfigEntry<string>? _recipe;
     private static ConfigEntry<bool>? _showMapPins;
 
     internal static bool IsInitialized => _owner != null;
+    internal static int PlacementLimit =>
+        _defaultPlacementLimit?.Value ?? DefaultPlacementLimit;
     internal static int StorageRows => Mathf.Clamp(
         _storageRows?.Value ?? DefaultStorageRows,
         MinimumStorageRows,
@@ -61,16 +66,21 @@ internal static class IceboxSubsystem
 
         Shutdown();
         _owner = owner;
+        _defaultPlacementLimit = BindDefaultPlacementLimit(owner.Config);
         _storageRows = BindStorageRows(owner.Config);
         _recipe = BindRecipe(owner.Config);
         _showMapPins = owner.Config.Bind(
-            "03 - Icebox",
-            "Show Icebox Map Pins",
-            false,
-            new ConfigDescription(
-                "Show the positions of Iceboxes owned by this account on the world map and minimap. " +
-                "This is a local client option and is not synchronized by the server."));
+            ConfigPresentation.Spoilage.Name,
+            "Icebox Map Pins",
+            DefaultShowMapPins,
+            ConfigPresentation.Client(
+                "Show the positions of Iceboxes owned by this account on the world map and minimap.",
+                ConfigPresentation.Spoilage,
+                200));
 
+        SyncedConfigEntry<int> synchronizedPlacementLimit =
+            FineDiningPlugin.ConfigSync.AddConfigEntry(_defaultPlacementLimit);
+        synchronizedPlacementLimit.SynchronizedConfig = true;
         SyncedConfigEntry<int> synchronizedRows =
             FineDiningPlugin.ConfigSync.AddConfigEntry(_storageRows);
         synchronizedRows.SynchronizedConfig = true;
@@ -107,6 +117,8 @@ internal static class IceboxSubsystem
 
     internal static void Shutdown()
     {
+        _defaultPlacementLimit = null;
+
         if (_storageRows != null)
         {
             _storageRows.SettingChanged -= OnGameplayConfigChanged;
@@ -131,25 +143,41 @@ internal static class IceboxSubsystem
         _owner = null;
     }
 
+    internal static ConfigEntry<int> BindDefaultPlacementLimit(ConfigFile config) =>
+        config.Bind(
+            ConfigPresentation.Spoilage.Name,
+            "Icebox Default Placement Limit",
+            DefaultPlacementLimit,
+            ConfigPresentation.Synced(
+                "Default number of Iceboxes each Steam account may place. -1 allows unlimited " +
+                "placement, 0 denies placement, and positive values set the maximum. Exact " +
+                "Steam64 overrides in Icebox.yml take priority.",
+                ConfigPresentation.Spoilage,
+                450,
+                new PlacementLimitAcceptableValue()));
+
     internal static ConfigEntry<int> BindStorageRows(ConfigFile config) =>
         config.Bind(
-            "03 - Icebox",
-            "Storage Rows",
+            ConfigPresentation.Spoilage.Name,
+            "Icebox Storage Rows",
             DefaultStorageRows,
-            new ConfigDescription(
-                "Number of Icebox inventory rows. Iceboxes always have eight columns. " +
-                "This gameplay setting is synchronized with the server.",
+            ConfigPresentation.Synced(
+                "Number of Icebox inventory rows. Iceboxes always have eight columns.",
+                ConfigPresentation.Spoilage,
+                400,
                 new AcceptableValueRange<int>(MinimumStorageRows, MaximumStorageRows)));
 
     internal static ConfigEntry<string> BindRecipe(ConfigFile config) =>
         config.Bind(
-            "03 - Icebox",
-            "Recipe",
+            ConfigPresentation.Spoilage.Name,
+            "Icebox Build Recipe",
             DefaultRecipe,
-            new ConfigDescription(
+            ConfigPresentation.Synced(
                 "Comma-separated ItemPrefab:Amount entries used to build the Icebox, for example " +
-                "FineWood:10,Iron:2. Every amount must be a positive integer and every prefab must " +
-                "be a registered item. This gameplay setting is synchronized with the server."));
+                $"{DefaultRecipe}. Every amount must be a positive integer and every prefab must " +
+                "be a registered item.",
+                ConfigPresentation.Spoilage,
+                300));
 
     internal static bool TryCreateRequirements(
         ObjectDB objectDb,
@@ -281,7 +309,7 @@ internal static class IceboxSubsystem
 
     internal static void ApplyConfiguredStorageSize(Container? container)
     {
-        if (container == null || !GeneratedPrefabRegistry.IsIcebox(container))
+        if (container == null || !IsIcebox(container))
         {
             return;
         }
@@ -302,7 +330,7 @@ internal static class IceboxSubsystem
 
     internal static bool PrepareStorageLoad(Container? container)
     {
-        if (container == null || !GeneratedPrefabRegistry.IsIcebox(container))
+        if (container == null || !IsIcebox(container))
         {
             return false;
         }
@@ -355,7 +383,7 @@ internal static class IceboxSubsystem
 
     internal static void ApplyStoredRecipe(Container? container)
     {
-        if (container == null || !GeneratedPrefabRegistry.IsIcebox(container))
+        if (container == null || !IsIcebox(container))
         {
             return;
         }
@@ -405,7 +433,7 @@ internal static class IceboxSubsystem
             DecayRuntime.IsContainerLoading(inventory) ||
             !DecayRuntime.TryGetContainer(inventory, out Container? container) ||
             container == null ||
-            !GeneratedPrefabRegistry.IsIcebox(container))
+            !IsIcebox(container))
         {
             return;
         }
@@ -453,6 +481,11 @@ internal static class IceboxSubsystem
         return IsIcebox(piece.gameObject);
     }
 
+    internal static bool IsIcebox(Container? container)
+    {
+        return container != null && IsIcebox(((Component)container).gameObject);
+    }
+
     internal static bool IsIcebox(GameObject? gameObject)
     {
         if (gameObject == null)
@@ -460,7 +493,8 @@ internal static class IceboxSubsystem
             return false;
         }
 
-        return GeneratedPrefabRegistry.IsIcebox(gameObject);
+        string normalized = FoodIdentity.NormalizePrefabName(Utils.GetPrefabName(gameObject));
+        return string.Equals(normalized, PrefabName, StringComparison.Ordinal);
     }
 
     internal static bool IsIcebox(ZDO? zdo)
@@ -488,8 +522,24 @@ internal static class IceboxSubsystem
     private static void OnGameplayConfigChanged(object sender, EventArgs args)
     {
         ApplyConfiguredStorageSizeToLoadedIceboxes();
-        GeneratedPrefabRegistry.RegisterConfiguredContent(ObjectDB.instance, ZNetScene.instance);
-        GeneratedPrefabRegistry.QueueRegistrationRetry(_owner);
+        GeneratedPrefabRegistry.RefreshIceboxConfiguredContent();
+    }
+
+    private sealed class PlacementLimitAcceptableValue : AcceptableValueBase
+    {
+        internal PlacementLimitAcceptableValue()
+            : base(typeof(int))
+        {
+        }
+
+        public override object Clamp(object value) =>
+            value is int limit && limit >= -1 ? limit : DefaultPlacementLimit;
+
+        public override bool IsValid(object value) =>
+            value is int limit && limit >= -1;
+
+        public override string ToDescriptionString() =>
+            "# Acceptable values: -1 or greater";
     }
 }
 

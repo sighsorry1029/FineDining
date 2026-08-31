@@ -1,150 +1,235 @@
 # FineDining
 
-FineDining is a single server-synchronized Valheim mod that combines persistent food spoilage, freshness-scaled food effects, an expanded diet system, Cooking-skill production bonuses, and station hover guidance.
+FineDining is a server-synchronized Valheim food overhaul focused on food storage, diet variety, and the Cooking skill.
 
-- Author: `sighsorry`
-- Plugin GUID: `sighsorry.FineDining`
-- Version: `1.0.0`
-- Required on the server and every client
+## Showcase
 
-## Clean installation
+### Spoilage and preservation
 
-Install BepInEx for Valheim and place `FineDining.dll` in `BepInEx/plugins` on every peer.
+Food can spoil in containers, as loose drops, and when placed for display. Remaining time stays visible where the item is used.
 
-FineDining is a clean integration rather than a compatibility shell. Remove the standalone BeingSpoiled, GourmetsDiet, and InputHoverHints DLLs before installing it. BepInEx incompatibility declarations prevent the combined mod from loading beside those plugins.
+![](https://i.ibb.co/ksxvZryc/spoilinchest.gif)
 
-There is intentionally no migration or legacy reader. Old config files, spoilage metadata, diet state, RPC names, generated prefabs, and placed custom pieces are not imported. Back up a world before replacing an existing setup; remove or recover old custom pieces while their originating mod is still installed.
+![](https://i.ibb.co/9XNdTJp/itemdropspoil.gif)
 
-## Spoilage and preservation
+![](https://i.ibb.co/bgsRhwFQ/feasterplacedspoil.gif)
 
-Every tracked stack has an absolute world-time deadline and an assigned lifetime. This keeps timers progressing across container unloads, unloaded zones, dedicated-server restarts, and player reconnects. Preserved items encode their remaining duration instead, so they resume without losing frozen time.
+Expired food becomes its configured rotten result. Cold biomes and the Icebox instead pause active spoilage timers.
 
-Default automatic groups:
+![](https://i.ibb.co/fzY9VG7S/rottenfood.png)
 
-| Group | Lifetime | Replacement |
-|---|---:|---|
-| Farming harvest | 100 h | `FineDining_RottenProduce` |
-| CookingStation input | 75 h | `RottenMeat` |
-| CookingStation output | 50 h | `RottenMeat` |
-| Fermented edible output | 25 h | `FineDining_RottenFood` |
-| Feast material | 125 h | `FineDining_RottenFood` |
-| Placed Feast result | 125 h | `FineDining_RottenFood` |
-| Fish | 75 h | `RottenMeat` |
-| Other directly edible item | 25 h | `FineDining_RottenFood` |
+![](https://i.ibb.co/kVKHbGV3/feastcanspoil.png)
 
-Classification deliberately avoids a general ingredient graph. Plant-grown outputs are included even when not edible; other Pickable outputs must be directly edible; CookingStation inputs and outputs use their structural rules; remaining items must be direct consumables with positive health, stamina, or eitr. Cultivated prefab names ending in `Seed` or `Seeds` are excluded.
+![](https://i.ibb.co/YTh1R93Z/feastnospoilatmountain.png)
 
-`FineDining.yml` supports exact overrides in one compact list:
+![](https://i.ibb.co/C34FSch2/foodinmountains.png)
+
+![](https://i.ibb.co/rR4g5J1D/foodinicebox.png)
+
+### Diet, Chef's Choice, and Full Course
+
+Recent meals influence Chef's Choice. Natural food expiry or a food removed by Puke advances the list.
+
+![](https://i.ibb.co/ksDTH1SS/recenthistory.png)
+
+![](https://i.ibb.co/yF5f6v6b/chefchoice.png)
+
+![](https://i.ibb.co/rRx97QGV/chefchoicereroll.gif)
+
+Tooltips show Chef, diminishing, and stale multipliers. Filling every unlocked food slot activates Full Course.
+
+![](https://i.ibb.co/qLG1Dz2r/chefchoiceandstailinitemtooltip.png)
+
+![](https://i.ibb.co/ZRvgVVrw/dminishandstale.png)
+
+![](https://i.ibb.co/LDwvdf4m/fullcourse.png)
+
+At higher Cooking levels, the most likely Chef multiplier moves toward the configured peak.
+
+![](https://i.ibb.co/wFPLCLs5/chefmultiplierpeak.png)
+
+### Cooking and station hints
+
+Cooking skill can auto-eject finished food, while hover hints expose valid inputs and processing state for vanilla and modded stations.
+
+![](https://i.ibb.co/HLhn4dBv/autoeject.gif)
+
+![](https://i.ibb.co/60D56PXj/cookingstationhover.png)
+
+![](https://i.ibb.co/67vCs4tN/moddedcookingstationhover.png)
+
+Cover and depth speed fermentation. Compatible custom Fermenters receive the same clear hover information.
+
+![](https://i.ibb.co/KxyHz6HD/fermenterhover.png)
+
+![](https://i.ibb.co/pryCYT85/fermentingdeeperandclosed.png)
+
+![](https://i.ibb.co/KcQGq5Cp/moddedfermenterhover.png)
+
+Production buildings and supported ValheimCuisine stations expose compact hover information.
+
+![](https://i.ibb.co/ycrv35Zt/windmillhover.png)
+
+![](https://i.ibb.co/PssKNRwh/smelterhover.png)
+
+![](https://i.ibb.co/hRhPr8vX/smelterhover2.png)
+
+![](https://i.ibb.co/rfm7KMxB/freydicollectorhover.png)
+
+![](https://i.ibb.co/4H314Dq/grimphyboxhover.png)
+
+## Features
+
+- Configurable spoilage, freshness-scaled food stats, and an Icebox.
+- Six- or nine-slot diets with diminishing returns, Chef's Choice, and Full Course.
+- Cooking experience, production bonuses, auto-eject, faster fermentation, and station hints.
+
+## Spoilage
+
+Ordinary food starts its spoilage clock when it first enters a player inventory. Untouched food in location loot and ordinary containers remains fresh until that first pickup. Placed food starts from its placement time.
+
+An active clock uses Valheim's network world time. It continues in ordinary containers and unloaded zones while that clock is running, and it survives restarts without resetting. Time does not advance while the server is offline, while an empty dedicated server pauses world time, or while the item is preserved.
+
+Spoilage pauses in:
+
+- An Icebox.
+- Biomes listed in `No-Spoil Biomes`; the default is `Mountain, DeepNorth`.
+- Water, for world items classified as Fish.
+
+The default `Spoilage.yml` policy is:
 
 ```yaml
 version: 1
 lifetimes:
-  farmingHarvest: 100
-  cookingStationInput: 75
-  cookingStationOutput: 50
-  fermentedFood: 25
-  feastMaterial: 125
-  feastResult: 125
-  fish: 75
-  otherEdible: 25
-overrides:
-  - ModdedEdible, 100
-  - ModdedProduce, 100, FineDining_RottenProduce
-  - DecorativeFoodLikeItem, 0
+  farmingHarvest: 72
+  cookingStationInput: 24
+  cookingStationOutput: 48
+  unfermentedFood: 48
+  fermentedFood: 72
+  feastMaterial: 72
+  feastResult: 48
+  fish: 24
+  otherEdible: 24
+chefChoiceBlacklist: []
+overrides: []
 ```
 
-Hours accept `0..5040`. Zero disables a group or exact prefab. Positive values below one second are clamped to one second internally. Invalid YAML is rejected atomically and the last valid policy remains active.
+Lifetime values are hours. Valid values are `0..720`; `0` disables spoilage for that group or exact override. Positive fractions are supported, with one second as the minimum internal lifetime. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
 
-Timers appear in inventory and container slots, item tooltips, loose ItemDrop hover text, and placed food/Feast hover text. Running clocks are gold. Cold-paused clocks are blue and use the Frost icon. The display rounds up to hours and switches to minutes below one hour, with one minute as its minimum text.
+Exact prefab rules use this compact format:
 
-Vanilla loose-item cleanup is retained. Timestamped world stacks that survive vanilla cleanup conditions can spoil in place. Replacement preserves the full source count, including a deliberate over-stack when the rotten prefab has a smaller nominal capacity; one ground stack never becomes several stacks.
+```yaml
+overrides:
+  - ModdedFood, 100
+  - ModdedProduce, 72, FineDining_RottenProduce
+  - DecorativeFood, 0
+```
 
-## Freshness and diet effects
+The optional third value is the replacement prefab. By default, farming harvests become `FineDining_RottenProduce`; CookingStation inputs, CookingStation outputs, and Fish become `RottenMeat`; unfermented food, fermented food, feast items, and other edible food become `FineDining_RottenFood`.
 
-Only a directly edible item's own remaining lifetime affects its stats. Ingredient freshness is never inherited by recipes, CookingStation output, Fermenter output, or Feast output.
+`FineDining_RottenProduce` and `FineDining_RottenFood` cannot spoil again. Eating them applies Puke for five and ten seconds respectively.
 
-Freshness scales health, stamina, eitr, and health regeneration linearly from `x1.00` to the configured minimum, `x0.75` by default. Food duration and consume status effects are unchanged. The multiplier is captured when the food is eaten.
+Timers appear in inventory and container slots, item tooltips, loose ItemDrop hover text, and placed-food hover text. Merging with a timed stack keeps the lower remaining lifetime. Vanilla loose-item cleanup remains active.
 
-Diet scaling is composed once in this order:
+### Freshness
+
+An edible item's own freshness scales its health, stamina, eitr, and health regeneration from `x1.00` to the configured minimum, `x0.75` by default. The scale is captured when the food is eaten.
+
+Ingredient freshness is not inherited by recipes, CookingStation output, Fermenter output, or feast output. Food duration and consume status effects are unchanged.
+
+## Diet and Chef's Choice
+
+`Maximum Food Slots` accepts `6` or `9` and defaults to `9`. Slots unlock as the player learns directly edible Health/Stamina/Eitr foods:
 
 ```text
-(3 / configured slots) × slot constant
-× (diminishing factor OR Chef's Choice multiplier)
-× this item's freshness at consumption
-× dynamic Full Straight multiplier
+Known foods  0-6  7-9  10-12  13-15  16-18  19-21  22+
+Food slots     3    4      5      6      7      8      9
 ```
 
-Defaults:
+The six-slot and nine-slot stat scales default to `x0.45` and `x0.30`. A complete current diet therefore totals about `x0.90` of three equivalent vanilla foods before other effects.
 
-- Nine active food slots.
-- Seven unique recent foods are tracked.
-- The fourth and later repeat uses a one-time `x0.75` diminishing factor.
-- Seven rotating Chef's Choice foods receive a persistent random `x1.00..x2.00` multiplier and ignore diminishing for that consumption.
-- Filling every configured slot activates Full Straight `x1.20` dynamically.
-- A full bar may replace its most depleted re-eatable food.
-- Eating a Puke item while full rerolls Chef's Choice.
+- The recent-food history tracks seven unique foods by default.
+- The fourth and later consumption receives the default `x0.75` diminishing multiplier.
+- Chef's Choice contains seven foods with multipliers between `x1.10` and `x1.50` by default.
+- Higher Cooking skill favors higher food tiers and stronger Chef multipliers.
+- Recent Health/Stamina/Eitr proportions influence new Chef choices by `70%` at the default setting.
+- A naturally expired food or a food actually removed by Puke advances Chef's Choice once from the oldest entry.
+- Full Course becomes available at six unlocked slots and defaults to `x1.20` while every unlocked slot is filled.
 
-The combined consumption scale is stored once in `sighsorry.FineDining.DietState`, so active foods keep the exact diet and freshness effect across character save/load. Tooltip health, stamina, eitr, and regeneration values are rounded to one decimal for display without changing calculation precision.
+Chef's Choice only uses consumables with positive health, stamina, or eitr. Exact exclusions belong in `chefChoiceBlacklist` in `Spoilage.yml`.
 
-## Cooking and fermentation
+`ResourceMap.yml` defines Chef food tiers from lowest to highest. The server or single-player host creates, hot-reloads, and synchronizes it. Connected clients ignore their local copy, and invalid edits keep the last valid map.
 
-Cooking-skill production bonuses apply to Cooking recipes, CookingStation output, and Fermenter output. The synchronized percentage defaults to 100% of Valheim's normal Cooking bonus chance. Exact or `*` wildcard output-prefab exclusions are supported.
+## Cooking and stations
 
-Fermenter speed can increase with cover and depth below the original terrain surface. At defaults, full cover contributes up to `x2`, eight meters of depth contributes up to `x2`, and the two multiply. FineDining stores accumulated bonus work in four owner-authoritative ZDO values and never rewrites vanilla `ZDOVars.s_startTime`; that timestamp remains the stable batch token used by the Cooking bonus RPC. The last authoritative rate also accounts for unloaded time when the fermenter is loaded again.
+Successfully eating a directly edible Health/Stamina/Eitr food grants `0.15` Cooking experience by default. Setting `Cooking Experience per Food Eaten` to `0` disables it.
 
-Station hover guidance shows:
+At Cooking level 100:
 
-- Available CookingStation, Smelter, Windmill, and Fermenter inputs.
-- Cooking/overcooking progress for occupied cooking slots.
-- Smelter, Windmill, and Fermenter remaining time.
-- Fermenter cover, depth, and effective rate.
-- Nearby AzuCraftyBoxes contents when its optional API is available.
+- Normal recipes and CookingStation outputs have a default `25%` bonus-item chance, configurable from `0%` to `25%`.
+- Fermenter outputs use a separate default of `20%`, also configurable from `0%` to `25%`.
+- Lower Cooking levels scale both chances linearly.
 
-Display settings are client-local. Fermenter cover/depth speed settings are synchronized gameplay settings.
+`Production Bonus Excluded Output Prefabs` disables the bonus for matching output items across recipes, CookingStations, and Fermenters.
+
+CookingStation auto-eject is available only when the conversion has a separate burnt or coal stage. Its chance equals the inserting player's Cooking level, and the result is decided when the item is inserted.
+
+Fermenters can run faster with cover and depth. Full cover and eight meters of depth each provide up to `x2` speed by default, and the two multipliers combine. Prefabs listed in `Fermenter Bonus Excluded Prefabs` keep native timing and output; FineDining acceleration, output bonuses, and insertion/collection Cooking experience are disabled for them.
+
+Hover hints show available inputs and processing time for CookingStations, Smelters, Windmills, and Fermenters. Icon scale and rows are client-side settings. Optional AzuCraftyBoxes integration includes nearby container contents, and optional ValheimCuisine integration adds Grimpy Box and Freydis information.
 
 ## Icebox
 
-`FineDining_Icebox` is cloned from `piece_chest`, uses the `antifreezegland` material, has 1000 health, and always preserves its contents.
+`FineDining_Icebox` is found in the Hammer's Misc tab and always pauses spoilage inside it.
 
-- Eight fixed columns.
-- Four rows by default, configurable from 4 through 20.
-- Default synchronized recipe: `FineWood:10,Iron:2`.
-- Recipe changes are all-or-nothing and placed boxes retain a refund snapshot.
-- Optional owner-only map/minimap pins are off by default and client-local.
-- Server-only per-Steam64 placement limits default to two boxes; `-1` is unlimited and `0` denies placement.
+- Size: eight columns and four rows by default; rows are configurable from `4` to `20`.
+- Recipe: `TrophySGolem:1,Obsidian:8,Crystal:16,Silver:32`.
+- Map and minimap pins: enabled by default for Iceboxes owned by the local account.
+- Placement limit: two per Steam account by default, configured through the server-synchronized `Icebox Default Placement Limit` setting.
 
-The generated `FineDining_RottenProduce` and `FineDining_RottenFood` items are restart-safe ObjectDB/ZNetScene content. They have zero food stats and cannot spoil again. Eating them applies separate five-second and ten-second Puke effects.
+Use `-1` for unlimited placement, `0` to deny placement, or a positive number for a maximum count. Exact Steam64 overrides are configured in the server-only `Icebox.yml` and take priority over the synchronized default.
 
 ## Configuration
 
-The main file is `BepInEx/config/sighsorry.FineDining.cfg`.
+The main configuration file is `BepInEx/config/sighsorry.FineDining.cfg`.
 
-| Sections | Scope | Purpose |
+Server configuration locking is enabled by default. Config descriptions identify every entry as server-synchronized or client-only.
+
+| Section | Scope | Contents |
 |---|---|---|
-| `00 - Server` | synchronized lock | Server configuration lock |
-| `01 - Food Effects` | synchronized | Minimum freshness multiplier |
-| `02 - Preservation` | synchronized | No-spoil biomes; default `Mountain, DeepNorth` |
-| `03 - Icebox` | mixed | Rows, recipe, local map pins |
-| `10..13 - Diet` | synchronized | Slots, diminishing, Chef's Choice, Cooking bonus |
-| `20..23 - Station` | client-local | Hints, layout, nearby range, diagnostics |
-| `24 - Fermentation Environment` | synchronized | Cover and depth maximum multipliers |
+| `1 - General` | Server-synchronized | Configuration lock, Cooking bonuses, and fermentation |
+| `2 - Client` | Client-only | Station icon scale and row counts |
+| `3 - Diet` | Server-synchronized | Food slots, stat scales, history, and diminishing returns |
+| `4 - Chef Choice` | Server-synchronized | Choice count, multipliers, tier weighting, and food-type preference |
+| `5 - Spoilage` | Mixed | Preservation, stale-food minimum, Icebox default limit, recipe, size, and local pins |
 
-Additional files under `BepInEx/config/FineDining/`:
+Additional files are created under `BepInEx/config/FineDining/`:
 
-- `FineDining.yml`: authoritative spoilage policy, synchronized to clients.
-- `FineDining.icebox-limits.yml`: server-only default and per-Steam64 Icebox limits.
-- `FineDining.reference.yml`: generated classification documentation; never read as config.
+| File | Purpose |
+|---|---|
+| `Spoilage.yml` | Server-authoritative lifetimes, replacements, overrides, and Chef blacklist |
+| `ResourceMap.yml` | Server-authoritative Chef food tiers |
+| `Icebox.yml` | Server-only per-Steam64 Icebox limit overrides |
+| `Spoilage.reference.yml` | Generated spoilage classification reference; not configuration |
+| `FoodTier.reference.yml` | Generated Chef tier and food-type reference; not configuration |
 
-Custom biome names in `No Spoil Biomes` are resolved through Expand World Data when that optional mod is installed.
+Invalid YAML keeps the last valid policy. Files from older names are not read or migrated; the former `Icebox.yml` `defaultLimit` field is unsupported.
 
-## Compatibility and performance
+### Admin commands
 
-- InventorySlots 1.3.6 or later: signed spoilage clocks and lifetime metadata use its merger API.
-- AzuExtendedPlayerInventory: its hidden-slot merge path is pattern-validated at runtime.
-- AzuCraftyBoxes: optional nearby-container station input lookup.
-- Expand World Data: optional custom no-spoil biome resolution.
-- Feaster-style placed foods: timer metadata is bridged between the placed ItemDrop and edible Feast item.
+| Command | Action |
+|---|---|
+| `fd:rerollchef` | Reroll the local player's Chef's Choice list |
+| `fd:clearrecent` | Clear the local player's recent-food history |
+| `fd:printstate` | Print the local player's FineDining diet state |
 
-Spoilage reconciliation runs on a one-second schedule and scans only authoritative loaded inventories, containers, and ItemDrops; work is linear in ordinary slot counts. Unloaded progress uses timestamps rather than background object simulation. Fermenter checkpoints are bounded and owner-only, and station candidates use a short hover cache with one nearby-container query per refresh.
+## Compatibility
 
-Dedicated servers execute spoilage, Icebox quotas, generated content registration, fermenter accumulation, and Cooking bonus validation without requiring a local HUD.
+- InventorySlots `1.3.7` or newer: spoilage-aware stack merging.
+- AzuExtendedPlayerInventory: hidden-slot merge compatibility.
+- AzuCraftyBoxes: nearby-container station hints using its configured range.
+- ValheimCuisine: Grimpy Box and Freydis hover information.
+- Expand World Data: custom biome names in `No-Spoil Biomes`.
+- Feaster-style placed food: spoilage metadata and hover information.
+
+FineDining performs spoilage work only for authoritative loaded inventories, containers, and world items. Unloaded progress is timestamp-based rather than continuously simulated, and dedicated servers do not require a local HUD.

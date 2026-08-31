@@ -11,20 +11,20 @@ namespace FineDining;
 
 internal static class CookingProductionBonusCore
 {
+    internal const float MaximumChanceAtMaxCookingPercent = 25f;
+
     internal static float CalculatePerItemChance(
         float skillFactor,
-        float vanillaBonusChance,
-        float bonusOutputPercent)
+        float chanceAtMaxCookingPercent)
     {
         double skill = NormalizeNonNegative(skillFactor);
-        double chance = NormalizeNonNegative(vanillaBonusChance);
-        double outputRatio = ClampPercent(bonusOutputPercent) / 100d;
-        if (skill <= 0d || chance <= 0d || outputRatio <= 0d)
+        double maximumChance = ClampChancePercent(chanceAtMaxCookingPercent) / 100d;
+        if (skill <= 0d || maximumChance <= 0d)
         {
             return 0f;
         }
 
-        return (float)ClampProbability(skill * chance * outputRatio);
+        return (float)ClampProbability(skill * maximumChance);
     }
 
     internal static int RollBonusItems(
@@ -86,22 +86,23 @@ internal static class CookingProductionBonusCore
         return double.IsPositiveInfinity(value) || value >= 1d ? 1d : value;
     }
 
-    private static double ClampPercent(float value)
+    private static double ClampChancePercent(float value)
     {
         if (float.IsNaN(value) || value <= 0f)
         {
             return 0d;
         }
 
-        return float.IsPositiveInfinity(value) || value >= 100f ? 100d : value;
+        return float.IsPositiveInfinity(value) ||
+               value >= MaximumChanceAtMaxCookingPercent
+            ? MaximumChanceAtMaxCookingPercent
+            : value;
     }
 }
 
 internal static class CookingProductionBonusSystem
 {
     internal const int UseVanillaBonus = -1;
-    internal const float VanillaBonusChance = 0.25f;
-
     private const int MaximumIndependentRolls = 10_000;
     private static readonly char[] ExclusionSeparators = { ',', ';', '\r', '\n' };
     private static readonly AccessTools.FieldRef<InventoryGui, Recipe> CraftRecipeField =
@@ -142,8 +143,7 @@ internal static class CookingProductionBonusSystem
 
         float itemChance = CookingProductionBonusCore.CalculatePerItemChance(
             skillFactor,
-            gui.m_craftBonusChance,
-            DietConfig.GetCookingBonusOutputPercent());
+            DietConfig.GetCookingBonusChanceAtMaxCookingPercent());
 
         if (itemChance <= 0f)
         {
@@ -169,30 +169,16 @@ internal static class CookingProductionBonusSystem
             NextRandomValue);
     }
 
-    internal static float ApplyConfiguredOutputPercent(float calculatedChance)
-    {
-        float outputPercent = DietConfig.GetCookingBonusOutputPercent();
-        if (float.IsNaN(outputPercent) || outputPercent <= 0f)
-        {
-            return 0f;
-        }
-
-        if (outputPercent >= 100f)
-        {
-            return calculatedChance;
-        }
-
-        return CookingProductionBonusCore.CalculatePerItemChance(
-            1f,
-            calculatedChance,
-            outputPercent);
-    }
+    internal static float CalculateConfiguredCookingChance(float skillFactor) =>
+        CookingProductionBonusCore.CalculatePerItemChance(
+            skillFactor,
+            DietConfig.GetCookingBonusChanceAtMaxCookingPercent());
 
     internal static int RollConfiguredBonusItems(
         string outputPrefabName,
         int baseItemCount,
         float skillFactor,
-        float vanillaBonusChance)
+        float chanceAtMaxCookingPercent)
     {
         if (baseItemCount <= 0 || IsExcludedOutputPrefab(outputPrefabName))
         {
@@ -201,8 +187,7 @@ internal static class CookingProductionBonusSystem
 
         float itemChance = CookingProductionBonusCore.CalculatePerItemChance(
             skillFactor,
-            vanillaBonusChance,
-            DietConfig.GetCookingBonusOutputPercent());
+            chanceAtMaxCookingPercent);
 
         return CookingProductionBonusCore.RollBonusItems(
             baseItemCount,
@@ -215,6 +200,30 @@ internal static class CookingProductionBonusSystem
         return MatchesExcludedOutputPrefab(
             prefabName,
             DietConfig.GetCookingBonusExcludedOutputPrefabs());
+    }
+
+    internal static void ShowBonusEffect(Vector3 effectPosition, int bonusCount)
+    {
+        if (bonusCount <= 0)
+        {
+            return;
+        }
+
+        if (DamageText.instance != null)
+        {
+            DamageText.instance.ShowText(
+                DamageText.TextType.Bonus,
+                effectPosition,
+                $"+{bonusCount}",
+                player: true);
+        }
+
+        if (InventoryGui.instance != null)
+        {
+            InventoryGui.instance.m_craftBonusEffect.Create(
+                effectPosition,
+                Quaternion.identity);
+        }
     }
 
     private static float NextRandomValue()
@@ -668,5 +677,3 @@ internal static class InventoryGuiCookingProductionBonusPatch
             $"Per-item Cooking bonus patch was not applied; vanilla behavior remains active ({reason}).");
     }
 }
-
-

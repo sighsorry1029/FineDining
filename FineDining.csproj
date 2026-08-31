@@ -13,6 +13,7 @@
         <FileAlignment>512</FileAlignment>
         <LangVersion>12.0</LangVersion>
         <Nullable>enable</Nullable>
+        <JotunnVersion>2.29.2</JotunnVersion>
         <DeployLocal Condition="'$(DeployLocal)' == ''">false</DeployLocal>
         <AfterTargets Condition="'$(AfterTargets)' == ''">ILRepacker</AfterTargets>
     </PropertyGroup>
@@ -83,6 +84,13 @@
         <Reference Include="BepInEx">
             <HintPath>$(BepInExPath)\core\BepInEx.dll</HintPath>
         </Reference>
+        <!-- Jotunn is a required external runtime dependency. Keep it out of the
+             FineDining output and ILRepack while compiling against the pinned
+             NuGet package below. -->
+        <Reference Include="Jotunn">
+            <HintPath>$(PkgJotunnLib)\lib\net462\Jotunn.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="ServerSync">
             <HintPath>Libs\ServerSync.dll</HintPath>
         </Reference>
@@ -148,7 +156,9 @@
         <Content Include="Thunderstore\icon.png"/>
         <Content Include="Thunderstore\manifest.json"/>
         <Content Include="THIRD-PARTY-NOTICES.txt"/>
-        <EmbeddedResource Include="Resources\Defaults\FineDining.yml"/>
+        <EmbeddedResource Include="Resources\Defaults\Spoilage.yml"/>
+        <EmbeddedResource Include="Resources\Defaults\ResourceMap.yml"/>
+        <EmbeddedResource Include="Resources\UI\FullCourseIcon.png"/>
         <EmbeddedResource Include="translations\English.yml"/>
         <EmbeddedResource Include="translations\Korean.yml"/>
     </ItemGroup>
@@ -156,6 +166,10 @@
         <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44.1">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="JotunnLib" Version="$(JotunnVersion)" GeneratePathProperty="true">
+          <PrivateAssets>all</PrivateAssets>
+          <ExcludeAssets>all</ExcludeAssets>
         </PackageReference>
         <PackageReference Include="YamlDotNet" Version="16.3.0" GeneratePathProperty="true">
           <PrivateAssets>all</PrivateAssets>
@@ -188,10 +202,20 @@
         <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(CopyOutputDLLPath2)" OverwriteReadOnlyFiles="true" Condition="Exists('$(CopyOutputDLLPath2)')"/>
         <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(CopyOutputDLLPath3)" OverwriteReadOnlyFiles="true" Condition="Exists('$(CopyOutputDLLPath3)')"/>
     </Target>
-    <Target Name="MakeThunderstorePackage" AfterTargets="GetAssemblyVersion" Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <Target Name="UpdateThunderstoreManifest" DependsOnTargets="GetAssemblyVersion" Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+        <Error Text="manifest.json not found in Thunderstore directory." Condition="!Exists('$(ProjectDir)\Thunderstore\manifest.json')"/>
+        <PropertyGroup>
+            <ManifestPath>$(ProjectDir)\Thunderstore\manifest.json</ManifestPath>
+            <ManifestSourceText>$([System.IO.File]::ReadAllText('$(ManifestPath)'))</ManifestSourceText>
+            <UpdatedManifestText>$([System.Text.RegularExpressions.Regex]::Replace($(ManifestSourceText), '&quot;version_number&quot;\s*:\s*&quot;[^&quot;]*&quot;', '&quot;version_number&quot;: &quot;$(PackageVersion)&quot;'))</UpdatedManifestText>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(ManifestPath)" Lines="$(UpdatedManifestText)" Overwrite="true" WriteOnlyWhenDifferent="true"/>
+    </Target>
+    <Target Name="MakeThunderstorePackage" AfterTargets="GetAssemblyVersion" DependsOnTargets="UpdateThunderstoreManifest" Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
         <Error Text="manifest.json not found in Thunderstore directory." Condition="!Exists('$(ProjectDir)\Thunderstore\manifest.json')"/>
         <Error Text="icon.png not found in Thunderstore directory. Please note that Thunderstore requires this image to be 256x256 in dimension" Condition="!Exists('$(ProjectDir)\Thunderstore\icon.png')"/>
         <Error Text="README.md not found in project directory." Condition="!Exists('$(ProjectDir)\README.md')"/>
+        <Error Text="English.yml not found in translations directory." Condition="!Exists('$(ProjectDir)\translations\English.yml')"/>
         <ReadLinesFromFile File="$(ProjectDir)\Thunderstore\manifest.json">
             <Output TaskParameter="Lines" ItemName="ManifestLines"/>
         </ReadLinesFromFile>
@@ -206,12 +230,11 @@
             <PackageFiles Include="$(ProjectDir)\Thunderstore\CHANGELOG.md" Condition="Exists('$(ProjectDir)\Thunderstore\CHANGELOG.md')"/>
             <PackageFiles Include="$(ProjectDir)\Thunderstore\manifest.json" Condition="Exists('$(ProjectDir)\Thunderstore\manifest.json')"/>
             <PackageFiles Include="$(ProjectDir)\Thunderstore\icon.png" Condition="Exists('$(ProjectDir)\Thunderstore\icon.png')"/>
-            <PackageFiles Include="$(ProjectDir)\LICENSE.txt" Condition="Exists('$(ProjectDir)\LICENSE.txt')"/>
-            <PackageFiles Include="$(ProjectDir)\THIRD-PARTY-NOTICES.txt" Condition="Exists('$(ProjectDir)\THIRD-PARTY-NOTICES.txt')"/>
         </ItemGroup>
         <RemoveDir Directories="$(PackageDir)" Condition="Exists('$(PackageDir)')"/>
         <MakeDir Directories="$(PackageDir)"/>
         <Copy SourceFiles="@(PackageFiles)" DestinationFolder="$(PackageDir)"/>
+        <Copy SourceFiles="$(ProjectDir)\translations\English.yml" DestinationFiles="$(PackageDir)\$(AssemblyName).English.yml"/>
         <ZipDirectory SourceDirectory="$(PackageDir)" DestinationFile="Thunderstore\$(PackageName).zip" Overwrite="true"/>
         <RemoveDir Directories="$(PackageDir)"/>
     </Target>
@@ -219,9 +242,6 @@
         <MakeDir Directories="$(ProjectDir)\Nexus"/>
         <ItemGroup>
             <NexusPackageFiles Include="$(TargetDir)$(AssemblyName).dll" Condition="Exists('$(TargetDir)$(AssemblyName).dll')"/>
-            <NexusPackageFiles Include="$(ProjectDir)\README.md" Condition="Exists('$(ProjectDir)\README.md')"/>
-            <NexusPackageFiles Include="$(ProjectDir)\LICENSE.txt" Condition="Exists('$(ProjectDir)\LICENSE.txt')"/>
-            <NexusPackageFiles Include="$(ProjectDir)\THIRD-PARTY-NOTICES.txt" Condition="Exists('$(ProjectDir)\THIRD-PARTY-NOTICES.txt')"/>
         </ItemGroup>
         <RemoveDir Directories="$(NexusPackageDir)" Condition="Exists('$(NexusPackageDir)')"/>
         <MakeDir Directories="$(NexusPackageDir)"/>

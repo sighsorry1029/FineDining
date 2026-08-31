@@ -67,7 +67,7 @@ internal static class FermenterEnvironmentSpeedSystem
     }
 
     private static ConditionalWeakTable<Fermenter, RuntimeState> _runtimeStates = new();
-    private static readonly List<WeakReference> TrackedFermenters = new();
+    private static readonly List<WeakReference<Fermenter>> TrackedFermenters = new();
 
     [ThreadStatic]
     private static Fermenter? _coverUpdateTarget;
@@ -88,14 +88,17 @@ internal static class FermenterEnvironmentSpeedSystem
         if (!state.Tracked)
         {
             state.Tracked = true;
-            TrackedFermenters.Add(new WeakReference(fermenter));
+            TrackedFermenters.Add(new WeakReference<Fermenter>(fermenter));
         }
     }
 
     internal static Fermenter? BeginCoverCapture(Fermenter fermenter)
     {
         Fermenter? previous = _coverUpdateTarget;
-        _coverUpdateTarget = StationModule.IsInitialized ? fermenter : null;
+        _coverUpdateTarget = StationModule.IsInitialized
+                             && !StationModule.IsFermenterBonusExcluded(fermenter)
+            ? fermenter
+            : null;
         return previous;
     }
 
@@ -148,14 +151,27 @@ internal static class FermenterEnvironmentSpeedSystem
             zdo,
             batchToken,
             out StateSnapshot snapshot);
+        bool excluded = StationModule.IsFermenterBonusExcluded(fermenter);
         RuntimeState runtimeState = GetRuntimeState(fermenter);
-        float currentBonusRate = hasValidState && !runtimeState.CoverKnown
+        float currentBonusRate = excluded
+            ? 0f
+            : hasValidState && !runtimeState.CoverKnown
             ? snapshot.BonusRate
             : GetCurrentBonusRate(fermenter);
 
         if (!hasValidState)
         {
-            InitializeCycle(zdo, batchToken, nowTicks, currentBonusRate);
+            if (excluded)
+            {
+                if (HasState(zdo))
+                {
+                    ClearState(zdo);
+                }
+
+                return;
+            }
+
+            WriteState(zdo, batchToken, 0L, nowTicks, currentBonusRate);
             return;
         }
 
@@ -192,9 +208,8 @@ internal static class FermenterEnvironmentSpeedSystem
     {
         for (int index = TrackedFermenters.Count - 1; index >= 0; index--)
         {
-            WeakReference reference = TrackedFermenters[index];
-            if (!reference.IsAlive
-                || reference.Target is not Fermenter fermenter
+            WeakReference<Fermenter> reference = TrackedFermenters[index];
+            if (!reference.TryGetTarget(out Fermenter fermenter)
                 || fermenter == null)
             {
                 TrackedFermenters.RemoveAt(index);
@@ -234,11 +249,6 @@ internal static class FermenterEnvironmentSpeedSystem
             : 0L;
     }
 
-    internal static void CheckpointBeforeBatchCompletion(Fermenter fermenter)
-    {
-        CheckpointOwner(fermenter, force: true);
-    }
-
     internal static void NotifyBatchStartedOrReset(Fermenter fermenter)
     {
         if (!StationModule.IsInitialized
@@ -261,12 +271,23 @@ internal static class FermenterEnvironmentSpeedSystem
             return;
         }
 
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            if (HasState(zdo))
+            {
+                ClearState(zdo);
+            }
+
+            return;
+        }
+
         long nowTicks = GetCurrentTicks();
         if (nowTicks > 0L)
         {
-            InitializeCycle(
+            WriteState(
                 zdo,
                 batchToken,
+                0L,
                 nowTicks,
                 GetCurrentBonusRate(fermenter));
         }
@@ -322,9 +343,11 @@ internal static class FermenterEnvironmentSpeedSystem
 
     internal static bool TryGetRemainingSeconds(
         Fermenter fermenter,
-        out double remainingSeconds)
+        out double remainingSeconds,
+        out float speedMultiplier)
     {
         remainingSeconds = 0d;
+        speedMultiplier = 1f;
         if (!StationModule.IsInitialized
             || fermenter.m_fermentationDuration <= 0f
             || !TryGetZdo(fermenter, requireOwner: false, out ZDO? zdo)
@@ -340,38 +363,57 @@ internal static class FermenterEnvironmentSpeedSystem
         }
 
         elapsed = ProjectEffectiveElapsed(fermenter, elapsed);
+        bool excluded = StationModule.IsFermenterBonusExcluded(fermenter);
+        RuntimeState runtimeState = GetRuntimeState(fermenter);
+        float bonusRate = 0f;
+        long batchToken = zdo.GetLong(ZDOVars.s_startTime, 0L);
+        if (TryReadValidState(zdo, batchToken, out StateSnapshot snapshot))
+        {
+            bonusRate = excluded ? 0f : snapshot.BonusRate;
+            if (!excluded && IsOwner(fermenter) && runtimeState.CoverKnown)
+            {
+                bonusRate = GetCurrentBonusRate(fermenter);
+            }
+        }
+
+        speedMultiplier = Math.Max(1f, 1f + bonusRate);
         if (elapsed > fermenter.m_fermentationDuration)
         {
             remainingSeconds = 0d;
             return true;
         }
 
-        RuntimeState runtimeState = GetRuntimeState(fermenter);
+        if (excluded)
+        {
+            remainingSeconds = Math.Max(0d, fermenter.m_fermentationDuration - elapsed);
+            return true;
+        }
+
         GetCoverState(fermenter, runtimeState, out bool hasRoof, out bool exposed);
         if (!hasRoof || exposed)
         {
             return false;
         }
 
-        float bonusRate = 0f;
-        long batchToken = zdo.GetLong(ZDOVars.s_startTime, 0L);
-        if (TryReadValidState(zdo, batchToken, out StateSnapshot snapshot))
-        {
-            bonusRate = snapshot.BonusRate;
-            if (IsOwner(fermenter) && runtimeState.CoverKnown)
-            {
-                bonusRate = GetCurrentBonusRate(fermenter);
-            }
-        }
-
         remainingSeconds = Math.Max(
             0d,
-            (fermenter.m_fermentationDuration - elapsed) / Math.Max(1f, 1f + bonusRate));
+            (fermenter.m_fermentationDuration - elapsed) / speedMultiplier);
         return true;
     }
 
     internal static EnvironmentStatus GetEnvironmentStatus(Fermenter fermenter)
     {
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            return new EnvironmentStatus(
+                0f,
+                canApplyBonus: false,
+                coverMultiplier: 1f,
+                depthKnown: false,
+                depthMeters: 0f,
+                depthMultiplier: 1f);
+        }
+
         RuntimeState state = GetRuntimeState(fermenter);
         GetCoverState(fermenter, state, out bool underRoof, out bool exposed);
         float cover = state.CoverKnown
@@ -413,6 +455,11 @@ internal static class FermenterEnvironmentSpeedSystem
 
     private static float GetCurrentBonusRate(Fermenter fermenter)
     {
+        if (StationModule.IsFermenterBonusExcluded(fermenter))
+        {
+            return 0f;
+        }
+
         EnvironmentStatus environment = GetEnvironmentStatus(fermenter);
         if (!environment.CanApplyBonus)
         {
@@ -561,7 +608,9 @@ internal static class FermenterEnvironmentSpeedSystem
         StateSnapshot snapshot,
         long nowTicks)
     {
-        if (nowTicks <= snapshot.LastCheckpointTicks || snapshot.BonusRate <= 0f)
+        if (StationModule.IsFermenterBonusExcluded(fermenter)
+            || nowTicks <= snapshot.LastCheckpointTicks
+            || snapshot.BonusRate <= 0f)
         {
             return 0L;
         }
@@ -620,15 +669,6 @@ internal static class FermenterEnvironmentSpeedSystem
                && snapshot.BatchToken == batchToken
                && snapshot.AccumulatedBonusTicks >= 0L
                && snapshot.LastCheckpointTicks > 0L;
-    }
-
-    private static void InitializeCycle(
-        ZDO zdo,
-        long batchToken,
-        long nowTicks,
-        float bonusRate)
-    {
-        WriteState(zdo, batchToken, 0L, nowTicks, bonusRate);
     }
 
     private static void WriteState(
@@ -760,9 +800,8 @@ internal static class FermenterEnvironmentSpeedSystem
     {
         for (int index = TrackedFermenters.Count - 1; index >= 0; index--)
         {
-            WeakReference reference = TrackedFermenters[index];
-            if (!reference.IsAlive
-                || reference.Target is not Fermenter fermenter
+            WeakReference<Fermenter> reference = TrackedFermenters[index];
+            if (!reference.TryGetTarget(out Fermenter fermenter)
                 || fermenter == null)
             {
                 TrackedFermenters.RemoveAt(index);
@@ -871,7 +910,7 @@ internal static class StationFermenterEnvironmentAddPatch
 {
     private static void Postfix(Fermenter __instance)
     {
-        StationModule.NotifyFermenterBatchStartedOrReset(__instance);
+        FermenterEnvironmentSpeedSystem.NotifyBatchStartedOrReset(__instance);
     }
 }
 
@@ -880,7 +919,7 @@ internal static class StationFermenterEnvironmentResetPatch
 {
     private static void Postfix(Fermenter __instance)
     {
-        StationModule.NotifyFermenterBatchStartedOrReset(__instance);
+        FermenterEnvironmentSpeedSystem.NotifyBatchStartedOrReset(__instance);
     }
 }
 
@@ -892,7 +931,7 @@ internal static class StationFermenterEnvironmentTapPatch
         __state = FermenterEnvironmentSpeedSystem.HasContent(__instance);
         if (__state)
         {
-            StationModule.CheckpointFermenterBeforeCompletion(__instance);
+            FermenterEnvironmentSpeedSystem.CheckpointOwner(__instance, force: true);
         }
     }
 
@@ -900,7 +939,7 @@ internal static class StationFermenterEnvironmentTapPatch
     {
         if (__state && !FermenterEnvironmentSpeedSystem.HasContent(__instance))
         {
-            StationModule.NotifyFermenterBatchCleared(__instance);
+            FermenterEnvironmentSpeedSystem.NotifyBatchCleared(__instance);
         }
     }
 }
@@ -913,7 +952,7 @@ internal static class StationFermenterEnvironmentDropPatch
         __state = FermenterEnvironmentSpeedSystem.HasContent(__instance);
         if (__state)
         {
-            StationModule.CheckpointFermenterBeforeCompletion(__instance);
+            FermenterEnvironmentSpeedSystem.CheckpointOwner(__instance, force: true);
         }
     }
 
@@ -921,7 +960,7 @@ internal static class StationFermenterEnvironmentDropPatch
     {
         if (__state && !FermenterEnvironmentSpeedSystem.HasContent(__instance))
         {
-            StationModule.NotifyFermenterBatchCleared(__instance);
+            FermenterEnvironmentSpeedSystem.NotifyBatchCleared(__instance);
         }
     }
 }

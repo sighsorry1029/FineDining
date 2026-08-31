@@ -611,7 +611,9 @@ internal static class IceboxQuotaService
 
             string accountId = IceboxSubsystem.NormalizeAccountId(authoritativeAccountId);
             AttributeUnresolvedGrandfatheredIceboxes(creatorPlayerId, accountId);
-            int limit = IceboxLimitPolicy.Current.GetLimit(accountId);
+            int limit = IceboxLimitPolicy.Current.GetLimit(
+                accountId,
+                IceboxSubsystem.PlacementLimit);
             int currentCount = CountsByAccount.TryGetValue(accountId, out int indexedCount) ? indexedCount : 0;
             if (limit == 0 || (limit > 0 && currentCount >= limit))
             {
@@ -1171,15 +1173,9 @@ internal static class IceboxQuotaService
     internal static string FormatPlacementLimitMessage(int limit)
     {
         string limitText = limit < 0 ? "-1" : limit.ToString();
-        string localized = Localization.instance != null
-            ? Localization.instance.Localize(PlacementLimitMessageToken)
-            : PlacementLimitMessageToken;
-        if (string.IsNullOrWhiteSpace(localized) ||
-            string.Equals(localized, PlacementLimitMessageToken, StringComparison.Ordinal))
-        {
-            return $"Icebox placement limit reached (maximum {limitText}).";
-        }
-
-        return localized.Replace("{0}", limitText);
+        return FineDiningLocalization.FormatOrFallback(
+            PlacementLimitMessageToken,
+            "Icebox placement limit reached (maximum {0}).",
+            limitText);
     }
 }

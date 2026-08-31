@@ -30,13 +30,14 @@ internal static class PreservationConfig
     {
         Shutdown();
         _noSpoilBiomes = config.Bind(
-            "02 - Preservation",
-            "No Spoil Biomes",
+            ConfigPresentation.Spoilage.Name,
+            "No-Spoil Biomes",
             DefaultBiomeList,
-            new ConfigDescription(
+            ConfigPresentation.Synced(
                 "Comma-separated biome identifiers where spoilage pauses. " +
-                "Expand World Data custom biome names are supported when that mod is installed. " +
-                "This gameplay setting is synchronized with the server."));
+                "Expand World Data custom biome names are supported when that mod is installed.",
+                ConfigPresentation.Spoilage,
+                600));
         SyncedConfigEntry<string> syncedEntry = configSync.AddConfigEntry(_noSpoilBiomes);
         syncedEntry.SynchronizedConfig = true;
         _noSpoilBiomes.SettingChanged += OnSettingChanged;
@@ -111,7 +112,7 @@ internal static class PreservationConfig
             if (name.Equals(nameof(Heightmap.Biome.None), StringComparison.OrdinalIgnoreCase))
             {
                 FineDiningPlugin.Log.LogWarning(
-                    "No Spoil Biomes ignores 'None' because it represents an unavailable biome sample.");
+                    "No-Spoil Biomes ignores 'None' because it represents an unavailable biome sample.");
                 continue;
             }
 
@@ -132,7 +133,7 @@ internal static class PreservationConfig
                 if (warnUnknown && WarnedUnknownBiomeNames.Add(name))
                 {
                     FineDiningPlugin.Log.LogWarning(
-                        $"No Spoil Biomes contains unresolved biome identifier '{name}'. " +
+                        $"No-Spoil Biomes contains unresolved biome identifier '{name}'. " +
                         "It remains configured and will be retried for late-loaded Expand World Data content.");
                 }
 

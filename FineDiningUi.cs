@@ -20,8 +20,6 @@ internal static class InventoryGridSpoilageTimerPatch
     private static readonly Color PausedTimerColor = new(0.44f, 0.78f, 1f, 1f);
     private static Sprite? _coldPauseSprite;
     private static int _updateId;
-    private static bool _loggedFirstPlayerGridCheck;
-    private static bool _loggedFirstContainerGridCheck;
     private static bool _loggedUiFailure;
 
     [HarmonyPriority(Priority.Last)]
@@ -76,9 +74,6 @@ internal static class InventoryGridSpoilageTimerPatch
         }
 
         int updateId = NextUpdateId();
-        int usedItemCount = 0;
-        int timestampCount = 0;
-        int visibleCount = 0;
         foreach (ItemData item in inventory.GetAllItems())
         {
             if (item == null)
@@ -101,7 +96,6 @@ internal static class InventoryGridSpoilageTimerPatch
                 continue;
             }
 
-            usedItemCount++;
             if (!DecayRuntime.TryGetSpoilageClock(
                     item,
                     nowTicks,
@@ -111,7 +105,6 @@ internal static class InventoryGridSpoilageTimerPatch
                 continue;
             }
 
-            timestampCount++;
             FineDiningTimerOverlayCache cache = EnsureOverlay(element);
             float unscaledTime = Time.unscaledTime;
             bool refreshText = !ReferenceEquals(cache.LastItem, item) ||
@@ -131,33 +124,9 @@ internal static class InventoryGridSpoilageTimerPatch
             {
                 ShowOverlay(cache, paused);
             }
-
-            visibleCount++;
         }
 
         HideOverlaysNotSeenInUpdate(grid, updateId);
-        Player localPlayer = Player.m_localPlayer;
-        bool isPlayerGrid = localPlayer != null &&
-                            ReferenceEquals(localPlayer.GetInventory(), inventory);
-        bool logGridCheck = isPlayerGrid
-            ? !_loggedFirstPlayerGridCheck
-            : !_loggedFirstContainerGridCheck;
-        if (logGridCheck)
-        {
-            if (isPlayerGrid)
-            {
-                _loggedFirstPlayerGridCheck = true;
-            }
-            else
-            {
-                _loggedFirstContainerGridCheck = true;
-            }
-
-            FineDiningPlugin.Log.LogInfo(
-                "Spoilage timer UI check (" + (isPlayerGrid ? "player" : "container") + "): " +
-                usedItemCount + " occupied stack(s), " +
-                timestampCount + " valid timestamp(s), " + visibleCount + " rendered overlay(s).");
-        }
     }
 
     private static int NextUpdateId()
@@ -481,9 +450,13 @@ internal sealed class FineDiningTimerOverlayCache : MonoBehaviour
     internal string PauseIconLayoutText = "";
 }
 
-internal static class SpoilageUiText
+internal static class FoodEffectUiText
 {
+    internal const string RunningColorHex = "#FFD138";
     internal const string PausedColorHex = "#70C8FF";
+    internal const string PositiveModifierColorHex = "#9FE870";
+    internal const string PenaltyModifierColorHex = "#FFB454";
+    internal const string NeutralModifierColorHex = "#B8B8B8";
     private const string RunningLineKey = "$finedining_tooltip_spoils_in";
     private const string PausedLineKey = "$finedining_tooltip_paused";
     private const string DayUnitKey = "$finedining_duration_day";
@@ -491,29 +464,111 @@ internal static class SpoilageUiText
     private const string MinuteUnitKey = "$finedining_duration_minute";
     private const string EnglishRunningLine = "Spoils in {0}";
     private const string EnglishPausedLine = "Cold environment paused spoilage · remaining {0} ❄";
-    private const string FreshnessEffectLineKey = "$finedining_tooltip_freshness_effect";
-    private const string EnglishFreshnessEffectLine = "Freshness effect: food stats x{0}";
+    private const string ChefChoiceLineKey = "$finedining_diet_tooltip_chef_choice";
+    private const string DiminishingReturnsLineKey =
+        "$finedining_diet_tooltip_diminishing_returns";
+    private const string StalenessLineKey = "$finedining_tooltip_staleness";
+    private const string EnglishChefChoiceLine =
+        "<color={0}>Chef's Choice</color>: food stats <color={0}>x{1}</color>";
+    private const string EnglishDiminishingReturnsLine =
+        "<color={0}>Diminishing returns</color>: food stats <color={0}>x{1}</color>";
+    private const string EnglishStalenessLine =
+        "<color={0}>Staleness</color>: food stats <color={0}>x{1}</color>";
 
     internal static string BuildStatusLine(long remainingTicks, bool paused)
     {
         string remaining = FormatDetailedRemaining(remainingTicks);
-        string line = FormatLocalized(
+        string line = FineDiningLocalization.FormatOrFallback(
             paused ? PausedLineKey : RunningLineKey,
             paused ? EnglishPausedLine : EnglishRunningLine,
             remaining);
-        return paused ? $"<color={PausedColorHex}>{line}</color>" : line;
+        string color = paused ? PausedColorHex : RunningColorHex;
+        return $"<color={color}>{line}</color>";
     }
 
-    internal static string BuildFreshnessEffectLine(float multiplier)
+    internal static string BuildChefChoiceModifierLine(float multiplier)
     {
-        multiplier = Mathf.Clamp01(multiplier);
-        string factor = multiplier.ToString(
+        float displayedMultiplier = Math.Max(1f, RoundMultiplierForDisplay(multiplier));
+        string color = GetChefChoiceModifierColor(displayedMultiplier);
+        return BuildModifierLine(
+            ChefChoiceLineKey,
+            EnglishChefChoiceLine,
+            color,
+            displayedMultiplier);
+    }
+
+    internal static bool TryBuildDiminishingReturnsLine(
+        float multiplier,
+        out string line) =>
+        TryBuildPenaltyModifierLine(
+            DiminishingReturnsLineKey,
+            EnglishDiminishingReturnsLine,
+            multiplier,
+            out line);
+
+    internal static bool TryBuildStalenessLine(float multiplier, out string line) =>
+        TryBuildPenaltyModifierLine(
+            StalenessLineKey,
+            EnglishStalenessLine,
+            multiplier,
+            out line);
+
+    internal static float RoundMultiplierForDisplay(float multiplier)
+    {
+        if (float.IsNaN(multiplier) || float.IsInfinity(multiplier))
+        {
+            return 1f;
+        }
+
+        return (float)Math.Round(
+            Math.Max(0f, multiplier),
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    internal static string GetChefChoiceModifierColor(float multiplier) =>
+        RoundMultiplierForDisplay(multiplier) > 1f
+            ? PositiveModifierColorHex
+            : NeutralModifierColorHex;
+
+    internal static bool TryGetPenaltyDisplayMultiplier(
+        float multiplier,
+        out float displayedMultiplier)
+    {
+        displayedMultiplier = RoundMultiplierForDisplay(multiplier);
+        return displayedMultiplier < 1f;
+    }
+
+    private static bool TryBuildPenaltyModifierLine(
+        string key,
+        string englishFallback,
+        float multiplier,
+        out string line)
+    {
+        if (!TryGetPenaltyDisplayMultiplier(multiplier, out float displayedMultiplier))
+        {
+            line = string.Empty;
+            return false;
+        }
+
+        line = BuildModifierLine(
+            key,
+            englishFallback,
+            PenaltyModifierColorHex,
+            displayedMultiplier);
+        return true;
+    }
+
+    private static string BuildModifierLine(
+        string key,
+        string englishFallback,
+        string color,
+        float displayedMultiplier)
+    {
+        string factor = displayedMultiplier.ToString(
             "0.00",
             System.Globalization.CultureInfo.InvariantCulture);
-        return FormatLocalized(
-            FreshnessEffectLineKey,
-            EnglishFreshnessEffectLine,
-            factor);
+        return FineDiningLocalization.FormatOrFallback(key, englishFallback, color, factor);
     }
 
     internal static string FormatDetailedRemaining(long remainingTicks)
@@ -531,67 +586,23 @@ internal static class SpoilageUiText
         List<string> parts = new(3);
         if (days > 0L)
         {
-            parts.Add(FormatLocalized(DayUnitKey, "{0}d", days));
+            parts.Add(FineDiningLocalization.FormatOrFallback(DayUnitKey, "{0}d", days));
         }
 
         if (hours > 0L)
         {
-            parts.Add(FormatLocalized(HourUnitKey, "{0}h", hours));
+            parts.Add(FineDiningLocalization.FormatOrFallback(HourUnitKey, "{0}h", hours));
         }
 
         if (minutes > 0L || parts.Count == 0)
         {
-            parts.Add(FormatLocalized(MinuteUnitKey, "{0}m", minutes > 0L ? minutes : 1L));
+            parts.Add(FineDiningLocalization.FormatOrFallback(
+                MinuteUnitKey,
+                "{0}m",
+                minutes > 0L ? minutes : 1L));
         }
 
         return string.Join(" ", parts);
-    }
-
-    private static string FormatLocalized(string key, string englishFallback, params object[] values)
-    {
-        string? localizedFormat = null;
-        Localization? localization = Localization.instance;
-        if (localization != null)
-        {
-            localizedFormat = localization.Localize(key);
-        }
-
-        if (!string.IsNullOrWhiteSpace(localizedFormat))
-        {
-            try
-            {
-                string localized = string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    localizedFormat,
-                    values);
-                bool containsValues = true;
-                foreach (object value in values)
-                {
-                    string required = Convert.ToString(
-                        value,
-                        System.Globalization.CultureInfo.InvariantCulture) ?? "";
-                    if (required.Length > 0 && localized.IndexOf(required, StringComparison.Ordinal) < 0)
-                    {
-                        containsValues = false;
-                        break;
-                    }
-                }
-
-                if (containsValues)
-                {
-                    return localized;
-                }
-            }
-            catch (FormatException)
-            {
-                // Malformed or unresolved translations fall through to English.
-            }
-        }
-
-        return string.Format(
-            System.Globalization.CultureInfo.InvariantCulture,
-            englishFallback,
-            values);
     }
 
     internal static bool ContainsLine(string text, string line)
@@ -624,7 +635,7 @@ internal static class ItemDataSpoilageTooltipPatch
 
         try
         {
-            if (!DecayRuntime.TryGetWorldTicks(out long nowTicks) ||
+            if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
                 !DecayRuntime.TryGetSpoilageClock(
                     __instance,
                     nowTicks,
@@ -634,8 +645,8 @@ internal static class ItemDataSpoilageTooltipPatch
                 return;
             }
 
-            string line = SpoilageUiText.BuildStatusLine(remainingTicks, paused);
-            if (!SpoilageUiText.ContainsLine(__result ?? "", line))
+            string line = FoodEffectUiText.BuildStatusLine(remainingTicks, paused);
+            if (!FoodEffectUiText.ContainsLine(__result ?? "", line))
             {
                 __result = string.IsNullOrEmpty(__result) ? line : __result + "\n" + line;
             }
@@ -684,13 +695,13 @@ internal static class WorldItemSpoilageHover
                 worldDrop.Load();
             }
 
-            if (!DecayRuntime.TryGetWorldTicks(out long nowTicks) ||
-                !TryBuildTimerLine(worldDrop.m_itemData, nowTicks, out string timerLine))
+            if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
+                !TryBuildTimerLine(worldDrop, nowTicks, out string timerLine))
             {
                 return;
             }
 
-            if (!SpoilageUiText.ContainsLine(hoverText, timerLine))
+            if (!FoodEffectUiText.ContainsLine(hoverText, timerLine))
             {
                 hoverText += "\n" + timerLine;
             }
@@ -708,10 +719,9 @@ internal static class WorldItemSpoilageHover
             }
 
             float multiplier = FreshnessRuntime.GetFoodStatMultiplier(freshnessItem);
-            if (multiplier < 0.999999f)
+            if (FoodEffectUiText.TryBuildStalenessLine(multiplier, out string effectLine))
             {
-                string effectLine = SpoilageUiText.BuildFreshnessEffectLine(multiplier);
-                if (!SpoilageUiText.ContainsLine(hoverText, effectLine))
+                if (!FoodEffectUiText.ContainsLine(hoverText, effectLine))
                 {
                     hoverText += "\n" + effectLine;
                 }
@@ -731,13 +741,14 @@ internal static class WorldItemSpoilageHover
     }
 
     internal static bool TryBuildTimerLine(
-        ItemDrop.ItemData? item,
+        ItemDrop? worldDrop,
         long nowTicks,
         out string timerLine)
     {
         timerLine = string.Empty;
-        if (!DecayRuntime.TryGetSpoilageClock(
-                item,
+        if (DecayRuntime.IsCreatorlessPlacedDrop(worldDrop) ||
+            !DecayRuntime.TryGetSpoilageClock(
+                worldDrop?.m_itemData,
                 nowTicks,
                 out long remainingTicks,
                 out bool paused))
@@ -745,7 +756,7 @@ internal static class WorldItemSpoilageHover
             return false;
         }
 
-        timerLine = SpoilageUiText.BuildStatusLine(remainingTicks, paused);
+        timerLine = FoodEffectUiText.BuildStatusLine(remainingTicks, paused);
         return true;
     }
 }
