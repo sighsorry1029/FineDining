@@ -46,7 +46,7 @@ internal readonly struct FoodEffect
 
 internal static class FoodRules
 {
-    internal const int MinimumFullCourseSlots = 6;
+    internal const int MinimumFullCourseSlots = FoodSlotProgression.MinimumFoodSlots;
 
     internal static float CalculateRegularFoodScale(
         Player player,
@@ -279,11 +279,13 @@ internal static class FoodRules
         return mostDepleted;
     }
 
-    internal static void SetActiveFoodScale(
+    internal static void SetActiveFoodEffect(
         PlayerFoodStateData state,
         string key,
-        float scale)
+        FoodEffect? effect)
     {
+        // A null effect records vanilla food's consumption order only. It must
+        // also clear any prior diet snapshot when replacing an existing entry.
         for (int index = 0; index < state.Active.Count; index++)
         {
             ActiveFoodData active = state.Active[index];
@@ -292,7 +294,11 @@ internal static class FoodRules
                 continue;
             }
 
-            active.AppliedScale = scale;
+            active.AppliedScale = effect?.AppliedScale ?? 1f;
+            active.HasEffectBreakdown = effect.HasValue;
+            active.ChefMultiplier = effect?.ChefMultiplier ?? 1f;
+            active.FreshnessScale = effect?.FreshnessScale ?? 1f;
+            active.DiminishingScale = effect?.DiminishingScale ?? 1f;
             if (index != state.Active.Count - 1)
             {
                 // Active is also the persisted consumption order. Re-eating a
@@ -307,11 +313,15 @@ internal static class FoodRules
         state.Active.Add(new ActiveFoodData
         {
             Key = key,
-            AppliedScale = scale
+            AppliedScale = effect?.AppliedScale ?? 1f,
+            HasEffectBreakdown = effect.HasValue,
+            ChefMultiplier = effect?.ChefMultiplier ?? 1f,
+            FreshnessScale = effect?.FreshnessScale ?? 1f,
+            DiminishingScale = effect?.DiminishingScale ?? 1f
         });
     }
 
-    private static ActiveFoodData? GetActiveFood(PlayerFoodStateData state, string key)
+    internal static ActiveFoodData? GetActiveFood(PlayerFoodStateData state, string key)
     {
         foreach (ActiveFoodData active in state.Active)
         {
@@ -336,7 +346,7 @@ internal static class FoodSlotProgression
         int knownFoodCount,
         int maximumFoodSlots)
     {
-        int maximum = maximumFoodSlots <= 6 ? 6 : MaximumFoodSlots;
+        int maximum = Math.Max(MinimumFoodSlots, Math.Min(MaximumFoodSlots, maximumFoodSlots));
         int unlocked = MinimumFoodSlots +
                        (Math.Max(0, knownFoodCount - 6) + 2) / 3;
         return Math.Min(maximum, Math.Min(MaximumFoodSlots, unlocked));

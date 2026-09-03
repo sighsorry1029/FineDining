@@ -14,8 +14,7 @@ internal enum PukeFoodRemovalOrder
 internal static class DietConfig
 {
     internal static ConfigEntry<int> MaxFoodSlots = null!;
-    internal static ConfigEntry<float> SixSlotFoodStatScale = null!;
-    internal static ConfigEntry<float> NineSlotFoodStatScale = null!;
+    internal static ConfigEntry<float> FoodStatScale = null!;
     internal static ConfigEntry<float> FullCourseMultiplier = null!;
     internal static ConfigEntry<int> RecentHistorySize = null!;
     internal static ConfigEntry<int> DiminishingThreshold = null!;
@@ -41,33 +40,21 @@ internal static class DietConfig
             "Maximum Food Slots",
             9,
             ConfigPresentation.Synced(
-                "Maximum number of active food slots. Choose either six or nine; slots unlock from three as the player learns more directly edible Health/Stamina/Eitr foods.",
+                "Maximum number of active food slots, from three through nine. Slots unlock from three as the player learns more directly edible Health/Stamina/Eitr foods, up to this limit.",
                 ConfigPresentation.Diet,
                 500,
-                new AcceptableValueList<int>(6, 9)));
+                new AcceptableValueRange<int>(3, 9)));
 
-        SixSlotFoodStatScale = BindSynced(
+        FoodStatScale = BindSynced(
             config,
             configSync,
             ConfigPresentation.Diet,
-            "6-Slot Food Stat Scale",
-            0.45f,
+            "Food Stat Scale",
+            0.9f,
             ConfigPresentation.Synced(
-                "Per-food stat multiplier at the six-slot maximum. Earlier unlocked tiers are automatically raised so a completely filled current diet keeps the same total base strength. The default keeps that total at 90% of three vanilla food slots before Full Course.",
+                "Total base strength of a full unlocked diet relative to three equivalent vanilla foods. Each food's health, stamina, eitr, and health regeneration uses 3 * this value / currently unlocked slots, before Chef's Choice, diminishing returns, freshness, and Full Course. Empty slots do not increase the remaining foods' multipliers. Player base stats and external bonuses are unchanged.",
                 ConfigPresentation.Diet,
                 450,
-                new AcceptableValueRange<float>(0.1f, 3f)));
-
-        NineSlotFoodStatScale = BindSynced(
-            config,
-            configSync,
-            ConfigPresentation.Diet,
-            "9-Slot Food Stat Scale",
-            0.3f,
-            ConfigPresentation.Synced(
-                "Per-food stat multiplier at the nine-slot maximum. Earlier unlocked tiers are automatically raised so a completely filled current diet keeps the same total base strength. The default keeps that total at 90% of three vanilla food slots before Full Course.",
-                ConfigPresentation.Diet,
-                400,
                 new AcceptableValueRange<float>(0.1f, 3f)));
 
         FullCourseMultiplier = BindSynced(
@@ -77,7 +64,7 @@ internal static class DietConfig
             "Full Course Multiplier",
             1.2f,
             ConfigPresentation.Synced(
-                "Multiplier applied to health, stamina, eitr, and health regeneration from every active food once at least six slots are unlocked and every currently unlocked slot is filled with a directly edible Health/Stamina/Eitr food. 1 disables the bonus.",
+                "Multiplier applied to health, stamina, eitr, and health regeneration from every active food when every currently unlocked slot (three through nine) is filled with a directly edible Health/Stamina/Eitr food. This also works before the configured maximum is unlocked. 1 disables the bonus.",
                 ConfigPresentation.Diet,
                 350,
                 new AcceptableValueRange<float>(1f, 5f)));
@@ -258,8 +245,7 @@ internal static class DietConfig
     internal static void Shutdown()
     {
         MaxFoodSlots = null!;
-        SixSlotFoodStatScale = null!;
-        NineSlotFoodStatScale = null!;
+        FoodStatScale = null!;
         FullCourseMultiplier = null!;
         RecentHistorySize = null!;
         DiminishingThreshold = null!;
@@ -282,18 +268,19 @@ internal static class DietConfig
         CalculateBaseSlotScale(
             GetMaxFoodSlots(),
             unlockedFoodSlots,
-            SixSlotFoodStatScale.Value,
-            NineSlotFoodStatScale.Value);
+            FoodStatScale.Value);
     internal static float CalculateBaseSlotScale(
         int maximumFoodSlots,
         int unlockedFoodSlots,
-        float sixSlotScale,
-        float nineSlotScale)
+        float foodStatScale)
     {
-        int maximum = maximumFoodSlots <= 6 ? 6 : 9;
-        int unlocked = Math.Max(3, Math.Min(maximum, unlockedFoodSlots));
-        float endpointScale = maximum == 6 ? sixSlotScale : nineSlotScale;
-        return endpointScale * maximum / unlocked;
+        int maximum = Math.Max(
+            FoodSlotProgression.MinimumFoodSlots,
+            Math.Min(FoodSlotProgression.MaximumFoodSlots, maximumFoodSlots));
+        int unlocked = Math.Max(
+            FoodSlotProgression.MinimumFoodSlots,
+            Math.Min(maximum, unlockedFoodSlots));
+        return FoodSlotProgression.MinimumFoodSlots * foodStatScale / unlocked;
     }
     internal static float GetFullCourseMultiplier() => FullCourseMultiplier.Value;
     internal static int GetRecentHistorySize() => RecentHistorySize.Value;

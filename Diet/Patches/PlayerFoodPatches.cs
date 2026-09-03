@@ -108,7 +108,7 @@ internal static class DietPlayerFoodPatches
             {
                 // Non-direct foods use vanilla stats, but still participate in
                 // the exact oldest/newest consumption order used by SE_Puke.
-                FoodRules.SetActiveFoodScale(state, key, 1f);
+                FoodRules.SetActiveFoodEffect(state, key, null);
                 return;
             }
         }

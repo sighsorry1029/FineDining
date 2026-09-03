@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.4
+
+- Maximum Food Slots now accepts every value from 3 through 9. Replaced the separate six- and nine-slot scales with one Food Stat Scale, defaulting to 0.9; each food uses `3 * scale / unlocked slots`, keeping a full diet's base strength consistent throughout progression.
+- Full Course now works at every unlocked slot count from 3 through 9 when all slots are filled with eligible foods. Default settings provide 90% of a comparable vanilla diet before Full Course and 108% with it.
+- Replaced eaten-food name tooltips with a fixed, localized extra-effect summary and a white arrow from the hovered icon. The total excludes slot scaling and vanilla time decay; a second line shows non-neutral Full Course, Chef, freshness, and diminishing multipliers. Consumed factors are saved, while Full Course updates with the current diet.
+- Increased every default spoilage lifetime by 24 hours. Groups and exact overrides now accept `0, keep` to disable spoilage without removing the chosen expiry action.
+- Added regression coverage for all supported slot counts, saved effect breakdowns, hover formatting, and disabled keep rules.
+
+Existing Spoilage.yml files and assigned timers are not overwritten. Foods eaten before this update show their combined extra effect only; eating them again records the detailed breakdown. The old per-slot-profile scale settings are not migrated.
+
 ## 1.0.3
 
 - Preserved EpicMMOSystem and other mods' maximum Health, Stamina, and Eitr bonuses by routing final food totals through Valheim's standard calculation. FineDining continues scaling only each food's own stat and health-regeneration contributions.

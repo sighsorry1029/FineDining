@@ -212,11 +212,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.3.0') 'Assembly version must remain 1.0.3.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.4.0') 'Assembly version must be 1.0.4.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.3') 'Plugin version must remain 1.0.3.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.4') 'Plugin version must be 1.0.4.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -313,8 +313,7 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Rows - Fermenter'; Order = 200; Scope = 'Client' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Rows - Grimpy Box'; Order = 100; Scope = 'Client' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Maximum Food Slots'; Order = 500; Scope = 'Synced' },
-    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = '6-Slot Food Stat Scale'; Order = 450; Scope = 'Synced' },
-    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = '9-Slot Food Stat Scale'; Order = 400; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Food Stat Scale'; Order = 450; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Full Course Multiplier'; Order = 350; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Recent Food History Size'; Order = 300; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Diminishing Returns Start Count'; Order = 200; Scope = 'Synced' },
@@ -930,8 +929,10 @@ Assert-True ([regex]::IsMatch(
     $updateRecentSlotsSource,
     '(?s)wouldDiminish\s*&&\s*!chefExemptsDiminishing\s*\?.*?x\{.*?:\s*string\.Empty')) 'A Chef-exempt recent-history slot must hide the regular diminishing multiplier footer.'
 Assert-True ([regex]::Matches($updateRecentSlotsSource, 'entry\.Stack').Count -ge 2) 'Recent-history corner and hover text must retain the completed consumption count while the footer previews the next one.'
-Assert-True ($hudFoodSlotsSource.Contains('Localization.instance.Localize(foods[index].m_item.m_shared.m_name)')) 'Active-food hover must localize its item name before adding rich-text color.'
-Assert-True ($hudFoodSlotsSource.Contains('HudFoodPanels.FormatFoodNameForTooltip(foodName)')) 'Active-food hover must color localized food names.'
+Assert-True (-not $hudFoodSlotsSource.Contains('UpdateTooltips(') -and
+             -not $hudFoodSlotsSource.Contains('UITooltip')) 'Eaten-food icons must no longer own a cursor-following tooltip update path.'
+Assert-True ($hudFoodPanelsSource.Contains('Localization.instance.Localize(hoveredFood.m_item.m_shared.m_name)')) 'Eaten-food hover must localize its item name before adding rich-text color.'
+Assert-True ($hudFoodPanelsSource.Contains('FormatFoodNameForTooltip(foodName)')) 'Eaten-food hover must color localized food names.'
 Assert-True ([Math]::Abs([float](Get-Constant $hudFoodPanelsType 'HoverPanelShowDelay') - 0.5) -lt 0.0001) 'Fixed diet hover panels must retain the standard half-second tooltip delay.'
 Assert-True ([Math]::Abs([float](Get-Constant $hudFoodPanelsType 'HoverPanelHeight') - 48) -lt 0.0001) 'Fixed diet hover panels must retain their two-line height.'
 Assert-True ([Math]::Abs([float](Get-Constant $hudFoodPanelsType 'HoverPanelMinimumWidth') - 460) -lt 0.0001) 'Fixed diet hover panels must retain their requested minimum width.'
@@ -948,6 +949,9 @@ Assert-True ([regex]::IsMatch(
 Assert-True ([regex]::IsMatch(
     $layoutRootSource,
     '(?s)LayoutHoverPanel\(\s*context\.ChefHover,\s*hoverWidth,\s*new Vector2\(0f, chefRowOffset - slotSize\.y - HoverPanelGap\),\s*new Vector2\(0f, 1f\)\)')) 'Chef Choice hover guidance must be anchored immediately below its row.'
+Assert-True ([regex]::IsMatch(
+    $layoutRootSource,
+    '(?s)LayoutHoverPanel\(\s*context\.EatenHover,\s*hoverWidth,\s*new Vector2\(0f, HoverPanelGap\),\s*new Vector2\(0f, 0f\)\)')) 'Eaten-food hover must use the same fixed area immediately above recent history, independent of the hovered icon location.'
 
 $createHoverPanelStart = $hudFoodPanelsSource.IndexOf('private static HoverPanelContext CreateHoverPanel(', [StringComparison]::Ordinal)
 $ensureSlotsStart = $hudFoodPanelsSource.IndexOf('private static void EnsureSlots(', $createHoverPanelStart, [StringComparison]::Ordinal)
@@ -967,9 +971,9 @@ $createTextSource = $hudFoodPanelsSource.Substring($createTextStart, $updateHove
 Assert-True ($createTextSource.Contains('text.raycastTarget = false;')) 'Fixed diet hover panel text must not intercept pointer input.'
 
 $createSlotStart = $hudFoodPanelsSource.IndexOf('private static SlotContext CreateSlot(', [StringComparison]::Ordinal)
-$getOrCreateTooltipStart = $hudFoodPanelsSource.IndexOf('internal static UITooltip? GetOrCreateTooltip(', $createSlotStart, [StringComparison]::Ordinal)
-Assert-True ($createSlotStart -ge 0 -and $getOrCreateTooltipStart -gt $createSlotStart) 'Diet HUD slot creation source boundaries are missing.'
-$createSlotSource = $hudFoodPanelsSource.Substring($createSlotStart, $getOrCreateTooltipStart - $createSlotStart)
+$formatFoodNameStart = $hudFoodPanelsSource.IndexOf('internal static string FormatFoodNameForTooltip(', $createSlotStart, [StringComparison]::Ordinal)
+Assert-True ($createSlotStart -ge 0 -and $formatFoodNameStart -gt $createSlotStart) 'Diet HUD slot creation source boundaries are missing.'
+$createSlotSource = $hudFoodPanelsSource.Substring($createSlotStart, $formatFoodNameStart - $createSlotStart)
 Assert-True (-not $createSlotSource.Contains('UITooltip') -and -not $createSlotSource.Contains('GetOrCreateTooltip(')) 'Recent-history and Chef Choice slots must use fixed panels instead of per-slot UITooltip components.'
 
 $updateHoverGuidanceEnd = $hudFoodPanelsSource.IndexOf('private static void MarkHoverTextDirty(', $updateHoverGuidanceStart, [StringComparison]::Ordinal)
@@ -1006,13 +1010,70 @@ Assert-True ([regex]::IsMatch(
     '\?\s*description\s*\+\s*"\\n"\s*\+\s*guidance\s*:\s*guidance\s*\+\s*"\\n"\s*\+\s*description')) 'History hover must order guidance before the existing description, while Chef hover must order the existing description before guidance.'
 
 $updateHoverPanelStart = $hudFoodPanelsSource.IndexOf('private static void UpdateHoverPanel(', [StringComparison]::Ordinal)
-$updateTooltipHoverStart = $hudFoodPanelsSource.IndexOf('internal static void UpdateTooltipHover(', $updateHoverPanelStart, [StringComparison]::Ordinal)
-Assert-True ($updateHoverPanelStart -ge 0 -and $updateTooltipHoverStart -gt $updateHoverPanelStart) 'Fixed diet hover visibility source boundaries are missing.'
-$updateHoverPanelSource = $hudFoodPanelsSource.Substring($updateHoverPanelStart, $updateTooltipHoverStart - $updateHoverPanelStart)
+$updateEatenHoverStart = $hudFoodPanelsSource.IndexOf('private static void UpdateEatenHover(', $updateHoverPanelStart, [StringComparison]::Ordinal)
+Assert-True ($updateHoverPanelStart -ge 0 -and $updateEatenHoverStart -gt $updateHoverPanelStart) 'Fixed diet hover visibility source boundaries are missing.'
+$updateHoverPanelSource = $hudFoodPanelsSource.Substring($updateHoverPanelStart, $updateEatenHoverStart - $updateHoverPanelStart)
 Assert-True ($updateHoverPanelSource.Contains('!ReferenceEquals(panel.HoveredSlot, hoveredSlot)') -and
              $updateHoverPanelSource.Contains('panel.HoverStartedAt = Time.unscaledTime;') -and
              $updateHoverPanelSource.Contains('panel.Root.gameObject.SetActive(false);')) 'Moving between diet icons must hide the panel and restart its hover delay.'
 Assert-True ($updateHoverPanelSource.Contains('Time.unscaledTime - panel.HoverStartedAt >= HoverPanelShowDelay')) 'Fixed diet hover panels must wait for the standard delay before appearing.'
+
+$disableEatenTooltipStart = $hudFoodPanelsSource.IndexOf('private static void DisableEatenCursorTooltip(', $updateEatenHoverStart, [StringComparison]::Ordinal)
+$calculateExtraEffectStart = $hudFoodPanelsSource.IndexOf('internal static float CalculateExtraEffectScale(', $disableEatenTooltipStart, [StringComparison]::Ordinal)
+$formatEatenFoodHoverStart = $hudFoodPanelsSource.IndexOf('internal static string FormatEatenFoodHover(', $calculateExtraEffectStart, [StringComparison]::Ordinal)
+Assert-True ($disableEatenTooltipStart -gt $updateEatenHoverStart -and
+             $calculateExtraEffectStart -gt $disableEatenTooltipStart -and
+             $formatEatenFoodHoverStart -gt $calculateExtraEffectStart) 'Eaten-food hover and extra-effect source boundaries are missing.'
+$updateEatenHoverSource = $hudFoodPanelsSource.Substring($updateEatenHoverStart, $disableEatenTooltipStart - $updateEatenHoverStart)
+$disableEatenTooltipSource = $hudFoodPanelsSource.Substring($disableEatenTooltipStart, $calculateExtraEffectStart - $disableEatenTooltipStart)
+$calculateExtraEffectSource = $hudFoodPanelsSource.Substring($calculateExtraEffectStart, $formatEatenFoodHoverStart - $calculateExtraEffectStart)
+Assert-True ($hudFoodPanelsSource.Contains('UpdateEatenHover(context, hud, player, state);') -and
+             $hudFoodPanelsSource.Contains('eatenHover.Text.alignment = TextAlignmentOptions.TopLeft;')) 'Eaten-food hover must update with the existing HUD and use a left-aligned fixed panel.'
+Assert-True ($updateEatenHoverSource.Contains('!ReferenceEquals(context.EatenHoveredFood, hoveredFood)') -and
+             $updateEatenHoverSource.Contains('context.EatenHoveredIcon != hoveredIcon') -and
+             $updateEatenHoverSource.Contains('panel.HoverStartedAt = Time.unscaledTime;') -and
+             $updateEatenHoverSource.Contains('Time.unscaledTime - panel.HoverStartedAt >= HoverPanelShowDelay')) 'Switching eaten-food identities or icons must restart the normal hover delay.'
+Assert-True ($updateEatenHoverSource.Contains('icon.isActiveAndEnabled && icon.gameObject.activeInHierarchy') -and
+             $updateEatenHoverSource.Contains('IsHovered(icon, canHover: true)') -and
+             $updateEatenHoverSource.Contains('panel.Root.gameObject.SetActive(visible);') -and
+             $updateEatenHoverSource.Contains('context.EatenArrowRoot.gameObject.SetActive(visible);')) 'Only the hovered, currently visible eaten-food icon may show the panel and matching arrow.'
+Assert-True ($updateEatenHoverSource.Contains('context.RecentHover.Root.gameObject.SetActive(false);') -and
+             $updateEatenHoverSource.Contains('context.ChefHover.Root.gameObject.SetActive(false);')) 'The eaten-food panel must suppress overlapping recent-history and Chef guidance while visible.'
+Assert-True ($updateEatenHoverSource.Contains('FoodRules.GetAppliedScale(player, state, hoveredFood)') -and
+             $updateEatenHoverSource.Contains('DietConfig.GetBaseSlotScale(FoodSlotProgression.GetCurrentSlots(player, state))') -and
+             $updateEatenHoverSource.Contains('FoodRules.GetFullCourseScale(player, state, FoodRules.CountActiveDietFoods(foods))') -and
+             $updateEatenHoverSource.Contains('FoodRules.GetActiveFood(state, FoodIdentity.GetCanonicalPrefabName(hoveredFood))')) 'Eaten-food summary must use the applied snapshot divided by the current base slot scale, with live Full Course and consumed component metadata.'
+Assert-True (-not $updateEatenHoverSource.Contains('PreviewNextFoodEffect(') -and
+             -not $updateEatenHoverSource.Contains('FreshnessRuntime.') -and
+             -not $updateEatenHoverSource.Contains('CalculateDiminishingScale(') -and
+             -not $updateEatenHoverSource.Contains('.m_time') -and
+             -not $calculateExtraEffectSource.Contains('.m_time')) 'Eaten-food hover must not forecast a new consumption or include vanilla time decay in its extra-effect multiplier.'
+Assert-True ($calculateExtraEffectSource.Contains('appliedScale / baseSlotScale * fullCourseScale')) 'The extra-effect summary must remove only the configured slot baseline from AppliedScale.'
+Assert-True ($disableEatenTooltipSource.Contains('icon.GetComponent<UITooltip>()') -and
+             $disableEatenTooltipSource.Contains('if (CurrentTooltipField() == tooltip)') -and
+             $disableEatenTooltipSource.Contains('UITooltip.HideTooltip();') -and
+             $disableEatenTooltipSource.Contains('tooltip.enabled = false;')) 'Cursor-tooltip suppression must target the eaten icon tooltip and hide the global tooltip only when that exact component owns it.'
+foreach ($removedHudTooltipMethod in @('GetOrCreateTooltip', 'UpdateTooltipHover', 'GetCurrentTooltip'))
+{
+    Assert-True ($null -eq $hudFoodPanelsType.GetMethod($removedHudTooltipMethod, [Reflection.BindingFlags] 'Static,Public,NonPublic')) "Removed cursor-following HUD tooltip helper must not return: $removedHudTooltipMethod"
+}
+$arrowCreateStart = $hudFoodPanelsSource.IndexOf('RectTransform arrowRoot = CreateRow(root, "EatenFoodArrow");', [StringComparison]::Ordinal)
+$eatenPanelCreateStart = $hudFoodPanelsSource.IndexOf('HoverPanelContext eatenHover = CreateHoverPanel(', $arrowCreateStart, [StringComparison]::Ordinal)
+Assert-True ($arrowCreateStart -ge 0 -and $eatenPanelCreateStart -gt $arrowCreateStart) 'Eaten-food arrow creation boundaries are missing.'
+$arrowCreateSource = $hudFoodPanelsSource.Substring($arrowCreateStart, $eatenPanelCreateStart - $arrowCreateStart)
+Assert-True ($arrowCreateSource.Contains('new RectTransform[3]') -and
+             $arrowCreateSource.Contains('arrowRoot.sizeDelta = Vector2.zero;') -and
+             $arrowCreateSource.Contains('typeof(Image)') -and
+             $arrowCreateSource.Contains('line.color = Color.white;') -and
+             $arrowCreateSource.Contains('line.raycastTarget = false;')) 'The eaten-food pointer must be a white three-segment arrow that does not intercept input.'
+$layoutEatenArrowStart = $hudFoodPanelsSource.IndexOf('private static void LayoutEatenArrow(', [StringComparison]::Ordinal)
+$layoutArrowSegmentStart = $hudFoodPanelsSource.IndexOf('private static void LayoutArrowSegment(', $layoutEatenArrowStart, [StringComparison]::Ordinal)
+Assert-True ($layoutEatenArrowStart -ge 0 -and $layoutArrowSegmentStart -gt $layoutEatenArrowStart) 'Eaten-food arrow layout boundaries are missing.'
+$layoutEatenArrowSource = $hudFoodPanelsSource.Substring($layoutEatenArrowStart, $layoutArrowSegmentStart - $layoutEatenArrowStart)
+Assert-True ($updateEatenHoverSource.Contains('LayoutEatenArrow(context, hoveredIcon!);') -and
+             $layoutEatenArrowSource.Contains('GetRectInParent(icon.rectTransform, root)') -and
+             $layoutEatenArrowSource.Contains('GetRectInParent(context.EatenHover.Root, root)') -and
+             [regex]::Matches($layoutEatenArrowSource, 'LayoutArrowSegment\(').Count -eq 3) 'Exactly one arrow must connect the current hovered icon to the fixed panel, with a two-part arrowhead.'
 
 Assert-True ($hudFoodPanelsSource.Contains('UpdateFullCourseIndicator(context, hud, player);')) 'Full Course indicator updates must remain independent of the new fixed diet hover panels.'
 $fullCourseStart = $hudFoodPanelsSource.IndexOf('private static void UpdateFullCourseIndicator(', [StringComparison]::Ordinal)
@@ -1807,30 +1868,43 @@ finally
 $normalizedSourcePolicyYaml = $defaultPolicyYaml.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd([char[]] @("`n")) + "`n"
 $normalizedEmbeddedPolicyYaml = $embeddedDefaultPolicyYaml.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd([char[]] @("`n")) + "`n"
 Assert-True ($normalizedEmbeddedPolicyYaml -eq $normalizedSourcePolicyYaml) 'Embedded Spoilage.yml must match its editable source default.'
-Assert-True ($defaultPolicyYaml.Contains('Hours are valid from 0 through 720; 0 disables that group and cannot use keep.')) 'The default Spoilage.yml guidance must document the 720-hour maximum and disabled-group rule.'
+Assert-True ($defaultPolicyYaml.Contains('Hours are valid from 0 through 720; 0 disables that group, including 0, keep.')) 'The default Spoilage.yml guidance must document the 720-hour maximum and permit retained keep on disabled groups.'
 Assert-True ($defaultPolicyYaml.Contains('<hours>[, keep]')) 'The default Spoilage.yml guidance must document the inline group keep syntax.'
 Assert-True ($defaultPolicyYaml.Contains('<replacement prefab or keep>') -and
              $defaultPolicyYaml.Contains('PreservedIdentityFood, 100, keep')) 'The default Spoilage.yml guidance must document the keep-original expiry result.'
 foreach ($defaultLifetime in @(
-    'farmingHarvest: 72',
-    'cookingStationInput: 24',
-    'cookingStationOutput: 48',
-    'unfermentedFood: 48',
-    'fermentedFood: 72',
-    'fish: 24',
-    'otherEdible: 24'))
+    'farmingHarvest: 96',
+    'cookingStationInput: 48',
+    'cookingStationOutput: 72',
+    'unfermentedFood: 72',
+    'fermentedFood: 96',
+    'fish: 48',
+    'otherEdible: 48'))
 {
     Assert-True ($defaultPolicyYaml.Contains($defaultLifetime)) "Default Spoilage.yml lifetime is missing: $defaultLifetime"
 }
-Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastMaterial:\s*72,\s*keep\s*$') 'The default feast-material policy must keep its original prefab after 72 hours.'
-Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastResult:\s*48,\s*keep\s*$') 'The default feast-result policy must keep its original prefab after 48 hours.'
+Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastMaterial:\s*96,\s*keep\s*$') 'The default feast-material policy must keep its original prefab after 96 hours.'
+Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastResult:\s*72,\s*keep\s*$') 'The default feast-result policy must keep its original prefab after 72 hours.'
 Assert-True ($defaultPolicyYaml.Contains('chefChoiceBlacklist: []')) 'The embedded default policy must expose an empty Chef Choice blacklist.'
 $defaultPolicyParseArguments = [object[]] @([string]$defaultPolicyYaml, $null, '', '')
-Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyParseArguments)) 'The default policy with a 48-hour unfermented-food lifetime must parse.'
-Assert-True ([string]$defaultPolicyParseArguments[2] -match '(?m)^\s*unfermentedFood:\s*48\s*$') 'Normalized policy YAML must retain the default unfermented-food lifetime.'
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyParseArguments)) 'The default policy with a 72-hour unfermented-food lifetime must parse.'
+Assert-True ([string]$defaultPolicyParseArguments[2] -match '(?m)^\s*unfermentedFood:\s*72\s*$') 'Normalized policy YAML must retain the default unfermented-food lifetime.'
 $defaultNormalizedPolicy = $defaultPolicyParseArguments[1]
 $defaultNormalizedPolicyType = $defaultNormalizedPolicy.GetType()
 $getGroupExpiryAction = Get-MethodRequired $defaultNormalizedPolicyType 'GetExpiryAction'
+$getGroupLifetimeHours = Get-MethodRequired $defaultNormalizedPolicyType 'GetLifetimeHours'
+$getGroupLifetimeTicks = Get-MethodRequired $defaultNormalizedPolicyType 'GetLifetimeTicks'
+$expectedDefaultGroupHours = @{
+    FarmingHarvest = 96
+    CookingStationInput = 48
+    CookingStationOutput = 72
+    UnfermentedFood = 72
+    FermentedFood = 96
+    FeastMaterial = 96
+    FeastResult = 72
+    Fish = 48
+    OtherEdible = 48
+}
 $expectedDefaultGroupActions = @{
     FarmingHarvest = 'Replace'
     CookingStationInput = 'Replace'
@@ -1848,26 +1922,29 @@ foreach ($group in [Enum]::GetValues($spoilageGroupType))
         $defaultNormalizedPolicy,
         [object[]] @($group))
     Assert-True ($actualAction -eq $expectedDefaultGroupActions[$group.ToString()]) "Unexpected default expiry action for '$group': '$actualAction'."
+    $expectedHours = [double]$expectedDefaultGroupHours[$group.ToString()]
+    Assert-True ([double]$getGroupLifetimeHours.Invoke($defaultNormalizedPolicy, [object[]] @($group)) -eq $expectedHours -and
+                 [long]$getGroupLifetimeTicks.Invoke($defaultNormalizedPolicy, [object[]] @($group)) -eq [long]($expectedHours * [TimeSpan]::TicksPerHour)) "Default group '$group' must normalize to $expectedHours real hours."
 }
 $defaultNormalizedYaml = [string]$defaultPolicyParseArguments[2]
-Assert-True ($defaultNormalizedYaml -match '(?m)^\s*feastMaterial:\s*72,\s*keep\s*$' -and
-             $defaultNormalizedYaml -match '(?m)^\s*feastResult:\s*48,\s*keep\s*$') 'Normalized policy YAML must retain both default Feast keep actions as plain inline scalars.'
+Assert-True ($defaultNormalizedYaml -match '(?m)^\s*feastMaterial:\s*96,\s*keep\s*$' -and
+             $defaultNormalizedYaml -match '(?m)^\s*feastResult:\s*72,\s*keep\s*$') 'Normalized policy YAML must retain both default Feast keep actions as plain inline scalars.'
 $defaultPolicyRoundTripArguments = [object[]] @($defaultNormalizedYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyRoundTripArguments)) 'Canonical default group-action YAML must parse again.'
 Assert-True ([string]$defaultPolicyRoundTripArguments[2] -ceq $defaultNormalizedYaml) 'Canonical default group-action YAML must remain byte-stable across a parse/serialize round trip.'
 $customUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
-    'unfermentedFood: 48',
+    'unfermentedFood: 72',
     'unfermentedFood: 12.5')
 $customUnfermentedParseArguments = [object[]] @([string]$customUnfermentedPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $customUnfermentedParseArguments)) 'A custom unfermented-food lifetime must parse.'
 Assert-True ([string]$customUnfermentedParseArguments[2] -match '(?m)^\s*unfermentedFood:\s*12\.5\s*$') 'Normalized policy YAML must retain a custom unfermented-food lifetime.'
 $maximumUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
-    'unfermentedFood: 48',
+    'unfermentedFood: 72',
     'unfermentedFood: 720')
 $maximumUnfermentedParseArguments = [object[]] @([string]$maximumUnfermentedPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $maximumUnfermentedParseArguments)) 'An unfermented-food lifetime of exactly 720 hours must be accepted.'
 $overMaximumUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
-    'unfermentedFood: 48',
+    'unfermentedFood: 72',
     'unfermentedFood: 721')
 $overMaximumUnfermentedParseArguments = [object[]] @([string]$overMaximumUnfermentedPolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumUnfermentedParseArguments)) 'An unfermented-food lifetime above 720 hours must be rejected.'
@@ -1880,24 +1957,24 @@ $missingUnfermentedParseArguments = [object[]] @([string]$missingUnfermentedPoli
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $missingUnfermentedParseArguments)) 'A policy missing lifetimes.unfermentedFood must be rejected.'
 Assert-True ([string]$missingUnfermentedParseArguments[3] -match 'lifetimes\.unfermentedFood.*required') 'A missing unfermented-food lifetime must report its required field.'
 $nullUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
-    'unfermentedFood: 48',
+    'unfermentedFood: 72',
     'unfermentedFood:')
 $nullUnfermentedParseArguments = [object[]] @([string]$nullUnfermentedPolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $nullUnfermentedParseArguments)) 'An explicitly null lifetimes.unfermentedFood value must be rejected.'
 Assert-True ([string]$nullUnfermentedParseArguments[3] -match 'lifetimes\.unfermentedFood.*required') 'A null unfermented-food lifetime must report its required field.'
 $maximumLifetimePolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 720')
 $maximumLifetimeParseArguments = [object[]] @([string]$maximumLifetimePolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $maximumLifetimeParseArguments)) 'A group lifetime of exactly 720 hours must be accepted.'
 $overMaximumLifetimePolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 721')
 $overMaximumLifetimeParseArguments = [object[]] @([string]$overMaximumLifetimePolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumLifetimeParseArguments)) 'A group lifetime above 720 hours must be rejected.'
 Assert-True ([string]$overMaximumLifetimeParseArguments[3] -match '0 through 720') 'An over-limit group lifetime must report the 720-hour range.'
 $uppercaseGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 12.5, KEEP')
 $uppercaseGroupKeepParseArguments = [object[]] @([string]$uppercaseGroupKeepPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $uppercaseGroupKeepParseArguments)) 'A positive group lifetime must accept the case-insensitive keep action.'
@@ -1913,18 +1990,18 @@ $uppercaseGroupKeepRoundTripArguments = [object[]] @($uppercaseGroupKeepNormaliz
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $uppercaseGroupKeepRoundTripArguments)) 'Canonical group keep YAML must parse again.'
 Assert-True ([string]$uppercaseGroupKeepRoundTripArguments[2] -ceq $uppercaseGroupKeepNormalizedYaml) 'Canonical group keep YAML must remain stable across a parse/serialize round trip.'
 $maximumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 720, keep')
 $maximumGroupKeepParseArguments = [object[]] @([string]$maximumGroupKeepPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $maximumGroupKeepParseArguments)) 'A keep group lifetime of exactly 720 hours must be accepted.'
 $overMaximumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 721, keep')
 $overMaximumGroupKeepParseArguments = [object[]] @([string]$overMaximumGroupKeepPolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumGroupKeepParseArguments)) 'A keep group lifetime above 720 hours must be rejected.'
 Assert-True ([string]$overMaximumGroupKeepParseArguments[3] -match 'lifetimes\.farmingHarvest.*0 through 720') 'An over-limit keep group lifetime must report its field and valid range.'
 $minimumGroupKeepPolicyYaml = $defaultPolicyYaml.Replace(
-    'farmingHarvest: 72',
+    'farmingHarvest: 96',
     'farmingHarvest: 0.000000001, keep')
 $minimumGroupKeepParseArguments = [object[]] @([string]$minimumGroupKeepPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $minimumGroupKeepParseArguments)) 'A positive fractional keep group lifetime must parse.'
@@ -1941,15 +2018,37 @@ $minimumGroupTicksProperty = $minimumGroupLifetime.GetType().GetProperty(
 Assert-True ($null -ne $minimumGroupTicksProperty) 'Normalized group lifetime ticks required for minimum-duration validation are missing.'
 $minimumGroupTicks = [long]$minimumGroupTicksProperty.GetValue($minimumGroupLifetime)
 Assert-True ($minimumGroupTicks -eq [TimeSpan]::TicksPerSecond) 'A positive sub-second keep group lifetime must retain the one-second internal minimum.'
+foreach ($disabledGroupSpec in @(
+    @('farmingHarvest', 'FarmingHarvest', '96'),
+    @('feastMaterial', 'FeastMaterial', '96, keep'),
+    @('feastResult', 'FeastResult', '72, keep')))
+{
+    $groupName = [string]$disabledGroupSpec[0]
+    $group = [Enum]::Parse($spoilageGroupType, [string]$disabledGroupSpec[1])
+    $disabledGroupYaml = $defaultPolicyYaml.Replace(
+        "${groupName}: $($disabledGroupSpec[2])",
+        "${groupName}: 0, KEEP")
+    $disabledGroupParseArguments = [object[]] @($disabledGroupYaml, $null, '', '')
+    Assert-True ([bool]$tryParsePolicy.Invoke($null, $disabledGroupParseArguments)) "Disabled group '$groupName' must retain a keep action."
+    $disabledGroupPolicy = $disabledGroupParseArguments[1]
+    Assert-True ([double]$getGroupLifetimeHours.Invoke($disabledGroupPolicy, [object[]] @($group)) -eq 0 -and
+                 [long]$getGroupLifetimeTicks.Invoke($disabledGroupPolicy, [object[]] @($group)) -eq 0) "Disabled keep group '$groupName' must remain zero hours/ticks, not receive the one-second minimum."
+    Assert-True ([string]$getGroupExpiryAction.Invoke($disabledGroupPolicy, [object[]] @($group)) -eq 'KeepOriginal') "Disabled keep group '$groupName' must preserve its configured action."
+    $disabledGroupNormalizedYaml = [string]$disabledGroupParseArguments[2]
+    Assert-True ($disabledGroupNormalizedYaml -cmatch "(?m)^\s*${groupName}:\s*0,\s*keep\s*$") "Disabled keep group '$groupName' must serialize as canonical 0, keep."
+    $disabledGroupRoundTripArguments = [object[]] @($disabledGroupNormalizedYaml, $null, '', '')
+    Assert-True ([bool]$tryParsePolicy.Invoke($null, $disabledGroupRoundTripArguments) -and
+                 [string]$disabledGroupRoundTripArguments[2] -ceq $disabledGroupNormalizedYaml) "Disabled keep group '$groupName' must survive a parse/serialize round trip without losing keep."
+}
 foreach ($invalidGroupLifetime in @(
-    [pscustomobject]@{ Value = '0, keep'; Error = 'cannot specify an expiry action'; Label = 'disabled keep action' },
+    [pscustomobject]@{ Value = '0, RottenMeat'; Error = "expiry action must be 'keep'"; Label = 'disabled group replacement prefab' },
     [pscustomobject]@{ Value = '24, RottenMeat'; Error = "expiry action must be 'keep'"; Label = 'group replacement prefab' },
     [pscustomobject]@{ Value = '24,'; Error = "expiry action must be 'keep'"; Label = 'empty group action' },
     [pscustomobject]@{ Value = '24, keep, extra'; Error = "must be '<hours>' or '<hours>, keep'"; Label = 'extra group field' },
     [pscustomobject]@{ Value = 'banana, keep'; Error = 'must be a number'; Label = 'non-numeric group lifetime' }))
 {
     $invalidGroupPolicyYaml = $defaultPolicyYaml.Replace(
-        'farmingHarvest: 72',
+        'farmingHarvest: 96',
         "farmingHarvest: $($invalidGroupLifetime.Value)")
     $invalidGroupParseArguments = [object[]] @([string]$invalidGroupPolicyYaml, $null, '', '')
     Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $invalidGroupParseArguments)) "An invalid $($invalidGroupLifetime.Label) must be rejected."
@@ -2019,8 +2118,27 @@ $disabledKeepPolicyYaml = $defaultPolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - DisabledKeepFood, 0, keep")
 $disabledKeepParseArguments = [object[]] @([string]$disabledKeepPolicyYaml, $null, '', '')
-Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $disabledKeepParseArguments)) 'A disabled override must not accept keep or any other expiry result.'
-Assert-True ([string]$disabledKeepParseArguments[3] -match 'cannot specify an expiry result') 'Rejected zero-hour keep syntax must explain that disabled overrides cannot specify an expiry result.'
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $disabledKeepParseArguments)) 'A disabled exact override must permit retaining keep for later re-enabling.'
+$disabledKeepPolicy = $disabledKeepParseArguments[1]
+$disabledKeepOverride = $normalizedOverridesProperty.GetValue($disabledKeepPolicy)['DisabledKeepFood']
+$overrideLifetimeTicksProperty = $disabledKeepOverride.GetType().GetProperty('LifetimeTicks', $overrideFlags)
+$overrideHoursProperty = $disabledKeepOverride.GetType().GetProperty('Hours', $overrideFlags)
+Assert-True ([long]$overrideLifetimeTicksProperty.GetValue($disabledKeepOverride) -eq 0 -and
+             [double]$overrideHoursProperty.GetValue($disabledKeepOverride) -eq 0) 'Zero-hour keep overrides must be disabled, not assigned the positive one-second lifetime minimum.'
+Assert-True ([bool]$hasResultOverrideProperty.GetValue($disabledKeepOverride) -and
+             [string]$expiryActionProperty.GetValue($disabledKeepOverride) -eq 'KeepOriginal' -and
+             [string]::IsNullOrEmpty([string]$replacementPrefabProperty.GetValue($disabledKeepOverride))) 'Disabled keep overrides must retain the explicit KeepOriginal action without a replacement prefab.'
+$disabledKeepNormalizedYaml = [string]$disabledKeepParseArguments[2]
+Assert-True ($disabledKeepNormalizedYaml -cmatch '(?m)^\s*-\s+DisabledKeepFood,\s*0,\s*keep\s*$') 'Disabled keep overrides must serialize with their canonical keep suffix intact.'
+$disabledKeepRoundTripArguments = [object[]] @($disabledKeepNormalizedYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $disabledKeepRoundTripArguments) -and
+             [string]$disabledKeepRoundTripArguments[2] -ceq $disabledKeepNormalizedYaml) 'Disabled exact keep overrides must remain stable across a parse/serialize round trip.'
+$disabledReplacementPolicyYaml = $defaultPolicyYaml.Replace(
+    'overrides: []',
+    "overrides:`n  - DisabledReplacementFood, 0, RottenMeat")
+$disabledReplacementParseArguments = [object[]] @($disabledReplacementPolicyYaml, $null, '', '')
+Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $disabledReplacementParseArguments)) 'A disabled exact override must still reject a replacement prefab.'
+Assert-True ([string]$disabledReplacementParseArguments[3] -match "can only retain 'keep' as an expiry result") 'Rejected zero-hour replacement syntax must explain that only keep may be retained.'
 $blacklistPolicyYaml = $defaultPolicyYaml.Replace(
     'chefChoiceBlacklist: []',
     "chefChoiceBlacklist:`n  - ZedFood`n  - applefood")
@@ -2071,11 +2189,8 @@ $fullCourseMultiplierConfigField = $dietConfigType.GetField(
 $maxFoodSlotsConfigField = $dietConfigType.GetField(
     'MaxFoodSlots',
     [Reflection.BindingFlags] 'Static,Public,NonPublic')
-$sixSlotScaleConfigField = $dietConfigType.GetField(
-    'SixSlotFoodStatScale',
-    [Reflection.BindingFlags] 'Static,Public,NonPublic')
-$nineSlotScaleConfigField = $dietConfigType.GetField(
-    'NineSlotFoodStatScale',
+$foodStatScaleConfigField = $dietConfigType.GetField(
+    'FoodStatScale',
     [Reflection.BindingFlags] 'Static,Public,NonPublic')
 $chefTierSelectionStrengthConfigField = $dietConfigType.GetField(
     'ChefHighTierSelectionStrength',
@@ -2102,9 +2217,10 @@ Assert-True ($null -ne $chefTierSelectionStrengthConfigField) 'Chef high-tier se
 Assert-True ($null -ne $cookingExperienceConfigField) 'Cooking experience-per-food config storage is missing.'
 Assert-True ($null -ne $pukeRemovalOrderConfigField) 'Puke food removal-order config storage is missing.'
 Assert-True ($null -ne $fullCourseMultiplierConfigField) 'Full Course multiplier config storage is missing.'
-Assert-True ($null -ne $maxFoodSlotsConfigField) 'Maximum food-slot profile config storage is missing.'
-Assert-True ($null -ne $sixSlotScaleConfigField) 'Six-slot endpoint scale config storage is missing.'
-Assert-True ($null -ne $nineSlotScaleConfigField) 'Nine-slot endpoint scale config storage is missing.'
+Assert-True ($null -ne $maxFoodSlotsConfigField) 'Maximum food-slot config storage is missing.'
+Assert-True ($null -ne $foodStatScaleConfigField) 'Shared food stat scale config storage is missing.'
+Assert-True ($null -eq $dietConfigType.GetField('SixSlotFoodStatScale', [Reflection.BindingFlags] 'Static,Public,NonPublic') -and
+             $null -eq $dietConfigType.GetField('NineSlotFoodStatScale', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'Separate six- and nine-slot scale settings must be removed without legacy aliases.'
 Assert-True ($chefMultiplierMinConfigField.FieldType.IsGenericType -and $chefMultiplierMinConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Chef Multiplier Minimum must remain a floating-point ConfigEntry.'
 Assert-True ($chefMultiplierMaxConfigField.FieldType.IsGenericType -and $chefMultiplierMaxConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Chef Multiplier Maximum must remain a floating-point ConfigEntry.'
 Assert-True ($chefMultiplierModeConfigField.FieldType.IsGenericType -and $chefMultiplierModeConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Chef multiplier mode must remain a floating-point ConfigEntry.'
@@ -2115,8 +2231,7 @@ Assert-True ($pukeRemovalOrderConfigField.FieldType.IsGenericType -and
              $pukeRemovalOrderConfigField.FieldType.GetGenericArguments()[0] -eq $pukeFoodRemovalOrderType) 'Puke food removal order must use a ConfigEntry of the dedicated enum.'
 Assert-True ($fullCourseMultiplierConfigField.FieldType.IsGenericType -and $fullCourseMultiplierConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Full Course multiplier must remain a floating-point ConfigEntry.'
 Assert-True ($maxFoodSlotsConfigField.FieldType.IsGenericType -and $maxFoodSlotsConfigField.FieldType.GetGenericArguments()[0] -eq [int]) 'Maximum food slots must use an integer ConfigEntry.'
-Assert-True ($sixSlotScaleConfigField.FieldType.IsGenericType -and $sixSlotScaleConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Six-slot endpoint scale must use a floating-point ConfigEntry.'
-Assert-True ($nineSlotScaleConfigField.FieldType.IsGenericType -and $nineSlotScaleConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'Nine-slot endpoint scale must use a floating-point ConfigEntry.'
+Assert-True ($foodStatScaleConfigField.FieldType.IsGenericType -and $foodStatScaleConfigField.FieldType.GetGenericArguments()[0] -eq [float]) 'The shared food stat scale must use a floating-point ConfigEntry.'
 Assert-True ($null -eq $dietConfigType.GetMethod('GetKnownFoodsForFullSlots', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'Removed configurable slot-unlock target must not return.'
 Assert-True ($null -eq $dietConfigType.GetField('KnownFoodsForFullSlots', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'Removed configurable slot-unlock target storage must not return.'
 Assert-True ($null -eq $dietConfigType.GetField('SlotScaleConstant', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'Removed single slot-scale config storage must not return.'
@@ -2144,27 +2259,22 @@ Assert-True ([regex]::IsMatch($pukeRemovalConfigDescription, '(?i)\bvanilla\b.*\
 $maxSlotsConfigStart = $dietConfigSource.IndexOf(
     'MaxFoodSlots = BindSynced(',
     [StringComparison]::Ordinal)
-$sixSlotScaleConfigStart = $dietConfigSource.IndexOf(
-    'SixSlotFoodStatScale = BindSynced(',
+$foodStatScaleConfigStart = $dietConfigSource.IndexOf(
+    'FoodStatScale = BindSynced(',
     $maxSlotsConfigStart,
-    [StringComparison]::Ordinal)
-$nineSlotScaleConfigStart = $dietConfigSource.IndexOf(
-    'NineSlotFoodStatScale = BindSynced(',
-    $sixSlotScaleConfigStart,
     [StringComparison]::Ordinal)
 $fullCourseConfigStart = $dietConfigSource.IndexOf(
     'FullCourseMultiplier = BindSynced(',
-    $nineSlotScaleConfigStart,
+    $foodStatScaleConfigStart,
     [StringComparison]::Ordinal)
-Assert-True ($maxSlotsConfigStart -ge 0 -and $sixSlotScaleConfigStart -gt $maxSlotsConfigStart -and $nineSlotScaleConfigStart -gt $sixSlotScaleConfigStart -and $fullCourseConfigStart -gt $nineSlotScaleConfigStart) 'Maximum-slot profile settings must be bound together in display order.'
-$maxSlotsConfigSource = $dietConfigSource.Substring($maxSlotsConfigStart, $sixSlotScaleConfigStart - $maxSlotsConfigStart)
-$sixSlotScaleConfigSource = $dietConfigSource.Substring($sixSlotScaleConfigStart, $nineSlotScaleConfigStart - $sixSlotScaleConfigStart)
-$nineSlotScaleConfigSource = $dietConfigSource.Substring($nineSlotScaleConfigStart, $fullCourseConfigStart - $nineSlotScaleConfigStart)
-Assert-True ($maxSlotsConfigSource.Contains('"Maximum Food Slots"')) 'Maximum food-slot profile config key is incorrect.'
-Assert-True ([regex]::IsMatch($maxSlotsConfigSource, 'new\s+AcceptableValueList<int>\(\s*6,\s*9\)')) 'Maximum food slots must be restricted to the six- and nine-slot profiles.'
-Assert-True ($sixSlotScaleConfigSource.Contains('"6-Slot Food Stat Scale"') -and [regex]::IsMatch($sixSlotScaleConfigSource, '(?m)^\s*0\.45f,\s*$')) 'Six-slot endpoint scale must default to x0.45.'
-Assert-True ($nineSlotScaleConfigSource.Contains('"9-Slot Food Stat Scale"') -and [regex]::IsMatch($nineSlotScaleConfigSource, '(?m)^\s*0\.3f,\s*$')) 'Nine-slot endpoint scale must default to x0.30.'
-Assert-True ([regex]::IsMatch($sixSlotScaleConfigSource, 'new\s+AcceptableValueRange<float>\(\s*0\.1f,\s*3f\)') -and [regex]::IsMatch($nineSlotScaleConfigSource, 'new\s+AcceptableValueRange<float>\(\s*0\.1f,\s*3f\)')) 'Both endpoint scales must be constrained to x0.10-x3.00.'
+Assert-True ($maxSlotsConfigStart -ge 0 -and $foodStatScaleConfigStart -gt $maxSlotsConfigStart -and $fullCourseConfigStart -gt $foodStatScaleConfigStart) 'Maximum slots, shared food stat scale, and Full Course must be bound together in display order.'
+$maxSlotsConfigSource = $dietConfigSource.Substring($maxSlotsConfigStart, $foodStatScaleConfigStart - $maxSlotsConfigStart)
+$foodStatScaleConfigSource = $dietConfigSource.Substring($foodStatScaleConfigStart, $fullCourseConfigStart - $foodStatScaleConfigStart)
+Assert-True ($maxSlotsConfigSource.Contains('"Maximum Food Slots"') -and [regex]::IsMatch($maxSlotsConfigSource, '(?m)^\s*9,\s*$')) 'Maximum food slots must retain its config key and default to nine.'
+Assert-True ([regex]::IsMatch($maxSlotsConfigSource, 'new\s+AcceptableValueRange<int>\(\s*3,\s*9\)')) 'Maximum food slots must permit every integer from three through nine.'
+Assert-True ($foodStatScaleConfigSource.Contains('"Food Stat Scale"') -and [regex]::IsMatch($foodStatScaleConfigSource, '(?m)^\s*0\.9f,\s*$')) 'The shared food stat scale must default to 90% of a filled vanilla three-food total.'
+Assert-True ([regex]::IsMatch($foodStatScaleConfigSource, 'new\s+AcceptableValueRange<float>\(\s*0\.1f,\s*3f\)')) 'The shared food stat scale must be constrained to x0.10-x3.00.'
+Assert-True ($foodStatScaleConfigSource.Contains('3 * this value / currently unlocked slots')) 'Food stat scale config help must explain the dynamic per-food formula.'
 $recentHistoryConfigStart = $dietConfigSource.IndexOf(
     'RecentHistorySize = BindSynced(',
     $fullCourseConfigStart,
@@ -2467,29 +2577,33 @@ foreach ($legacyFullStraightMethod in @(
     Assert-True ($foodRulesMethodNames -notcontains $legacyFullStraightMethod) "Legacy FoodRules API remains: $legacyFullStraightMethod"
 }
 Assert-True ($foodRulesSource.Contains('DietConfig.GetFullCourseMultiplier()')) 'Full Course scaling must use the synchronized configured multiplier.'
-Assert-True ((Get-Constant $foodRulesType 'MinimumFullCourseSlots') -eq 6) 'Full Course must become eligible starting at six unlocked slots.'
+Assert-True ((Get-Constant $foodRulesType 'MinimumFullCourseSlots') -eq 3) 'Full Course must become eligible at the initial three unlocked slots.'
 $isFullCourseEligible = Get-MethodRequired $foodRulesType 'IsFullCourseEligible'
 foreach ($fullCourseCase in @(
-    @(3, 3, $false),
-    @(5, 5, $false),
-    @(6, 5, $false),
-    @(6, 6, $true),
-    @(7, 6, $false),
-    @(7, 7, $true),
-    @(9, 8, $false),
-    @(9, 9, $true)))
+    @(0, 0, $false),
+    @(2, 2, $false)))
 {
     $eligible = [bool]$isFullCourseEligible.Invoke(
         $null,
         [object[]] @([int]$fullCourseCase[0], [int]$fullCourseCase[1]))
     Assert-True ($eligible -eq [bool]$fullCourseCase[2]) "Unexpected Full Course eligibility for $($fullCourseCase[0]) slots and $($fullCourseCase[1]) foods."
 }
+foreach ($unlockedSlots in 3..9)
+{
+    foreach ($activeDietFoods in 0..$unlockedSlots)
+    {
+        $eligible = [bool]$isFullCourseEligible.Invoke(
+            $null,
+            [object[]] @([int]$unlockedSlots, [int]$activeDietFoods))
+        Assert-True ($eligible -eq ($activeDietFoods -eq $unlockedSlots)) "Full Course must require every currently unlocked slot to contain a valid diet food ($activeDietFoods/$unlockedSlots)."
+    }
+}
 $intOnlyFullCourseMethods = @($foodRulesType.GetMethods([Reflection.BindingFlags] 'Static,Public,NonPublic') | Where-Object {
     ($_.Name -eq 'IsFullCourseActive' -or $_.Name -eq 'GetFullCourseScale') -and
     $_.GetParameters().Count -eq 1 -and
     $_.GetParameters()[0].ParameterType -eq [int]
 })
-Assert-True ($intOnlyFullCourseMethods.Count -eq 0) 'Player-unaware Full Course count overloads must not bypass the maximum-slot unlock gate.'
+Assert-True ($intOnlyFullCourseMethods.Count -eq 0) 'Player-unaware Full Course count overloads must not bypass the current unlocked-slot requirement.'
 $hudFoodSlotsSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\HudFoodSlots.cs') -Raw
 $playerFoodLogicSourceForSlots = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\PlayerFoodLogic.cs') -Raw
 $playerFoodPatchesSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\Patches\PlayerFoodPatches.cs') -Raw
@@ -2518,7 +2632,7 @@ Assert-True ($foodRulesSource.Contains('!replacesExistingFood || !replacesDietFo
 Assert-True ($playerFoodPatchesSource.Contains('VanillaEatBoundaryState? __state') -and $playerFoodPatchesSource.Contains('__state.TryGetReplacedOrRemovedFood(')) 'Vanilla-path consumables must apply pending tiers only after an actual replacement or removal.'
 Assert-True ($playerFoodPatchesSource.Contains('FoodSlotProgression.TrimExcessFoods(__instance, state, protectedFood);')) 'Vanilla-path replacement trimming must preserve the newly consumed food.'
 Assert-True (-not $playerFoodPatchesSource.Contains('_remainingTime')) 'Vanilla replacement detection must ignore the forced one-second update applied to every active food.'
-Assert-True ($playerFoodLogicSourceForSlots.Contains('FoodRules.SetActiveFoodScale(state, key, effect.AppliedScale);')) 'Direct food consumption must persist its exact oldest-to-newest Active order.'
+Assert-True ($playerFoodLogicSourceForSlots.Contains('FoodRules.SetActiveFoodEffect(state, key, effect);')) 'Direct food consumption must persist its exact consumed effect breakdown and oldest-to-newest Active order.'
 $recordVanillaConsumptionStart = $playerFoodPatchesSource.IndexOf(
     'private static void RecordVanillaFoodConsumption(',
     [StringComparison]::Ordinal)
@@ -2542,7 +2656,7 @@ Assert-True ([regex]::IsMatch(
     '(?s)if\s*\(\s*!__result\s*\)\s*\{\s*return;\s*\}.*?if\s*\(\s*__state\s*==\s*null\s*\)\s*\{\s*return;\s*\}.*?RecordVanillaFoodConsumption\(\s*__instance\s*,\s*item\s*,\s*state\s*\);.*?FoodStateStore\.SaveState\(\s*__instance\s*,\s*state\s*\);')) 'Every successful vanilla/non-direct consumption must record its Active order before the state is saved.'
 Assert-True ([regex]::IsMatch(
     $recordVanillaConsumptionSource,
-    '(?s)FoodIdentity\.GetCanonicalPrefabName\(item\).*?foreach\s*\(\s*Player\.Food\s+food\s+in\s+player\.GetFoods\(\)\s*\).*?FoodIdentity\.GetCanonicalPrefabName\(food\)\s*==\s*key.*?FoodRules\.SetActiveFoodScale\(\s*state\s*,\s*key\s*,\s*1f\s*\);')) 'Vanilla/non-direct consumption must move only the matching active Player.Food identity to the newest persisted position.'
+    '(?s)FoodIdentity\.GetCanonicalPrefabName\(item\).*?foreach\s*\(\s*Player\.Food\s+food\s+in\s+player\.GetFoods\(\)\s*\).*?FoodIdentity\.GetCanonicalPrefabName\(food\)\s*==\s*key.*?FoodRules\.SetActiveFoodEffect\(\s*state\s*,\s*key\s*,\s*null\s*\);')) 'Vanilla/non-direct consumption must move only the matching active Player.Food identity to the newest persisted position without fabricating a Diet breakdown.'
 Assert-True ([regex]::IsMatch(
     $foodStateStoreSource,
     '(?s)private static void NormalizeActive\(.*?foreach\s*\(\s*ActiveFoodData\s+entry\s+in\s+state\.Active\s*\).*?state\.Active\s*=\s*normalized;')) 'Active-food normalization must preserve the persisted oldest-to-newest list traversal order.'
@@ -2555,13 +2669,15 @@ Assert-True ($null -ne $dietModuleType.GetField('_chefReconcileRequested', $diet
 Assert-True ($null -eq $dietModuleType.GetField('_reconcileRequested', $dietModuleStaticFlags)) 'The old shared Diet/Chef reconciliation gate must not return.'
 foreach ($operator in @('\+=', '-='))
 {
-    foreach ($fieldName in @('MaxFoodSlots', 'SixSlotFoodStatScale', 'NineSlotFoodStatScale'))
+    foreach ($fieldName in @('MaxFoodSlots', 'FoodStatScale'))
     {
         Assert-True ([regex]::IsMatch(
             $dietModuleSource,
             "DietConfig\.$fieldName\.SettingChanged\s*$operator\s*FoodStateShapeChanged;")) "$fieldName changes must register and release Diet reconciliation."
     }
 }
+Assert-True (-not $dietModuleSource.Contains('SixSlotFoodStatScale') -and
+             -not $dietModuleSource.Contains('NineSlotFoodStatScale')) 'Diet config change subscriptions must not retain removed per-maximum scale settings.'
 Assert-True ($resourceMapPolicySource.Contains('new CustomSyncedValue<string>(')) 'ResourceMap.yml must be synchronized by the server.'
 Assert-True ($resourceMapPolicySource.Contains('ThreadingHelper.SynchronizingObject')) 'ResourceMap hot reload must return to the Unity main thread.'
 Assert-True ($resourceMapPolicySource.Contains('keeping the last-known-good resource map')) 'Invalid ResourceMap edits must preserve the last valid snapshot.'
@@ -2854,41 +2970,48 @@ foreach ($slotCase in @(
     @(22, 9),
     @(99, 9)))
 {
-    $actualSlots = [int]$calculateUnlockedSlots.Invoke(
-        $null,
-        [object[]] @([int]$slotCase[0], 9))
-    Assert-True ($actualSlots -eq [int]$slotCase[1]) "Unexpected unlocked slot count for $($slotCase[0]) known foods: $actualSlots"
+    foreach ($maximumSlots in 3..9)
+    {
+        $actualSlots = [int]$calculateUnlockedSlots.Invoke(
+            $null,
+            [object[]] @([int]$slotCase[0], [int]$maximumSlots))
+        $expectedSlots = [Math]::Min($maximumSlots, [int]$slotCase[1])
+        Assert-True ($actualSlots -eq $expectedSlots) "Unexpected unlocked slot count for $($slotCase[0]) known foods and maximum ${maximumSlots}: $actualSlots"
+    }
 }
-foreach ($slotCase in @(
-    @(0, 3),
-    @(7, 4),
-    @(10, 5),
-    @(13, 6),
-    @(22, 6),
-    @(999, 6)))
-{
-    $actualSlots = [int]$calculateUnlockedSlots.Invoke(
-        $null,
-        [object[]] @([int]$slotCase[0], 6))
-    Assert-True ($actualSlots -eq [int]$slotCase[1]) "Unexpected six-slot profile tier for $($slotCase[0]) known foods: $actualSlots"
-}
+Assert-True ([int]$calculateUnlockedSlots.Invoke($null, [object[]] @(99, 2)) -eq 3 -and
+             [int]$calculateUnlockedSlots.Invoke($null, [object[]] @(99, 10)) -eq 9) 'Slot progression must defensively clamp unsupported maximums to the inclusive 3-9 range.'
 $calculateBaseSlotScale = Get-MethodRequired $dietConfigType 'CalculateBaseSlotScale'
-foreach ($scaleCase in @(
-    @(6, 3, 0.9),
-    @(6, 4, 0.675),
-    @(6, 5, 0.54),
-    @(6, 6, 0.45),
-    @(9, 3, 0.9),
-    @(9, 6, 0.45),
-    @(9, 7, (2.7 / 7.0)),
-    @(9, 8, 0.3375),
-    @(9, 9, 0.3)))
+Assert-True ($calculateBaseSlotScale.GetParameters().Count -eq 3) 'Base slot scaling must use one shared configured ratio, not separate six- and nine-slot endpoints.'
+foreach ($maximumSlots in 3..9)
 {
-    $baseScale = [float]$calculateBaseSlotScale.Invoke(
+    foreach ($unlockedSlots in 3..$maximumSlots)
+    {
+        foreach ($configuredScale in @([float]0.1, [float]0.9, [float]1.2, [float]3))
+        {
+            $baseScale = [float]$calculateBaseSlotScale.Invoke(
+                $null,
+                [object[]] @([int]$maximumSlots, [int]$unlockedSlots, $configuredScale))
+            $expectedScale = 3.0 * $configuredScale / $unlockedSlots
+            Assert-True ([Math]::Abs($baseScale - $expectedScale) -lt 0.0001) "Unexpected per-food scale for maximum $maximumSlots, unlocked $unlockedSlots, configured ${configuredScale}: $baseScale"
+            Assert-True ([Math]::Abs(($baseScale * $unlockedSlots / 3.0) - $configuredScale) -lt 0.0001) 'Filling every unlocked slot must produce the configured ratio of a comparable vanilla three-food total.'
+            if ($configuredScale -eq [float]0.9)
+            {
+                Assert-True ([Math]::Abs(($baseScale * $unlockedSlots / 3.0 * 1.2) - 1.08) -lt 0.0001) 'Default Full Course must give a comparable 108% vanilla food total at every supported slot count.'
+            }
+        }
+    }
+}
+foreach ($scaleClampCase in @(
+    @(2, 9, 0.9),
+    @(10, 10, 0.3),
+    @(5, -1, 0.9),
+    @(5, 9, 0.54)))
+{
+    $actualScale = [float]$calculateBaseSlotScale.Invoke(
         $null,
-        [object[]] @([int]$scaleCase[0], [int]$scaleCase[1], [float]0.45, [float]0.3))
-    Assert-True ([Math]::Abs($baseScale - [double]$scaleCase[2]) -lt 0.0001) "Unexpected base scale for maximum $($scaleCase[0]), unlocked $($scaleCase[1]): $baseScale"
-    Assert-True ([Math]::Abs(($baseScale * [int]$scaleCase[1] / 3.0) - 0.9) -lt 0.0001) 'A filled current slot tier must retain 90% of the vanilla three-food base total at default endpoints.'
+        [object[]] @([int]$scaleClampCase[0], [int]$scaleClampCase[1], [float]0.9))
+    Assert-True ([Math]::Abs($actualScale - [double]$scaleClampCase[2]) -lt 0.0001) 'Base slot scaling must clamp both the configured maximum and persisted unlocked-slot count before dividing.'
 }
 Assert-True ([Math]::Abs([float]$calculateScaleRebase.Invoke($null, [object[]] @([float]0.9, [float]0.675)) - 0.75) -lt 0.0001) 'Advancing from three to four default slots must rebase active snapshots by x0.75.'
 Assert-True ([Math]::Abs([float]$calculateScaleRebase.Invoke($null, [object[]] @([float]0.45, [float]0.3)) - (2.0 / 3.0)) -lt 0.0001) 'Changing from a full six-slot profile to a full nine-slot profile must preserve the endpoint ratio.'
@@ -2913,34 +3036,292 @@ $activeField = $stateType.GetField('Active', [Reflection.BindingFlags] 'Instance
 Assert-True ($null -ne $activeField -and
              $activeField.FieldType.IsGenericType -and
              $activeField.FieldType.GetGenericArguments()[0] -eq $activeFoodDataType) 'Diet Active state must persist an ordered list of ActiveFoodData entries.'
-$setActiveFoodScale = Get-MethodRequired $foodRulesType 'SetActiveFoodScale'
-$setActiveFoodScaleParameters = @($setActiveFoodScale.GetParameters())
-Assert-True ($setActiveFoodScale.ReturnType -eq [void] -and
-             $setActiveFoodScaleParameters.Count -eq 3 -and
-             $setActiveFoodScaleParameters[0].ParameterType -eq $stateType -and
-             $setActiveFoodScaleParameters[1].ParameterType -eq [string] -and
-             $setActiveFoodScaleParameters[2].ParameterType -eq [float]) 'Active-food snapshots must be recorded through one state/key/scale ordering method.'
+$setActiveFoodEffect = Get-MethodRequired $foodRulesType 'SetActiveFoodEffect'
+$setActiveFoodEffectParameters = @($setActiveFoodEffect.GetParameters())
+Assert-True ($setActiveFoodEffect.ReturnType -eq [void] -and
+             $setActiveFoodEffectParameters.Count -eq 3 -and
+             $setActiveFoodEffectParameters[0].ParameterType -eq $stateType -and
+             $setActiveFoodEffectParameters[1].ParameterType -eq [string] -and
+             [Nullable]::GetUnderlyingType($setActiveFoodEffectParameters[2].ParameterType) -eq $foodEffectType) 'Active-food snapshots must be recorded through one state/key/nullable-effect ordering method.'
+Assert-True ($null -eq $foodRulesType.GetMethod('SetActiveFoodScale', [Reflection.BindingFlags] 'Static,Public,NonPublic')) 'The scale-only consumption recorder must not bypass effect-breakdown snapshots.'
+$getActiveFood = Get-MethodRequired $foodRulesType 'GetActiveFood'
+Assert-True ($getActiveFood.IsAssembly -and $getActiveFood.ReturnType -eq $activeFoodDataType) 'HUD hover must be able to retrieve the consumed snapshot without recalculating a prospective effect.'
+$foodEffectConstructors = @($foodEffectType.GetConstructors($foodEffectFlags))
+Assert-True ($foodEffectConstructors.Count -eq 1 -and $foodEffectConstructors[0].GetParameters().Count -eq 11) 'FoodEffect must retain one complete effect constructor for managed snapshot tests.'
+$foodEffectConstructor = $foodEffectConstructors[0]
+function New-SmokeFoodEffect(
+    [float] $AppliedScale,
+    [float] $FreshnessScale = 1,
+    [float] $DiminishingScale = 1,
+    [bool] $IsChef = $false,
+    [float] $ChefMultiplier = 1,
+    [bool] $FullCourseActive = $false)
+{
+    $effectiveScale = $AppliedScale
+    if ($FullCourseActive)
+    {
+        $effectiveScale *= [float]1.2
+    }
+    return $foodEffectConstructor.Invoke([object[]] @(
+        $FreshnessScale, $AppliedScale, [float]$effectiveScale, $DiminishingScale,
+        [float]0, [float]0, [float]0, [float]0,
+        $IsChef, $ChefMultiplier, $FullCourseActive))
+}
+$activeKeyField = $activeFoodDataType.GetField('Key', $foodEffectFlags)
+$activeScaleField = $activeFoodDataType.GetField('AppliedScale', $foodEffectFlags)
+$activeHasBreakdownField = $activeFoodDataType.GetField('HasEffectBreakdown', $foodEffectFlags)
+$activeChefMultiplierField = $activeFoodDataType.GetField('ChefMultiplier', $foodEffectFlags)
+$activeFreshnessScaleField = $activeFoodDataType.GetField('FreshnessScale', $foodEffectFlags)
+$activeDiminishingScaleField = $activeFoodDataType.GetField('DiminishingScale', $foodEffectFlags)
+Assert-True ($null -ne $activeKeyField -and $activeKeyField.FieldType -eq [string] -and
+             $null -ne $activeScaleField -and $activeScaleField.FieldType -eq [float]) 'Persisted ActiveFoodData identity and applied scale fields are missing.'
+Assert-True ($null -ne $activeHasBreakdownField -and $activeHasBreakdownField.FieldType -eq [bool]) 'Persisted ActiveFoodData must distinguish consumed breakdowns from legacy scale-only entries.'
+foreach ($activeFactorField in @($activeChefMultiplierField, $activeFreshnessScaleField, $activeDiminishingScaleField))
+{
+    Assert-True ($null -ne $activeFactorField -and $activeFactorField.FieldType -eq [float]) 'Persisted ActiveFoodData must retain every exact consumed Chef, freshness, and diminishing factor.'
+}
+Assert-True ($null -eq $activeFoodDataType.GetField('FullCourseActive', $foodEffectFlags) -and
+             $null -eq $activeFoodDataType.GetField('FullCourseScale', $foodEffectFlags)) 'Full Course must remain a live effect, not a persisted consumption snapshot.'
 $activeOrderState = [Activator]::CreateInstance($stateType, $true)
 $activeOrder = $activeField.GetValue($activeOrderState)
 foreach ($activeSpec in @(
-    @('A', [float]0.5),
-    @('B', [float]0.6),
-    @('C', [float]0.7)))
+    @('A', [float]0.5, [float]0.8, [float]1, $true, [float]1.25),
+    @('B', [float]0.6, [float]0.8, [float]0.75, $false, [float]1),
+    @('C', [float]0.7, [float]1, [float]1, $false, [float]1)))
 {
-    $setActiveFoodScale.Invoke(
+    $snapshotEffect = New-SmokeFoodEffect $activeSpec[1] $activeSpec[2] $activeSpec[3] $activeSpec[4] $activeSpec[5]
+    $setActiveFoodEffect.Invoke(
         $null,
-        [object[]] @($activeOrderState, [string]$activeSpec[0], [float]$activeSpec[1])) | Out-Null
+        [object[]] @($activeOrderState, [string]$activeSpec[0], $snapshotEffect)) | Out-Null
+    $savedActiveFood = $getActiveFood.Invoke($null, [object[]] @($activeOrderState, [string]$activeSpec[0]))
+    Assert-True ([bool]$activeHasBreakdownField.GetValue($savedActiveFood) -and
+                 [float]$activeScaleField.GetValue($savedActiveFood) -eq [float]$activeSpec[1] -and
+                 [float]$activeFreshnessScaleField.GetValue($savedActiveFood) -eq [float]$activeSpec[2] -and
+                 [float]$activeDiminishingScaleField.GetValue($savedActiveFood) -eq [float]$activeSpec[3] -and
+                 [float]$activeChefMultiplierField.GetValue($savedActiveFood) -eq [float]$activeSpec[5]) 'Consumption must snapshot the exact applied scale and all component multipliers.'
 }
-$setActiveFoodScale.Invoke(
+$originalActiveA = $getActiveFood.Invoke($null, [object[]] @($activeOrderState, 'A'))
+$replacementEffect = New-SmokeFoodEffect ([float]0.9) ([float]0.75) ([float]1) $true ([float]1.5) $true
+$setActiveFoodEffect.Invoke(
     $null,
-    [object[]] @($activeOrderState, 'A', [float]0.9)) | Out-Null
-$activeKeyField = $activeFoodDataType.GetField('Key', [Reflection.BindingFlags] 'Instance,Public,NonPublic')
-$activeScaleField = $activeFoodDataType.GetField('AppliedScale', [Reflection.BindingFlags] 'Instance,Public,NonPublic')
-Assert-True ($null -ne $activeKeyField -and $activeKeyField.FieldType -eq [string] -and
-             $null -ne $activeScaleField -and $activeScaleField.FieldType -eq [float]) 'Persisted ActiveFoodData identity and scale fields are missing.'
+    [object[]] @($activeOrderState, 'A', $replacementEffect)) | Out-Null
 $activeOrderKeys = @($activeOrder | ForEach-Object { [string]$activeKeyField.GetValue($_) })
 Assert-True ($activeOrder.Count -eq 3 -and ($activeOrderKeys -join ',') -eq 'B,C,A') 'Re-eating an active food must move its existing ActiveFoodData entry to the newest tail without duplication.'
-Assert-True ([Math]::Abs([float]$activeScaleField.GetValue($activeOrder[2]) - [float]0.9) -lt [float]0.0001) 'Moving a re-eaten ActiveFoodData entry to the tail must also persist its latest scale.'
+Assert-True ([object]::ReferenceEquals($originalActiveA, $activeOrder[2])) 'Re-eating must update and move the existing snapshot entry rather than duplicate its identity.'
+Assert-True ([float]$activeScaleField.GetValue($activeOrder[2]) -eq [float]0.9 -and
+             [bool]$activeHasBreakdownField.GetValue($activeOrder[2]) -and
+             [float]$activeFreshnessScaleField.GetValue($activeOrder[2]) -eq [float]0.75 -and
+             [float]$activeDiminishingScaleField.GetValue($activeOrder[2]) -eq [float]1 -and
+             [float]$activeChefMultiplierField.GetValue($activeOrder[2]) -eq [float]1.5) 'Re-eating must replace all old snapshot factors and store AppliedScale without live Full Course.'
+Assert-True ($null -eq $getActiveFood.Invoke($null, [object[]] @($activeOrderState, 'MissingFood'))) 'Missing active food must not fabricate a consumed effect snapshot.'
+$setActiveFoodEffect.Invoke($null, [object[]] @($activeOrderState, 'B', $null)) | Out-Null
+$vanillaActive = $getActiveFood.Invoke($null, [object[]] @($activeOrderState, 'B'))
+Assert-True ($activeOrder.Count -eq 3 -and
+             [object]::ReferenceEquals($activeOrder[2], $vanillaActive) -and
+             [float]$activeScaleField.GetValue($vanillaActive) -eq [float]1 -and
+             -not [bool]$activeHasBreakdownField.GetValue($vanillaActive) -and
+             [float]$activeFreshnessScaleField.GetValue($vanillaActive) -eq [float]1 -and
+             [float]$activeDiminishingScaleField.GetValue($vanillaActive) -eq [float]1 -and
+             [float]$activeChefMultiplierField.GetValue($vanillaActive) -eq [float]1) 'Vanilla re-consumption must move the same entry to the tail and clear stale Diet snapshot factors.'
+$hasValidEffectBreakdown = Get-MethodRequired $stateStoreType 'HasValidEffectBreakdown'
+$legacyActive = [Activator]::CreateInstance($activeFoodDataType, $true)
+$activeScaleField.SetValue($legacyActive, [float]0.5625)
+Assert-True (-not [bool]$activeHasBreakdownField.GetValue($legacyActive) -and
+             -not [bool]$hasValidEffectBreakdown.Invoke($null, [object[]] @($legacyActive))) 'Legacy v3 scale-only snapshots must remain explicitly unknown instead of inventing consumption factors.'
+Assert-True ([bool]$hasValidEffectBreakdown.Invoke($null, [object[]] @($originalActiveA))) 'A complete consumed snapshot must retain its breakdown during normalization.'
+$activeChefMultiplierField.SetValue($legacyActive, [float]99)
+$activeFreshnessScaleField.SetValue($legacyActive, [float]0)
+$activeDiminishingScaleField.SetValue($legacyActive, [float]0.01)
+$activeHasBreakdownField.SetValue($legacyActive, $true)
+Assert-True ([bool]$hasValidEffectBreakdown.Invoke($null, [object[]] @($legacyActive))) 'Snapshot validation must preserve historical finite factors without clamping them to current Chef or freshness settings.'
+foreach ($invalidSnapshotFactor in @(
+    @($activeChefMultiplierField, [float]::NaN),
+    @($activeChefMultiplierField, [float]::PositiveInfinity),
+    @($activeChefMultiplierField, [float]0.9),
+    @($activeFreshnessScaleField, [float]::NaN),
+    @($activeFreshnessScaleField, [float]::PositiveInfinity),
+    @($activeFreshnessScaleField, [float]-0.1),
+    @($activeFreshnessScaleField, [float]1.1),
+    @($activeDiminishingScaleField, [float]::NaN),
+    @($activeDiminishingScaleField, [float]::PositiveInfinity),
+    @($activeDiminishingScaleField, [float]0),
+    @($activeDiminishingScaleField, [float]1.1)))
+{
+    $factorField = $invalidSnapshotFactor[0]
+    $originalFactorValue = $factorField.GetValue($legacyActive)
+    $factorField.SetValue($legacyActive, [float]$invalidSnapshotFactor[1])
+    Assert-True (-not [bool]$hasValidEffectBreakdown.Invoke($null, [object[]] @($legacyActive))) "Invalid $($factorField.Name) metadata must not be presented as an exact consumed breakdown."
+    Assert-True ([float]$activeScaleField.GetValue($legacyActive) -eq [float]0.5625) 'Invalid optional hover metadata must never alter an otherwise valid legacy AppliedScale.'
+    $factorField.SetValue($legacyActive, $originalFactorValue)
+}
+$normalizeActiveStart = $foodStateStoreSource.IndexOf('private static void NormalizeActive(', [StringComparison]::Ordinal)
+$validateActiveBreakdownStart = $foodStateStoreSource.IndexOf('private static bool HasValidEffectBreakdown(', $normalizeActiveStart, [StringComparison]::Ordinal)
+Assert-True ($normalizeActiveStart -ge 0 -and $validateActiveBreakdownStart -gt $normalizeActiveStart) 'Active snapshot normalization boundaries are missing.'
+$normalizeActiveSource = $foodStateStoreSource.Substring($normalizeActiveStart, $validateActiveBreakdownStart - $normalizeActiveStart)
+Assert-True ($normalizeActiveSource.Contains('AppliedScale = scale') -and
+             $normalizeActiveSource.Contains('HasValidEffectBreakdown(entry)') -and
+             $normalizeActiveSource.Contains('HasEffectBreakdown = hasEffectBreakdown') -and
+             $normalizeActiveSource.Contains('ChefMultiplier = hasEffectBreakdown ? entry.ChefMultiplier : 1f') -and
+             $normalizeActiveSource.Contains('FreshnessScale = hasEffectBreakdown ? entry.FreshnessScale : 1f') -and
+             $normalizeActiveSource.Contains('DiminishingScale = hasEffectBreakdown ? entry.DiminishingScale : 1f')) 'Loading state must preserve valid exact factors and drop malformed or legacy metadata without recomputing AppliedScale.'
+Assert-True (-not $normalizeActiveSource.Contains('DietConfig.GetChef') -and
+             -not $normalizeActiveSource.Contains('FreshnessRuntime.') -and
+             -not $normalizeActiveSource.Contains('CalculateDiminishingScale(')) 'Loaded snapshots must not be recalculated from current settings or item freshness.'
+
+$calculateExtraEffectScale = Get-MethodRequired $hudFoodPanelsType 'CalculateExtraEffectScale'
+$formatEatenFoodHover = Get-MethodRequired $hudFoodPanelsType 'FormatEatenFoodHover'
+Assert-True ($calculateExtraEffectScale.ReturnType -eq [float] -and
+             $calculateExtraEffectScale.GetParameters().Count -eq 3 -and
+             $formatEatenFoodHover.ReturnType -eq [string] -and
+             $formatEatenFoodHover.GetParameters().Count -eq 6) 'Eaten-food hover must expose pure extra-scale and localized text formatters for managed verification.'
+foreach ($hoverSlots in 3..9)
+{
+    $hoverBaseScale = [float](2.7 / $hoverSlots)
+    foreach ($hoverExtraFactor in @([float]0, [float]0.5625, [float]0.75, [float]1, [float]1.35, [float]5))
+    {
+        foreach ($hoverFullCourseScale in @([float]1, [float]1.2))
+        {
+            $hoverExtraScale = [float]$calculateExtraEffectScale.Invoke($null, [object[]] @(
+                [float]($hoverBaseScale * $hoverExtraFactor), $hoverBaseScale, $hoverFullCourseScale))
+            Assert-True ([Math]::Abs($hoverExtraScale - $hoverExtraFactor * $hoverFullCourseScale) -lt 0.0001) "The extra-effect title must exclude the $hoverSlots-slot baseline while preserving consumed modifiers and live Full Course."
+        }
+    }
+}
+foreach ($invalidHoverScales in @(
+    @([float]::NaN, [float]0.9, [float]1),
+    @([float]::PositiveInfinity, [float]0.9, [float]1),
+    @([float]-0.1, [float]0.9, [float]1),
+    @([float]0.9, [float]0, [float]1),
+    @([float]0.9, [float]::NaN, [float]1),
+    @([float]0.9, [float]::PositiveInfinity, [float]1),
+    @([float]0.9, [float]0.9, [float]0),
+    @([float]0.9, [float]0.9, [float]::NaN),
+    @([float]0.9, [float]0.9, [float]::PositiveInfinity),
+    @([float]::MaxValue, [float]1, [float]2)))
+{
+    Assert-True ([float]$calculateExtraEffectScale.Invoke($null, [object[]]$invalidHoverScales) -eq [float]1) 'Invalid or overflowing hover-only scales must fail softly to a neutral multiplier.'
+}
+$hoverFactorLabels = [string[]] @('Full Course', 'Chef', 'Freshness', 'Diminish')
+$formatSnapshot = [Activator]::CreateInstance($activeFoodDataType, $true)
+$activeHasBreakdownField.SetValue($formatSnapshot, $true)
+$neutralHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
+Assert-True ($neutralHover -ceq '<color=orange>Carrot</color> — Extra effect <color=#B8B8B8>×1.00</color>') 'An ordinary eaten food must display its localized name and neutral extra effect, with no filler second line.'
+$snapshotHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.35, [float]1.2, $originalActiveA))
+$expectedSnapshotHover = '<color=orange>Carrot</color> — Extra effect <color=#9FE870>×1.35</color>' + "`n" +
+    '<color=#9FE870>Full Course ×1.20</color> · <color=#9FE870>Chef ×1.50</color> · <color=#FFB454>Freshness ×0.75</color>'
+Assert-True ($snapshotHover -ceq $expectedSnapshotHover) 'Eaten hover must compose exactly two lines with live Full Course, consumed Chef and freshness in order, omitting neutral diminishing.'
+$activeFreshnessScaleField.SetValue($formatSnapshot, [float]0.8)
+$activeDiminishingScaleField.SetValue($formatSnapshot, [float]0.75)
+$penaltyHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+    'Carrot', 'Extra effect', $hoverFactorLabels, [float]0.6, [float]1, $formatSnapshot))
+Assert-True ($penaltyHover.Contains('Extra effect <color=#FFB454>×0.60</color>') -and
+             $penaltyHover.EndsWith('<color=#FFB454>Freshness ×0.80</color> · <color=#FFB454>Diminish ×0.75</color>') -and
+             -not $penaltyHover.Contains('Full Course') -and -not $penaltyHover.Contains('Chef')) 'A diminished stale food must show only its two active penalties, with no neutral factors.'
+$activeChefMultiplierField.SetValue($formatSnapshot, [float]1.25)
+$activeDiminishingScaleField.SetValue($formatSnapshot, [float]1)
+$cancelledHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
+Assert-True ($cancelledHover.Contains('Extra effect <color=#B8B8B8>×1.00</color>') -and
+             $cancelledHover.Contains('Chef ×1.25') -and $cancelledHover.Contains('Freshness ×0.80')) 'Non-neutral factors must remain visible even when they cancel to a neutral total.'
+$activeChefMultiplierField.SetValue($formatSnapshot, [float]1.0001)
+$activeFreshnessScaleField.SetValue($formatSnapshot, [float]0.9999)
+$activeDiminishingScaleField.SetValue($formatSnapshot, [float]0.9999)
+$roundedNeutralHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.0001, [float]1.0001, $formatSnapshot))
+Assert-True ($roundedNeutralHover -ceq $neutralHover) 'Factors displayed as x1.00 must be omitted instead of occupying the second line.'
+foreach ($unknownHoverSnapshot in @($null, $vanillaActive))
+{
+    $unknownHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+        'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.2, [float]1.2, $unknownHoverSnapshot))
+    Assert-True ($unknownHover.Contains('Extra effect <color=#9FE870>×1.20</color>') -and
+                 -not $unknownHover.Contains("`n")) 'Unknown or legacy effect breakdowns must show the valid combined title without fabricated factor details.'
+}
+$originalHoverCulture = [Threading.Thread]::CurrentThread.CurrentCulture
+try
+{
+    [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
+    $localizedHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
+        '당근', '추가 효과', [string[]] @('풀 코스', '셰프', '신선도', '반복'),
+        [float]1.35, [float]1.2, $originalActiveA))
+    Assert-True ($localizedHover.StartsWith('<color=orange>당근</color> — 추가 효과 <color=#9FE870>×1.35</color>') -and
+                 $localizedHover.Contains('풀 코스 ×1.20') -and $localizedHover.Contains('셰프 ×1.50') -and
+                 $localizedHover.Contains('신선도 ×0.75') -and -not $localizedHover.Contains('1,35')) 'Eaten-hover labels must be supplied by localization while multiplier formatting remains culture-invariant.'
+}
+finally
+{
+    [Threading.Thread]::CurrentThread.CurrentCulture = $originalHoverCulture
+}
+# Exercise the real persisted-snapshot rebase without initializing Unity or writing a config file.
+$applySlotCount = Get-MethodRequired $slotProgressionType 'ApplySlotCount'
+$originalMaxSlotsConfig = $maxFoodSlotsConfigField.GetValue($null)
+$originalFoodScaleConfig = $foodStatScaleConfigField.GetValue($null)
+$rebaseMaxSlotsConfig = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($maxFoodSlotsConfigField.FieldType)
+$rebaseFoodScaleConfig = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($foodStatScaleConfigField.FieldType)
+$rebaseMaxSlotsValue = $maxFoodSlotsConfigField.FieldType.GetField('_typedValue', [Reflection.BindingFlags] 'Instance,NonPublic')
+$rebaseFoodScaleValue = $foodStatScaleConfigField.FieldType.GetField('_typedValue', [Reflection.BindingFlags] 'Instance,NonPublic')
+Assert-True ($null -ne $rebaseMaxSlotsValue -and $null -ne $rebaseFoodScaleValue) 'Managed config-entry value storage required for the no-Unity rebase smoke is missing.'
+try
+{
+    $maxFoodSlotsConfigField.SetValue($null, $rebaseMaxSlotsConfig)
+    $foodStatScaleConfigField.SetValue($null, $rebaseFoodScaleConfig)
+    foreach ($previousSlots in 3..9)
+    {
+        foreach ($nextSlots in 3..9)
+        {
+            foreach ($nextConfiguredScale in @([float]0.9, [float]1.2))
+            {
+                $rebaseMaxSlotsValue.SetValue($rebaseMaxSlotsConfig, [int]$nextSlots)
+                $rebaseFoodScaleValue.SetValue($rebaseFoodScaleConfig, $nextConfiguredScale)
+                $rebaseState = [Activator]::CreateInstance($stateType, $true)
+                $previousBaseScale = [float]$calculateBaseSlotScale.Invoke($null, [object[]] @([int]$previousSlots, [int]$previousSlots, [float]0.9))
+                $nextBaseScale = [float]$calculateBaseSlotScale.Invoke($null, [object[]] @([int]$nextSlots, [int]$nextSlots, $nextConfiguredScale))
+                $unlockedFoodSlotsField.SetValue($rebaseState, [int]$previousSlots)
+                $appliedBaseSlotScaleField.SetValue($rebaseState, $previousBaseScale)
+                $snapshotComponents = @(
+                    @([float]0.75, [float]1, $false, [float]1),
+                    @([float]1, [float]1, $false, [float]1),
+                    @([float]0.9, [float]1, $true, [float]1.5),
+                    @([float]0.75, [float]0.75, $false, [float]1),
+                    @([float]0, [float]1, $true, [float]1.5))
+                $snapshotFactors = @([float]0.75, [float]1, [float]1.35, [float]0.5625, [float]0)
+                for ($snapshotIndex = 0; $snapshotIndex -lt $snapshotFactors.Count; $snapshotIndex++)
+                {
+                    $snapshotComponent = $snapshotComponents[$snapshotIndex]
+                    $snapshotEffect = New-SmokeFoodEffect ([float]($previousBaseScale * $snapshotFactors[$snapshotIndex])) $snapshotComponent[0] $snapshotComponent[1] $snapshotComponent[2] $snapshotComponent[3]
+                    $setActiveFoodEffect.Invoke($null, [object[]] @(
+                        $rebaseState,
+                        "RebaseFood$snapshotIndex",
+                        $snapshotEffect)) | Out-Null
+                }
+                $applySlotCount.Invoke($null, [object[]] @($rebaseState, [int]$nextSlots)) | Out-Null
+                Assert-True ([int]$unlockedFoodSlotsField.GetValue($rebaseState) -eq $nextSlots -and
+                             [Math]::Abs([float]$appliedBaseSlotScaleField.GetValue($rebaseState) - $nextBaseScale) -lt 0.0001) 'Applying a supported slot count must persist its matching dynamic base scale.'
+                $rebasedActiveFoods = $activeField.GetValue($rebaseState)
+                Assert-True ($rebasedActiveFoods.Count -eq $snapshotFactors.Count) 'Slot rebasing itself must not discard or duplicate persisted active-food entries.'
+                for ($snapshotIndex = 0; $snapshotIndex -lt $snapshotFactors.Count; $snapshotIndex++)
+                {
+                    $rebasedActiveFood = $rebasedActiveFoods[$snapshotIndex]
+                    $expectedAppliedScale = $nextBaseScale * $snapshotFactors[$snapshotIndex]
+                    Assert-True ([string]$activeKeyField.GetValue($rebasedActiveFood) -eq "RebaseFood$snapshotIndex" -and
+                                 [Math]::Abs([float]$activeScaleField.GetValue($rebasedActiveFood) - $expectedAppliedScale) -lt 0.0001) "Changing slots $previousSlots -> $nextSlots must preserve active order and per-food Chef/Diminish factors."
+                    $snapshotComponent = $snapshotComponents[$snapshotIndex]
+                    Assert-True ([bool]$activeHasBreakdownField.GetValue($rebasedActiveFood) -and
+                                 [float]$activeFreshnessScaleField.GetValue($rebasedActiveFood) -eq [float]$snapshotComponent[0] -and
+                                 [float]$activeDiminishingScaleField.GetValue($rebasedActiveFood) -eq [float]$snapshotComponent[1] -and
+                                 [float]$activeChefMultiplierField.GetValue($rebasedActiveFood) -eq [float]$snapshotComponent[3]) "Changing slots $previousSlots -> $nextSlots must not rebase, round, or recalculate the consumed hover breakdown."
+                }
+                Assert-True (-not [bool]$applySlotCount.Invoke($null, [object[]] @($rebaseState, [int]$nextSlots))) 'Reapplying the same slot count and scale must be idempotent.'
+            }
+        }
+    }
+}
+finally
+{
+    $maxFoodSlotsConfigField.SetValue($null, $originalMaxSlotsConfig)
+    $foodStatScaleConfigField.SetValue($null, $originalFoodScaleConfig)
+}
 $recent = $recentField.GetValue($state)
 foreach ($key in @('A', 'B', 'C'))
 {
@@ -3096,6 +3477,12 @@ Assert-True (-not $tryConsumeChefSource.Contains('RefillAfterConsumption(')) 'Tr
 $playerFoodLogicSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\PlayerFoodLogic.cs') -Raw
 Assert-True ($playerFoodLogicSource.Contains('PlayerPrivateAccess.GetTotalFoodValue(')) 'Food totals must pass through Player.GetTotalFoodValue so external player-stat postfixes remain intact.'
 Assert-True (-not $playerFoodLogicSource.Contains('private static void GetTotalFoodValue(')) 'FineDining must not bypass external player-stat postfixes with a private food-total clone.'
+Assert-True ([regex]::IsMatch(
+    $playerFoodLogicSource,
+    '(?s)float effectiveScale = isDietFood\s*\? FoodRules\.GetAppliedScale\(player, state, food\) \* fullCourseScale\s*: 1f;\s*food\.m_health = food\.m_item\.m_shared\.m_food \* effectiveScale \* normalizedTime;\s*food\.m_stamina = food\.m_item\.m_shared\.m_foodStamina \* effectiveScale \* normalizedTime;\s*food\.m_eitr = food\.m_item\.m_shared\.m_foodEitr \* effectiveScale \* normalizedTime;.*?PlayerPrivateAccess\.GetTotalFoodValue\(.*?player\.SetMaxHealth\(health, flashBar: true\);\s*player\.SetMaxStamina\(stamina, flashBar: true\);\s*PlayerPrivateAccess\.SetMaxEitr\(player, eitr, flashBar: true\);')) 'Dynamic slot and Full Course scales must affect only food contributions before untouched external Health/Stamina/Eitr totals are applied.'
+Assert-True ([regex]::IsMatch(
+    $playerFoodLogicSource,
+    '(?s)regen \+= food\.m_item\.m_shared\.m_foodRegen \* scale;.*?float regenMultiplier = 1f;\s*player\.GetSEMan\(\)\.ModifyHealthRegen\(ref regenMultiplier\);\s*player\.Heal\(regen \* regenMultiplier\);')) 'Slot scaling must affect food health-regeneration contributions without scaling external status-effect regeneration multipliers.'
 $consumeChefCallIndex = $playerFoodLogicSource.IndexOf(
     'ChefCollectionService.TryConsumeChefEntry(',
     [StringComparison]::Ordinal)
@@ -3908,6 +4295,10 @@ foreach ($key in @(
     'finedining_diet_full_course_title',
     'finedining_diet_full_course_description',
     'finedining_diet_full_course_message',
+    'finedining_diet_extra_effect',
+    'finedining_diet_effect_chef',
+    'finedining_diet_effect_freshness',
+    'finedining_diet_effect_diminishing',
     'finedining_diet_tooltip_chef_choice',
     'finedining_diet_tooltip_diminishing_returns',
     'finedining_diet_tooltip_puke_chef_refresh',

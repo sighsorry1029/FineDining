@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -19,6 +20,9 @@ internal static class HudFoodPanels
     private const float HoverPanelFontSize = 15f;
     private const float HoverPanelMinimumFontSize = 10f;
     private const float HoverPanelShowDelay = 0.5f;
+    private const float EatenHoverRefreshInterval = 0.2f;
+    private const float EatenArrowThickness = 2f;
+    private const float EatenArrowHeadLength = 9f;
     private const string FullCourseIconResourceName = "FineDining.Resources.UI.FullCourseIcon.png";
     private const float FullCourseIconSize = 52f;
     private const float FullCourseTooltipGap = 6f;
@@ -78,6 +82,7 @@ internal static class HudFoodPanels
         UpdateChefSlots(context.ChefSlots, state, context.ChefGuidance);
         UpdateHoverPanel(context.RecentHover, context.RecentSlots);
         UpdateHoverPanel(context.ChefHover, context.ChefSlots);
+        UpdateEatenHover(context, hud, player, state);
     }
 
     private static void UpdateFullCourseIndicator(PanelContext context, Hud hud, Player player)
@@ -561,6 +566,26 @@ internal static class HudFoodPanels
         RectTransform chefRow = CreateRow(root, "ChefRow");
         HoverPanelContext recentHover = CreateHoverPanel(root, hud.m_foodTime[0], "RecentHover");
         HoverPanelContext chefHover = CreateHoverPanel(root, hud.m_foodTime[0], "ChefHover");
+        RectTransform arrowRoot = CreateRow(root, "EatenFoodArrow");
+        arrowRoot.sizeDelta = Vector2.zero;
+        arrowRoot.gameObject.SetActive(false);
+        RectTransform[] arrowSegments = new RectTransform[3];
+        for (int index = 0; index < arrowSegments.Length; index++)
+        {
+            GameObject segment = new("Segment" + index, typeof(RectTransform), typeof(Image));
+            RectTransform segmentRect = (RectTransform)segment.transform;
+            segmentRect.SetParent(arrowRoot, false);
+            segmentRect.anchorMin = Vector2.zero;
+            segmentRect.anchorMax = Vector2.zero;
+            segmentRect.pivot = new Vector2(0f, 0.5f);
+            Image line = segment.GetComponent<Image>();
+            line.color = Color.white;
+            line.raycastTarget = false;
+            arrowSegments[index] = segmentRect;
+        }
+
+        HoverPanelContext eatenHover = CreateHoverPanel(root, hud.m_foodTime[0], "EatenHover");
+        eatenHover.Text.alignment = TextAlignmentOptions.TopLeft;
 
         PanelContext context = new()
         {
@@ -568,7 +593,10 @@ internal static class HudFoodPanels
             RecentRow = recentRow,
             ChefRow = chefRow,
             RecentHover = recentHover,
-            ChefHover = chefHover
+            ChefHover = chefHover,
+            EatenHover = eatenHover,
+            EatenArrowRoot = arrowRoot,
+            EatenArrowSegments = arrowSegments
         };
         _contextOwner = hud;
         _context = context;
@@ -638,6 +666,11 @@ internal static class HudFoodPanels
             hoverWidth,
             new Vector2(0f, chefRowOffset - slotSize.y - HoverPanelGap),
             new Vector2(0f, 1f));
+        LayoutHoverPanel(
+            context.EatenHover,
+            hoverWidth,
+            new Vector2(0f, HoverPanelGap),
+            new Vector2(0f, 0f));
     }
 
     private static float GetAvailableHoverWidth(
@@ -774,34 +807,6 @@ internal static class HudFoodPanels
             CornerText = cornerText,
             FooterText = footerText
         };
-    }
-
-    internal static UITooltip? GetOrCreateTooltip(GameObject target, Hud hud)
-    {
-        UITooltip? tooltip = target.GetComponent<UITooltip>();
-        if (tooltip != null && tooltip.m_tooltipPrefab != null)
-        {
-            return tooltip;
-        }
-
-        if (hud.m_pieceIconPrefab == null)
-        {
-            return null;
-        }
-
-        UITooltip template = hud.m_pieceIconPrefab.GetComponent<UITooltip>();
-        if (template == null || template.m_tooltipPrefab == null)
-        {
-            return null;
-        }
-
-        if (tooltip == null)
-        {
-            tooltip = target.AddComponent<UITooltip>();
-        }
-
-        tooltip.m_tooltipPrefab = template.m_tooltipPrefab;
-        return tooltip;
     }
 
     internal static string FormatFoodNameForTooltip(string? foodName) =>
@@ -1168,18 +1173,206 @@ internal static class HudFoodPanels
         }
     }
 
-    internal static void UpdateTooltipHover(Image icon, UITooltip? tooltip, bool canHover)
+    private static void UpdateEatenHover(
+        PanelContext context,
+        Hud hud,
+        Player player,
+        PlayerFoodStateData state)
     {
-        bool hovered = tooltip != null && IsHovered(icon, canHover);
-
-        if (hovered && tooltip != null && GetCurrentTooltip() != tooltip)
+        Player.Food? hoveredFood = null;
+        Image? hoveredIcon = null;
+        List<Player.Food> foods = player.GetFoods();
+        for (int index = 0; index < hud.m_foodIcons.Length; index++)
         {
-            tooltip.OnHoverStart(icon.gameObject);
+            Image icon = hud.m_foodIcons[index];
+            if (icon == null)
+            {
+                continue;
+            }
+
+            DisableEatenCursorTooltip(icon);
+            if (hoveredFood == null && index < foods.Count &&
+                foods[index]?.m_item?.m_shared != null &&
+                icon.isActiveAndEnabled && icon.gameObject.activeInHierarchy &&
+                IsHovered(icon, canHover: true))
+            {
+                hoveredFood = foods[index];
+                hoveredIcon = icon;
+            }
         }
-        else if (!hovered && GetCurrentTooltip() == tooltip)
+
+        HoverPanelContext panel = context.EatenHover;
+        if (!ReferenceEquals(context.EatenHoveredFood, hoveredFood) ||
+            context.EatenHoveredIcon != hoveredIcon)
+        {
+            context.EatenHoveredFood = hoveredFood;
+            context.EatenHoveredIcon = hoveredIcon;
+            panel.HoverStartedAt = Time.unscaledTime;
+            context.EatenTextRefreshAt = 0f;
+        }
+
+        bool visible = hoveredFood != null && hoveredIcon != null &&
+                       Time.unscaledTime - panel.HoverStartedAt >= HoverPanelShowDelay;
+        panel.Root.gameObject.SetActive(visible);
+        context.EatenArrowRoot.gameObject.SetActive(visible);
+        if (!visible)
+        {
+            return;
+        }
+
+        // The fixed area is shared visually with recent-history guidance, never
+        // with a second cursor-following tooltip.
+        context.RecentHover.Root.gameObject.SetActive(false);
+        context.ChefHover.Root.gameObject.SetActive(false);
+        LayoutEatenArrow(context, hoveredIcon!);
+
+        if (Time.unscaledTime < context.EatenTextRefreshAt)
+        {
+            return;
+        }
+
+        context.EatenTextRefreshAt = Time.unscaledTime + EatenHoverRefreshInterval;
+        bool isDietFood = FoodIdentity.IsDirectlyEdible(hoveredFood!.m_item);
+        float fullCourseScale = isDietFood
+            ? FoodRules.GetFullCourseScale(player, state, FoodRules.CountActiveDietFoods(foods))
+            : 1f;
+        float extraScale = isDietFood
+            ? CalculateExtraEffectScale(
+                FoodRules.GetAppliedScale(player, state, hoveredFood),
+                DietConfig.GetBaseSlotScale(FoodSlotProgression.GetCurrentSlots(player, state)),
+                fullCourseScale)
+            : 1f;
+        ActiveFoodData? active = isDietFood
+            ? FoodRules.GetActiveFood(state, FoodIdentity.GetCanonicalPrefabName(hoveredFood))
+            : null;
+        string foodName = Localization.instance.Localize(hoveredFood.m_item.m_shared.m_name);
+        string text = FormatEatenFoodHover(
+            foodName,
+            FineDiningLocalization.LocalizeOrFallback("$finedining_diet_extra_effect", "Extra effect"),
+            new[]
+            {
+                FineDiningLocalization.LocalizeOrFallback("$finedining_diet_full_course_title", "Full Course"),
+                FineDiningLocalization.LocalizeOrFallback("$finedining_diet_effect_chef", "Chef"),
+                FineDiningLocalization.LocalizeOrFallback("$finedining_diet_effect_freshness", "Freshness"),
+                FineDiningLocalization.LocalizeOrFallback("$finedining_diet_effect_diminishing", "Diminish")
+            },
+            extraScale,
+            fullCourseScale,
+            active);
+        if (!string.Equals(panel.Text.text, text, System.StringComparison.Ordinal))
+        {
+            panel.Text.text = text;
+        }
+    }
+
+    private static void DisableEatenCursorTooltip(Image icon)
+    {
+        UITooltip? tooltip = icon.GetComponent<UITooltip>();
+        if (tooltip == null)
+        {
+            return;
+        }
+
+        if (CurrentTooltipField() == tooltip)
         {
             UITooltip.HideTooltip();
         }
+
+        tooltip.Set(string.Empty, string.Empty);
+        tooltip.enabled = false;
+    }
+
+    internal static float CalculateExtraEffectScale(
+        float appliedScale,
+        float baseSlotScale,
+        float fullCourseScale)
+    {
+        if (float.IsNaN(appliedScale) || float.IsInfinity(appliedScale) || appliedScale < 0f ||
+            float.IsNaN(baseSlotScale) || float.IsInfinity(baseSlotScale) || baseSlotScale <= 0f ||
+            float.IsNaN(fullCourseScale) || float.IsInfinity(fullCourseScale) || fullCourseScale <= 0f)
+        {
+            return 1f;
+        }
+
+        // AppliedScale already contains the base slot scale. Exclude that
+        // baseline, but keep the live Full Course bonus. Never read food time.
+        float extraScale = appliedScale / baseSlotScale * fullCourseScale;
+        return float.IsNaN(extraScale) || float.IsInfinity(extraScale) ? 1f : extraScale;
+    }
+
+    internal static string FormatEatenFoodHover(
+        string foodName,
+        string extraEffectLabel,
+        string[] factorLabels,
+        float extraScale,
+        float fullCourseScale,
+        ActiveFoodData? active)
+    {
+        float displayedScale = FoodEffectUiText.RoundMultiplierForDisplay(extraScale);
+        string color = displayedScale > 1f
+            ? FoodEffectUiText.PositiveModifierColorHex
+            : displayedScale < 1f
+                ? FoodEffectUiText.PenaltyModifierColorHex
+                : FoodEffectUiText.NeutralModifierColorHex;
+        string summary = $"{FormatFoodNameForTooltip(foodName)} — {extraEffectLabel} " +
+                         $"<color={color}>×{displayedScale.ToString("0.00", CultureInfo.InvariantCulture)}</color>";
+        if (active == null || !active.HasEffectBreakdown)
+        {
+            // A combined saved scale cannot reconstruct historical factors.
+            return summary;
+        }
+
+        StringBuilder details = new();
+        AppendEatenFactor(details, factorLabels[0], fullCourseScale);
+        AppendEatenFactor(details, factorLabels[1], active.ChefMultiplier);
+        AppendEatenFactor(details, factorLabels[2], active.FreshnessScale);
+        AppendEatenFactor(details, factorLabels[3], active.DiminishingScale);
+        return details.Length == 0 ? summary : summary + "\n" + details;
+    }
+
+    private static void AppendEatenFactor(StringBuilder details, string label, float multiplier)
+    {
+        float displayed = FoodEffectUiText.RoundMultiplierForDisplay(multiplier);
+        if (displayed == 1f)
+        {
+            return;
+        }
+
+        if (details.Length > 0)
+        {
+            details.Append(" · ");
+        }
+
+        string color = displayed > 1f
+            ? FoodEffectUiText.PositiveModifierColorHex
+            : FoodEffectUiText.PenaltyModifierColorHex;
+        details.Append("<color=").Append(color).Append('>')
+            .Append(label).Append(" ×")
+            .Append(displayed.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append("</color>");
+    }
+
+    private static void LayoutEatenArrow(PanelContext context, Image icon)
+    {
+        RectTransform root = context.EatenArrowRoot;
+        Rect iconBounds = GetRectInParent(icon.rectTransform, root);
+        Rect panelBounds = GetRectInParent(context.EatenHover.Root, root);
+        Vector2 start = new(iconBounds.xMax + 3f, iconBounds.center.y);
+        Vector2 end = new(panelBounds.xMin - 3f, panelBounds.center.y);
+        Vector2 direction = (end - start).normalized;
+        Vector2 perpendicular = new(-direction.y, direction.x);
+        Vector2 headBase = end - direction * EatenArrowHeadLength;
+        LayoutArrowSegment(context.EatenArrowSegments[0], start, end);
+        LayoutArrowSegment(context.EatenArrowSegments[1], end, headBase + perpendicular * 4f);
+        LayoutArrowSegment(context.EatenArrowSegments[2], end, headBase - perpendicular * 4f);
+    }
+
+    private static void LayoutArrowSegment(RectTransform segment, Vector2 start, Vector2 end)
+    {
+        Vector2 delta = end - start;
+        segment.anchoredPosition = start;
+        segment.sizeDelta = new Vector2(delta.magnitude, EatenArrowThickness);
+        segment.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
     }
 
     private static bool IsHovered(Image icon, bool canHover)
@@ -1196,11 +1389,6 @@ internal static class HudFoodPanels
                    eventCamera);
     }
 
-    private static UITooltip? GetCurrentTooltip()
-    {
-        return CurrentTooltipField();
-    }
-
     private sealed class PanelContext
     {
         public RectTransform Root = null!;
@@ -1208,6 +1396,12 @@ internal static class HudFoodPanels
         public RectTransform ChefRow = null!;
         public HoverPanelContext RecentHover = null!;
         public HoverPanelContext ChefHover = null!;
+        public HoverPanelContext EatenHover = null!;
+        public RectTransform EatenArrowRoot = null!;
+        public RectTransform[] EatenArrowSegments = null!;
+        public Player.Food? EatenHoveredFood;
+        public Image? EatenHoveredIcon;
+        public float EatenTextRefreshAt;
         public FullCourseContext? FullCourse;
         public List<SlotContext> RecentSlots = new();
         public List<SlotContext> ChefSlots = new();

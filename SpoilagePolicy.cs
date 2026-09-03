@@ -173,7 +173,8 @@ internal static class SpoilagePolicy
             {
                 return new ResolvedSpoilageRule(
                     SpoilageRuleState.Disabled,
-                    isOverride: true);
+                    isOverride: true,
+                    expiryAction: itemOverride.ExpiryAction);
             }
 
             SpoilageGroup overrideGroup = SpoilageGroup.OtherEdible;
@@ -682,12 +683,6 @@ internal static class SpoilagePolicy
         string prefab = RequirePrefab(fields[0], "override prefab");
         double hours = ParseHours(fields[1], $"Override '{prefab}' hours");
         bool hasResult = fields.Length == 3;
-        if (hours == 0d && hasResult)
-        {
-            throw new InvalidDataException(
-                $"Disabled override '{prefab}' cannot specify an expiry result.");
-        }
-
         string result = hasResult
             ? RequirePrefab(fields[2], $"Override '{prefab}' expiry result")
             : string.Empty;
@@ -697,6 +692,12 @@ internal static class SpoilagePolicy
             StringComparison.OrdinalIgnoreCase)
             ? SpoilageExpiryAction.KeepOriginal
             : SpoilageExpiryAction.Replace;
+        if (hours == 0d && hasResult && expiryAction != SpoilageExpiryAction.KeepOriginal)
+        {
+            throw new InvalidDataException(
+                $"Disabled override '{prefab}' can only retain '{KeepOriginalKeyword}' as an expiry result.");
+        }
+
         string replacement = expiryAction == SpoilageExpiryAction.KeepOriginal
             ? string.Empty
             : hasResult
@@ -757,12 +758,6 @@ internal static class SpoilagePolicy
             {
                 throw new InvalidDataException(
                     $"{context} expiry action must be '{KeepOriginalKeyword}'.");
-            }
-
-            if (hours == 0d)
-            {
-                throw new InvalidDataException(
-                    $"Disabled group '{context}' cannot specify an expiry action.");
             }
 
             expiryAction = SpoilageExpiryAction.KeepOriginal;

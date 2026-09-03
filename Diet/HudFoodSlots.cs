@@ -125,34 +125,6 @@ internal static class HudFoodSlots
         }
     }
 
-    internal static void UpdateTooltips(Hud hud, Player player)
-    {
-        List<Player.Food> foods = player.GetFoods();
-        for (int index = 0; index < hud.m_foodIcons.Length; index++)
-        {
-            Image icon = hud.m_foodIcons[index];
-            if (icon == null)
-            {
-                continue;
-            }
-
-            UITooltip? tooltip = HudFoodPanels.GetOrCreateTooltip(icon.gameObject, hud);
-            if (tooltip == null)
-            {
-                continue;
-            }
-
-            bool hasFood = index < foods.Count && foods[index]?.m_item?.m_shared != null;
-            string foodName = hasFood
-                ? Localization.instance.Localize(foods[index].m_item.m_shared.m_name)
-                : string.Empty;
-            tooltip.Set(
-                string.Empty,
-                HudFoodPanels.FormatFoodNameForTooltip(foodName));
-            HudFoodPanels.UpdateTooltipHover(icon, tooltip, hasFood && icon.isActiveAndEnabled);
-        }
-    }
-
     private static bool TryBuildPath(Transform root, Transform child, out List<int> path)
     {
         path = new List<int>();

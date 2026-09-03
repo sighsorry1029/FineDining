@@ -20,8 +20,7 @@ internal static class DietModule
 
         DietConfig.Initialize(config, configSync);
         DietConfig.MaxFoodSlots.SettingChanged += FoodStateShapeChanged;
-        DietConfig.SixSlotFoodStatScale.SettingChanged += FoodStateShapeChanged;
-        DietConfig.NineSlotFoodStatScale.SettingChanged += FoodStateShapeChanged;
+        DietConfig.FoodStatScale.SettingChanged += FoodStateShapeChanged;
         DietConfig.RecentHistorySize.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefCollectionSize.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefMultiplierMin.SettingChanged += FoodStateShapeChanged;
@@ -84,8 +83,7 @@ internal static class DietModule
         if (_initialized)
         {
             DietConfig.MaxFoodSlots.SettingChanged -= FoodStateShapeChanged;
-            DietConfig.SixSlotFoodStatScale.SettingChanged -= FoodStateShapeChanged;
-            DietConfig.NineSlotFoodStatScale.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.FoodStatScale.SettingChanged -= FoodStateShapeChanged;
             DietConfig.RecentHistorySize.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefCollectionSize.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefMultiplierMin.SettingChanged -= FoodStateShapeChanged;

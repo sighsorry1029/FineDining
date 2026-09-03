@@ -21,7 +21,13 @@ internal sealed class ChefEntryData
 internal sealed class ActiveFoodData
 {
     public string Key = string.Empty;
+    // AppliedScale remains the sole persisted source for food stats. These
+    // optional components explain that snapshot without replacing it.
     public float AppliedScale = 1f;
+    public bool HasEffectBreakdown;
+    public float ChefMultiplier = 1f;
+    public float FreshnessScale = 1f;
+    public float DiminishingScale = 1f;
 }
 
 [Serializable]

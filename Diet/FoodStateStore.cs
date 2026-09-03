@@ -203,15 +203,26 @@ internal static class FoodStateStore
             }
 
             float scale = entry.AppliedScale;
-            if (float.IsNaN(scale) || float.IsInfinity(scale) || scale < 0f)
+            bool scaleIsValid = !float.IsNaN(scale) &&
+                                !float.IsInfinity(scale) &&
+                                scale >= 0f;
+            if (!scaleIsValid)
             {
                 scale = state.AppliedBaseSlotScale;
             }
 
+            // A combined saved scale cannot recover individual components.
+            // Do not infer them or clamp consumed factors to today's configuration.
+            bool hasEffectBreakdown = scaleIsValid &&
+                                      HasValidEffectBreakdown(entry);
             ActiveFoodData normalizedEntry = new()
             {
                 Key = entry.Key,
-                AppliedScale = scale
+                AppliedScale = scale,
+                HasEffectBreakdown = hasEffectBreakdown,
+                ChefMultiplier = hasEffectBreakdown ? entry.ChefMultiplier : 1f,
+                FreshnessScale = hasEffectBreakdown ? entry.FreshnessScale : 1f,
+                DiminishingScale = hasEffectBreakdown ? entry.DiminishingScale : 1f
             };
 
             if (indexByKey.TryGetValue(entry.Key, out int existingIndex))
@@ -227,4 +238,18 @@ internal static class FoodStateStore
 
         state.Active = normalized;
     }
+
+    private static bool HasValidEffectBreakdown(ActiveFoodData entry) =>
+        entry.HasEffectBreakdown &&
+        !float.IsNaN(entry.ChefMultiplier) &&
+        !float.IsInfinity(entry.ChefMultiplier) &&
+        entry.ChefMultiplier >= 1f &&
+        !float.IsNaN(entry.FreshnessScale) &&
+        !float.IsInfinity(entry.FreshnessScale) &&
+        entry.FreshnessScale >= 0f &&
+        entry.FreshnessScale <= 1f &&
+        !float.IsNaN(entry.DiminishingScale) &&
+        !float.IsInfinity(entry.DiminishingScale) &&
+        entry.DiminishingScale > 0f &&
+        entry.DiminishingScale <= 1f;
 }

@@ -81,7 +81,7 @@ Production buildings and supported ValheimCuisine stations expose compact hover 
 ## Features
 
 - Configurable spoilage, freshness-scaled food stats, and an Icebox.
-- Six- or nine-slot diets with diminishing returns, Chef's Choice, and Full Course.
+- Three- to nine-slot diets with diminishing returns, Chef's Choice, and Full Course.
 - Cooking experience, production bonuses, auto-eject, faster fermentation, and station hints.
 
 ## Spoilage
@@ -101,20 +101,22 @@ The default `Spoilage.yml` policy is:
 ```yaml
 version: 1
 lifetimes:
-  farmingHarvest: 72
-  cookingStationInput: 24
-  cookingStationOutput: 48
-  unfermentedFood: 48
-  fermentedFood: 72
-  feastMaterial: 72, keep
-  feastResult: 48, keep
-  fish: 24
-  otherEdible: 24
+  farmingHarvest: 96
+  cookingStationInput: 48
+  cookingStationOutput: 72
+  unfermentedFood: 72
+  fermentedFood: 96
+  feastMaterial: 96, keep
+  feastResult: 72, keep
+  fish: 48
+  otherEdible: 48
 chefChoiceBlacklist: []
 overrides: []
 ```
 
-Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. `0` disables spoilage and cannot be combined with `keep`. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
+Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. Both `0` and `0, keep` disable spoilage; the latter retains the action for when you enable it again. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
+
+Existing `Spoilage.yml` files are not overwritten. Changed lifetimes apply to newly assigned timers; existing timers keep their saved lifetime and expiry.
 
 Exact prefab rules use this compact format:
 
@@ -124,9 +126,10 @@ overrides:
   - ModdedProduce, 72, FineDining_RottenProduce
   - PreservedIdentityFood, 72, keep
   - DecorativeFood, 0
+  - DisabledPreservedFood, 0, keep
 ```
 
-The optional third value is either a replacement prefab or the reserved, case-insensitive keyword `keep`. With `keep`, the timer runs normally, but expiry preserves the original prefab and stack and records a permanent minimum-freshness state instead of creating a replacement. The item stays at the configured minimum freshness effect, displays `Minimum freshness reached` (`Min` in slots), and does not receive another timer after moves or restarts. Because its prefab identity is unchanged, other systems still recognize it as the original item. A `0` lifetime disables spoilage without applying this state.
+The optional third value is either a replacement prefab or the reserved, case-insensitive keyword `keep`. With a positive lifetime and `keep`, the timer runs normally, but expiry preserves the original prefab and stack and records a permanent minimum-freshness state instead of creating a replacement. The item stays at the configured minimum freshness effect, displays `Minimum freshness reached` (`Min` in slots), and does not receive another timer after moves or restarts. Because its prefab identity is unchanged, other systems still recognize it as the original item. A `0` lifetime, with or without `keep`, disables spoilage without applying this state. Disabling spoilage does not restore items that already reached permanent minimum freshness. A zero-hour override cannot specify a replacement prefab.
 
 When the third override value is omitted, a classified item inherits its group's action while an unclassified force-include uses `RottenMeat`. By default, farming harvests become `FineDining_RottenProduce`; CookingStation inputs, CookingStation outputs, and Fish become `RottenMeat`; unfermented food, fermented food, and other edible food become `FineDining_RottenFood`; feast materials and feast results keep their original prefab.
 
@@ -142,14 +145,16 @@ Ingredient freshness is not inherited by recipes, CookingStation output, Ferment
 
 ## Diet and Chef's Choice
 
-`Maximum Food Slots` accepts `6` or `9` and defaults to `9`. Slots unlock as the player learns directly edible Health/Stamina/Eitr foods:
+`Maximum Food Slots` accepts any integer from `3` through `9` and defaults to `9`. Slots unlock as the player learns directly edible Health/Stamina/Eitr foods, stopping at the configured maximum:
 
 ```text
 Known foods  0-6  7-9  10-12  13-15  16-18  19-21  22+
 Food slots     3    4      5      6      7      8      9
 ```
 
-The six-slot and nine-slot stat scales default to `x0.45` and `x0.30`. A complete current diet therefore totals about `x0.90` of three equivalent vanilla foods before other effects.
+Newly earned slots take effect when an active food is removed or replaced, or while no food is active.
+
+`Food Stat Scale` defaults to `0.9` and controls the total base strength of a full unlocked diet relative to three equivalent vanilla foods. Each food's Health, Stamina, Eitr, and health regeneration uses `3 * Food Stat Scale / currently unlocked slots` before other effects. The default per-food multipliers are `0.9`, `0.675`, `0.54`, `0.45`, about `0.385714`, `0.3375`, and `0.3` for three through nine unlocked slots. Empty slots do not increase the remaining foods' multipliers. Player base stats and external player-stat bonuses are unchanged.
 
 - The recent-food history tracks seven unique foods by default.
 - The fourth and later consumption receives the default `x0.75` diminishing multiplier.
@@ -157,7 +162,9 @@ The six-slot and nine-slot stat scales default to `x0.45` and `x0.30`. A complet
 - Higher Cooking skill favors higher food tiers and stronger Chef multipliers.
 - Recent Health/Stamina/Eitr proportions influence new Chef choices by `70%` at the default setting.
 - A naturally expired food or a food actually removed by Puke advances Chef's Choice once from the oldest entry.
-- Full Course becomes available at six unlocked slots and defaults to `x1.20` while every unlocked slot is filled.
+- Full Course works at every stage from three through nine unlocked slots and defaults to `x1.20` while every unlocked slot is filled with directly edible food. With the default Food Stat Scale, this gives `0.9 * 1.2 = 1.08` of three equivalent vanilla foods before other effects. Even with a nine-slot maximum, filling the first three unlocked slots activates Full Course.
+
+Hover an eaten food to see its name and **Extra effect ×N** above the recent-food row, connected by a white arrow. This replaces the cursor-following name tooltip. The total excludes the base slot scale and vanilla time-based stat decay. The second line lists non-neutral Full Course, Chef, freshness, and diminishing multipliers; when none apply, only **Extra effect ×1.00** is shown beside the food name. Chef, freshness, and diminishing values are saved when eating, while Full Course reflects the current diet. Foods already active without a saved breakdown show only the combined multiplier until eaten again.
 
 Chef's Choice only uses consumables with positive health, stamina, or eitr. Exact exclusions belong in `chefChoiceBlacklist` in `Spoilage.yml`.
 

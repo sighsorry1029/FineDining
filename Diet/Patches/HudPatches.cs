@@ -15,7 +15,6 @@ internal static class DietHudPatches
 
         HudFoodSlots.EnsureFoodSlots(__instance);
         HudFoodSlots.LimitVisibleSlots(__instance, player);
-        HudFoodSlots.UpdateTooltips(__instance, player);
         HudFoodPanels.Update(__instance, player);
     }
 }

@@ -109,10 +109,10 @@ internal static class PlayerFoodLogic
             fullCourseActive,
             FoodSlotProgression.GetCurrentSlots(player, state));
 
-        // This is the single persisted consumption snapshot. It already combines
-        // slot/Chef/diminishing scale with this item's freshness, but deliberately
-        // excludes the dynamic Full Course multiplier.
-        FoodRules.SetActiveFoodScale(state, key, effect.AppliedScale);
+        // AppliedScale combines slot/Chef/diminishing scale with this item's
+        // freshness. Keep its exact components for hover details, but deliberately
+        // exclude the dynamic Full Course multiplier from the saved snapshot.
+        FoodRules.SetActiveFoodEffect(state, key, effect);
         ApplyFoodSnapshot(targetFood, item, key, effect.EffectiveScale);
 
         List<Player.Food> foods = player.GetFoods();
