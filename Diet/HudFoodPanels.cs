@@ -1248,7 +1248,7 @@ internal static class HudFoodPanels
         string foodName = Localization.instance.Localize(hoveredFood.m_item.m_shared.m_name);
         string text = FormatEatenFoodHover(
             foodName,
-            FineDiningLocalization.LocalizeOrFallback("$finedining_diet_extra_effect", "Extra effect"),
+            FineDiningLocalization.LocalizeOrFallback("$finedining_diet_extra_effect", "Net effect"),
             new[]
             {
                 FineDiningLocalization.LocalizeOrFallback("$finedining_diet_full_course_title", "Full Course"),

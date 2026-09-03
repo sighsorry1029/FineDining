@@ -19,7 +19,7 @@ finedining_icebox_limit_reached: "아이스박스 설치 제한에 도달했습�
 finedining_diet_full_course_title: "풀 코스"
 finedining_diet_full_course_description: "모든 음식 칸이 채워졌습니다.\n현재 섭취 중인 모든 음식의 체력, 스태미나, 에이트르 및 체력 재생 효과에 <color=orange>x$1</color> 배율이 적용됩니다."
 finedining_diet_full_course_message: "[풀 코스 x$1]"
-finedining_diet_extra_effect: "추가 효과"
+finedining_diet_extra_effect: "종합 효과"
 finedining_diet_effect_chef: "셰프"
 finedining_diet_effect_freshness: "신선도"
 finedining_diet_effect_diminishing: "반복"

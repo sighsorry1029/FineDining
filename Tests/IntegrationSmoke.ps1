@@ -1023,7 +1023,7 @@ $calculateExtraEffectStart = $hudFoodPanelsSource.IndexOf('internal static float
 $formatEatenFoodHoverStart = $hudFoodPanelsSource.IndexOf('internal static string FormatEatenFoodHover(', $calculateExtraEffectStart, [StringComparison]::Ordinal)
 Assert-True ($disableEatenTooltipStart -gt $updateEatenHoverStart -and
              $calculateExtraEffectStart -gt $disableEatenTooltipStart -and
-             $formatEatenFoodHoverStart -gt $calculateExtraEffectStart) 'Eaten-food hover and extra-effect source boundaries are missing.'
+             $formatEatenFoodHoverStart -gt $calculateExtraEffectStart) 'Eaten-food hover and net-effect source boundaries are missing.'
 $updateEatenHoverSource = $hudFoodPanelsSource.Substring($updateEatenHoverStart, $disableEatenTooltipStart - $updateEatenHoverStart)
 $disableEatenTooltipSource = $hudFoodPanelsSource.Substring($disableEatenTooltipStart, $calculateExtraEffectStart - $disableEatenTooltipStart)
 $calculateExtraEffectSource = $hudFoodPanelsSource.Substring($calculateExtraEffectStart, $formatEatenFoodHoverStart - $calculateExtraEffectStart)
@@ -1047,8 +1047,9 @@ Assert-True (-not $updateEatenHoverSource.Contains('PreviewNextFoodEffect(') -an
              -not $updateEatenHoverSource.Contains('FreshnessRuntime.') -and
              -not $updateEatenHoverSource.Contains('CalculateDiminishingScale(') -and
              -not $updateEatenHoverSource.Contains('.m_time') -and
-             -not $calculateExtraEffectSource.Contains('.m_time')) 'Eaten-food hover must not forecast a new consumption or include vanilla time decay in its extra-effect multiplier.'
-Assert-True ($calculateExtraEffectSource.Contains('appliedScale / baseSlotScale * fullCourseScale')) 'The extra-effect summary must remove only the configured slot baseline from AppliedScale.'
+             -not $calculateExtraEffectSource.Contains('.m_time')) 'Eaten-food hover must not forecast a new consumption or include vanilla time decay in its net-effect multiplier.'
+Assert-True ($calculateExtraEffectSource.Contains('appliedScale / baseSlotScale * fullCourseScale')) 'The net-effect summary must remove only the configured slot baseline from AppliedScale.'
+Assert-True ($updateEatenHoverSource.Contains('FineDiningLocalization.LocalizeOrFallback("$finedining_diet_extra_effect", "Net effect")')) 'Eaten-food hover must retain its localization key with the visible Net effect fallback.'
 Assert-True ($disableEatenTooltipSource.Contains('icon.GetComponent<UITooltip>()') -and
              $disableEatenTooltipSource.Contains('if (CurrentTooltipField() == tooltip)') -and
              $disableEatenTooltipSource.Contains('UITooltip.HideTooltip();') -and
@@ -3183,7 +3184,7 @@ foreach ($hoverSlots in 3..9)
         {
             $hoverExtraScale = [float]$calculateExtraEffectScale.Invoke($null, [object[]] @(
                 [float]($hoverBaseScale * $hoverExtraFactor), $hoverBaseScale, $hoverFullCourseScale))
-            Assert-True ([Math]::Abs($hoverExtraScale - $hoverExtraFactor * $hoverFullCourseScale) -lt 0.0001) "The extra-effect title must exclude the $hoverSlots-slot baseline while preserving consumed modifiers and live Full Course."
+            Assert-True ([Math]::Abs($hoverExtraScale - $hoverExtraFactor * $hoverFullCourseScale) -lt 0.0001) "The net-effect title must exclude the $hoverSlots-slot baseline while preserving consumed modifiers and live Full Course."
         }
     }
 }
@@ -3205,37 +3206,37 @@ $hoverFactorLabels = [string[]] @('Full Course', 'Chef', 'Freshness', 'Diminish'
 $formatSnapshot = [Activator]::CreateInstance($activeFoodDataType, $true)
 $activeHasBreakdownField.SetValue($formatSnapshot, $true)
 $neutralHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
-Assert-True ($neutralHover -ceq '<color=orange>Carrot</color> — Extra effect <color=#B8B8B8>×1.00</color>') 'An ordinary eaten food must display its localized name and neutral extra effect, with no filler second line.'
+    'Carrot', 'Net effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
+Assert-True ($neutralHover -ceq '<color=orange>Carrot</color> — Net effect <color=#B8B8B8>×1.00</color>') 'An ordinary eaten food must display its localized name and neutral net effect, with no filler second line.'
 $snapshotHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.35, [float]1.2, $originalActiveA))
-$expectedSnapshotHover = '<color=orange>Carrot</color> — Extra effect <color=#9FE870>×1.35</color>' + "`n" +
+    'Carrot', 'Net effect', $hoverFactorLabels, [float]1.35, [float]1.2, $originalActiveA))
+$expectedSnapshotHover = '<color=orange>Carrot</color> — Net effect <color=#9FE870>×1.35</color>' + "`n" +
     '<color=#9FE870>Full Course ×1.20</color> · <color=#9FE870>Chef ×1.50</color> · <color=#FFB454>Freshness ×0.75</color>'
 Assert-True ($snapshotHover -ceq $expectedSnapshotHover) 'Eaten hover must compose exactly two lines with live Full Course, consumed Chef and freshness in order, omitting neutral diminishing.'
 $activeFreshnessScaleField.SetValue($formatSnapshot, [float]0.8)
 $activeDiminishingScaleField.SetValue($formatSnapshot, [float]0.75)
 $penaltyHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-    'Carrot', 'Extra effect', $hoverFactorLabels, [float]0.6, [float]1, $formatSnapshot))
-Assert-True ($penaltyHover.Contains('Extra effect <color=#FFB454>×0.60</color>') -and
+    'Carrot', 'Net effect', $hoverFactorLabels, [float]0.6, [float]1, $formatSnapshot))
+Assert-True ($penaltyHover.Contains('Net effect <color=#FFB454>×0.60</color>') -and
              $penaltyHover.EndsWith('<color=#FFB454>Freshness ×0.80</color> · <color=#FFB454>Diminish ×0.75</color>') -and
              -not $penaltyHover.Contains('Full Course') -and -not $penaltyHover.Contains('Chef')) 'A diminished stale food must show only its two active penalties, with no neutral factors.'
 $activeChefMultiplierField.SetValue($formatSnapshot, [float]1.25)
 $activeDiminishingScaleField.SetValue($formatSnapshot, [float]1)
 $cancelledHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
-Assert-True ($cancelledHover.Contains('Extra effect <color=#B8B8B8>×1.00</color>') -and
+    'Carrot', 'Net effect', $hoverFactorLabels, [float]1, [float]1, $formatSnapshot))
+Assert-True ($cancelledHover.Contains('Net effect <color=#B8B8B8>×1.00</color>') -and
              $cancelledHover.Contains('Chef ×1.25') -and $cancelledHover.Contains('Freshness ×0.80')) 'Non-neutral factors must remain visible even when they cancel to a neutral total.'
 $activeChefMultiplierField.SetValue($formatSnapshot, [float]1.0001)
 $activeFreshnessScaleField.SetValue($formatSnapshot, [float]0.9999)
 $activeDiminishingScaleField.SetValue($formatSnapshot, [float]0.9999)
 $roundedNeutralHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-    'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.0001, [float]1.0001, $formatSnapshot))
+    'Carrot', 'Net effect', $hoverFactorLabels, [float]1.0001, [float]1.0001, $formatSnapshot))
 Assert-True ($roundedNeutralHover -ceq $neutralHover) 'Factors displayed as x1.00 must be omitted instead of occupying the second line.'
 foreach ($unknownHoverSnapshot in @($null, $vanillaActive))
 {
     $unknownHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-        'Carrot', 'Extra effect', $hoverFactorLabels, [float]1.2, [float]1.2, $unknownHoverSnapshot))
-    Assert-True ($unknownHover.Contains('Extra effect <color=#9FE870>×1.20</color>') -and
+        'Carrot', 'Net effect', $hoverFactorLabels, [float]1.2, [float]1.2, $unknownHoverSnapshot))
+    Assert-True ($unknownHover.Contains('Net effect <color=#9FE870>×1.20</color>') -and
                  -not $unknownHover.Contains("`n")) 'Unknown or legacy effect breakdowns must show the valid combined title without fabricated factor details.'
 }
 $originalHoverCulture = [Threading.Thread]::CurrentThread.CurrentCulture
@@ -3243,9 +3244,9 @@ try
 {
     [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
     $localizedHover = [string]$formatEatenFoodHover.Invoke($null, [object[]] @(
-        '당근', '추가 효과', [string[]] @('풀 코스', '셰프', '신선도', '반복'),
+        '당근', '종합 효과', [string[]] @('풀 코스', '셰프', '신선도', '반복'),
         [float]1.35, [float]1.2, $originalActiveA))
-    Assert-True ($localizedHover.StartsWith('<color=orange>당근</color> — 추가 효과 <color=#9FE870>×1.35</color>') -and
+    Assert-True ($localizedHover.StartsWith('<color=orange>당근</color> — 종합 효과 <color=#9FE870>×1.35</color>') -and
                  $localizedHover.Contains('풀 코스 ×1.20') -and $localizedHover.Contains('셰프 ×1.50') -and
                  $localizedHover.Contains('신선도 ×0.75') -and -not $localizedHover.Contains('1,35')) 'Eaten-hover labels must be supplied by localization while multiplier formatting remains culture-invariant.'
 }
@@ -4349,6 +4350,8 @@ Assert-True ($korean.Contains('finedining_station_freydis_progress: "수집 $1/$
 Assert-True ($english.Contains('finedining_station_freydis_full: "<color=#9FE870>Collection storage full $1/$2</color>"')) 'English Freydis full format is incorrect.'
 Assert-True ($korean.Contains('finedining_station_freydis_full: "<color=#9FE870>수집 완료 $1/$2</color>"')) 'Korean Freydis full format is incorrect.'
 Assert-True ($english.Contains('finedining_diet_full_course_title: "Full Course"')) 'English Full Course title is incorrect.'
+Assert-True ($english.Contains('finedining_diet_extra_effect: "Net effect"')) 'English eaten-food hover must label its combined modifier Net effect.'
+Assert-True ($korean.Contains('finedining_diet_extra_effect: "종합 효과"')) 'Korean eaten-food hover must label its combined modifier 종합 효과.'
 Assert-True ($english.Contains('finedining_diet_recent_diminished: "You recently ate ''$1'' $2 times. Eating it now applies food effect <color=orange>x$3</color>."')) 'English recent-history diminishing hover must describe the next consumption prospectively.'
 Assert-True ($korean.Contains('finedining_diet_recent_diminished: "최근에 ''$1'' 음식을 $2번 먹었습니다. 지금 먹으면 음식 효과가 <color=orange>x$3</color>으로 적용됩니다."')) 'Korean recent-history diminishing hover must describe the next consumption prospectively.'
 Assert-True ($english.Contains('finedining_diet_recent_chef_exempt: "You recently ate ''$1'' $2 times. Chef''s Choice prevents diminishing returns on this consumption."')) 'English recent-history hover must explain Chef Choice diminishing exemption.'
