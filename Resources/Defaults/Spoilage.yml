@@ -33,4 +33,8 @@ chefChoiceBlacklist: []
 #   - PreservedIdentityFood, 100, keep
 #   - DecorativeFoodLikeItem, 0
 #   - DisabledPreservedFood, 0, keep
-overrides: []
+overrides:
+  - Raspberry, 96, keep
+  - Mushroom, 96, keep
+  - Honey, 0
+  - Blueberries, 96, keep

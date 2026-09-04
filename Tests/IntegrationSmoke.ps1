@@ -212,11 +212,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.4.0') 'Assembly version must be 1.0.4.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.5.0') 'Assembly version must be 1.0.5.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.4') 'Plugin version must be 1.0.4.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.5') 'Plugin version must be 1.0.5.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -1887,6 +1887,21 @@ foreach ($defaultLifetime in @(
 Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastMaterial:\s*96,\s*keep\s*$') 'The default feast-material policy must keep its original prefab after 96 hours.'
 Assert-True ($defaultPolicyYaml -match '(?m)^\s*feastResult:\s*72,\s*keep\s*$') 'The default feast-result policy must keep its original prefab after 72 hours.'
 Assert-True ($defaultPolicyYaml.Contains('chefChoiceBlacklist: []')) 'The embedded default policy must expose an empty Chef Choice blacklist.'
+$defaultOverrideBlocks = [regex]::Matches(
+    $defaultPolicyYaml,
+    '(?m)^overrides:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*')
+Assert-True ($defaultOverrideBlocks.Count -eq 1) 'The default policy must contain exactly one top-level overrides block.'
+$defaultOverrideBlock = $defaultOverrideBlocks[0]
+$defaultOverrideRows = @([regex]::Matches(
+    $defaultOverrideBlock.Value,
+    '(?m)^[ \t]*-[ \t]*(?<Entry>[^\r\n]+)\r?$') | ForEach-Object { $_.Groups['Entry'].Value.Trim() })
+$expectedDefaultOverrideRows = @('Raspberry, 96, keep', 'Mushroom, 96, keep', 'Honey, 0', 'Blueberries, 96, keep')
+Assert-True ($defaultOverrideRows.Count -eq 4 -and
+             ($defaultOverrideRows -join '|') -ceq ($expectedDefaultOverrideRows -join '|')) 'Default exact overrides must be Raspberry 96 keep, Mushroom 96 keep, Honey disabled, then Blueberries 96 keep, with no extra entries.'
+# Keep custom-rule fixtures independent of the shipped nonempty default list.
+$emptyOverridePolicyYaml = $defaultPolicyYaml.Remove($defaultOverrideBlock.Index, $defaultOverrideBlock.Length).Insert(
+    $defaultOverrideBlock.Index, 'overrides: []')
+Assert-True ([regex]::Matches($emptyOverridePolicyYaml, '(?m)^overrides: \[\]\r?$').Count -eq 1) 'Custom override fixtures must start from one replaceable empty overrides block.'
 $defaultPolicyParseArguments = [object[]] @([string]$defaultPolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyParseArguments)) 'The default policy with a 72-hour unfermented-food lifetime must parse.'
 Assert-True ([string]$defaultPolicyParseArguments[2] -match '(?m)^\s*unfermentedFood:\s*72\s*$') 'Normalized policy YAML must retain the default unfermented-food lifetime.'
@@ -1933,6 +1948,40 @@ Assert-True ($defaultNormalizedYaml -match '(?m)^\s*feastMaterial:\s*96,\s*keep\
 $defaultPolicyRoundTripArguments = [object[]] @($defaultNormalizedYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $defaultPolicyRoundTripArguments)) 'Canonical default group-action YAML must parse again.'
 Assert-True ([string]$defaultPolicyRoundTripArguments[2] -ceq $defaultNormalizedYaml) 'Canonical default group-action YAML must remain byte-stable across a parse/serialize round trip.'
+$defaultOverrideFlags = [Reflection.BindingFlags] 'Instance,Public,NonPublic'
+$defaultOverridesProperty = $defaultNormalizedPolicyType.GetProperty('Overrides', $defaultOverrideFlags)
+Assert-True ($null -ne $defaultOverridesProperty) 'Parsed default policy must expose its exact overrides for validation.'
+foreach ($defaultOverridePolicy in @($defaultNormalizedPolicy, $defaultPolicyRoundTripArguments[1]))
+{
+    $defaultOverrides = $defaultOverridesProperty.GetValue($defaultOverridePolicy)
+    Assert-True ($defaultOverrides.Count -eq 4) 'Initial and round-tripped default policies must contain exactly four exact-prefab overrides.'
+    foreach ($defaultOverrideSpec in @(
+        @('Raspberry', [double]96, $true, 'KeepOriginal', ''),
+        @('Mushroom', [double]96, $true, 'KeepOriginal', ''),
+        @('Honey', [double]0, $false, 'Replace', 'RottenMeat'),
+        @('Blueberries', [double]96, $true, 'KeepOriginal', '')))
+    {
+        $defaultOverrideName = [string]$defaultOverrideSpec[0]
+        $defaultOverride = $defaultOverrides[$defaultOverrideName]
+        Assert-True ($null -ne $defaultOverride) "Default exact override is missing: $defaultOverrideName"
+        $defaultOverrideType = $defaultOverride.GetType()
+        $actualDefaultOverrideName = [string]$defaultOverrideType.GetProperty('PrefabName', $defaultOverrideFlags).GetValue($defaultOverride)
+        $actualDefaultOverrideHours = [double]$defaultOverrideType.GetProperty('Hours', $defaultOverrideFlags).GetValue($defaultOverride)
+        $actualDefaultOverrideTicks = [long]$defaultOverrideType.GetProperty('LifetimeTicks', $defaultOverrideFlags).GetValue($defaultOverride)
+        $actualDefaultOverrideHasResult = [bool]$defaultOverrideType.GetProperty('HasResultOverride', $defaultOverrideFlags).GetValue($defaultOverride)
+        $actualDefaultOverrideAction = [string]$defaultOverrideType.GetProperty('ExpiryAction', $defaultOverrideFlags).GetValue($defaultOverride)
+        $actualDefaultOverrideReplacement = [string]$defaultOverrideType.GetProperty('ReplacementPrefab', $defaultOverrideFlags).GetValue($defaultOverride)
+        Assert-True ($actualDefaultOverrideName -ceq $defaultOverrideName -and
+                     $actualDefaultOverrideHours -eq [double]$defaultOverrideSpec[1] -and
+                     $actualDefaultOverrideTicks -eq [long]([double]$defaultOverrideSpec[1] * [TimeSpan]::TicksPerHour)) "Default '$defaultOverrideName' must preserve its exact prefab and hours/ticks, including truly disabled zero ticks for Honey."
+        Assert-True ($actualDefaultOverrideHasResult -eq [bool]$defaultOverrideSpec[2] -and
+                     $actualDefaultOverrideAction -ceq [string]$defaultOverrideSpec[3] -and
+                     $actualDefaultOverrideReplacement -ceq [string]$defaultOverrideSpec[4]) "Default '$defaultOverrideName' must retain its explicit keep or two-field disabled result semantics through normalization and round-trip."
+    }
+}
+$emptyOverrideParseArguments = [object[]] @($emptyOverridePolicyYaml, $null, '', '')
+Assert-True ([bool]$tryParsePolicy.Invoke($null, $emptyOverrideParseArguments)) 'The isolated empty-override fixture baseline must parse.'
+Assert-True ($defaultOverridesProperty.GetValue($emptyOverrideParseArguments[1]).Count -eq 0) 'Custom-rule fixtures must not inherit the four shipped exact overrides.'
 $customUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
     'unfermentedFood: 72',
     'unfermentedFood: 12.5')
@@ -2057,18 +2106,18 @@ foreach ($invalidGroupLifetime in @(
     Assert-True ($invalidGroupError -match 'lifetimes\.farmingHarvest' -and
                  $invalidGroupError.Contains([string]$invalidGroupLifetime.Error)) "An invalid $($invalidGroupLifetime.Label) must report the field and reason."
 }
-$maximumOverridePolicyYaml = $defaultPolicyYaml.Replace(
+$maximumOverridePolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - BoundaryFood, 720")
 $maximumOverrideParseArguments = [object[]] @([string]$maximumOverridePolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $maximumOverrideParseArguments)) 'An exact-prefab override of exactly 720 hours must be accepted.'
-$overMaximumOverridePolicyYaml = $defaultPolicyYaml.Replace(
+$overMaximumOverridePolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - BoundaryFood, 721")
 $overMaximumOverrideParseArguments = [object[]] @([string]$overMaximumOverridePolicyYaml, $null, '', '')
 Assert-True (-not [bool]$tryParsePolicy.Invoke($null, $overMaximumOverrideParseArguments)) 'An exact-prefab override above 720 hours must be rejected.'
 Assert-True ([string]$overMaximumOverrideParseArguments[3] -match '0 through 720') 'An over-limit override must report the 720-hour range.'
-$keepOverridePolicyYaml = $defaultPolicyYaml.Replace(
+$keepOverridePolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - AutomaticFood, 12.5`n  - KeepFood, 24, KEEP`n  - ReplaceFood, 36, RottenMeat")
 $keepOverrideParseArguments = [object[]] @([string]$keepOverridePolicyYaml, $null, '', '')
@@ -2115,7 +2164,7 @@ Assert-True (-not [bool]$replacementPrefabs.Contains('keep')) 'The reserved keep
 $keepRoundTripArguments = [object[]] @($keepNormalizedYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $keepRoundTripArguments)) 'Canonical keep policy YAML must parse again.'
 Assert-True ([string]$keepRoundTripArguments[2] -ceq $keepNormalizedYaml) 'Canonical keep policy YAML must be stable across a parse/serialize round trip.'
-$disabledKeepPolicyYaml = $defaultPolicyYaml.Replace(
+$disabledKeepPolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - DisabledKeepFood, 0, keep")
 $disabledKeepParseArguments = [object[]] @([string]$disabledKeepPolicyYaml, $null, '', '')
@@ -2134,7 +2183,7 @@ Assert-True ($disabledKeepNormalizedYaml -cmatch '(?m)^\s*-\s+DisabledKeepFood,\
 $disabledKeepRoundTripArguments = [object[]] @($disabledKeepNormalizedYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $disabledKeepRoundTripArguments) -and
              [string]$disabledKeepRoundTripArguments[2] -ceq $disabledKeepNormalizedYaml) 'Disabled exact keep overrides must remain stable across a parse/serialize round trip.'
-$disabledReplacementPolicyYaml = $defaultPolicyYaml.Replace(
+$disabledReplacementPolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - DisabledReplacementFood, 0, RottenMeat")
 $disabledReplacementParseArguments = [object[]] @($disabledReplacementPolicyYaml, $null, '', '')
@@ -2929,7 +2978,7 @@ $keepReferenceEntries = [Array]::CreateInstance($spoilageReferenceEntryType, 1)
 $keepReferenceEntries.SetValue($keepReferenceEntry, 0)
 $keepSpoilageReference = [string]$buildSpoilageReference.Invoke($null, [object[]] @(,$keepReferenceEntries))
 Assert-True ($keepSpoilageReference.Contains('- KeepReferenceFood, 12.5, keep')) 'An enabled keep override must remain directly copyable from Spoilage.reference.yml.'
-$copiedKeepReferencePolicyYaml = $defaultPolicyYaml.Replace(
+$copiedKeepReferencePolicyYaml = $emptyOverridePolicyYaml.Replace(
     'overrides: []',
     "overrides:`n  - KeepReferenceFood, 12.5, keep")
 $copiedKeepReferenceParseArguments = [object[]] @([string]$copiedKeepReferencePolicyYaml, $null, '', '')

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5
+
+- Added default spoilage overrides: Raspberry, Mushroom, and Blueberries now use `96, keep`, retaining their original items at minimum freshness after 96 hours. Honey now uses `0`, disabling spoilage.
+- Existing Spoilage.yml files are not overwritten; add these overrides manually to adopt the new defaults in an existing profile or server.
+
 ## 1.0.4
 
 - Maximum Food Slots now accepts every value from 3 through 9. Replaced the separate six- and nine-slot scales with one Food Stat Scale, defaulting to 0.9; each food uses `3 * scale / unlocked slots`, keeping a full diet's base strength consistent throughout progression.

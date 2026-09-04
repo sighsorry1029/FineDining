@@ -111,8 +111,14 @@ lifetimes:
   fish: 48
   otherEdible: 48
 chefChoiceBlacklist: []
-overrides: []
+overrides:
+  - Raspberry, 96, keep
+  - Mushroom, 96, keep
+  - Honey, 0
+  - Blueberries, 96, keep
 ```
+
+The default prefab overrides preserve Raspberry, Mushroom, and Blueberries at minimum freshness after 96 hours, and disable spoilage for Honey. These rules apply to the exact prefab names; other mushroom prefabs retain their own rules.
 
 Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. Both `0` and `0, keep` disable spoilage; the latter retains the action for when you enable it again. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
 
@@ -131,7 +137,7 @@ overrides:
 
 The optional third value is either a replacement prefab or the reserved, case-insensitive keyword `keep`. With a positive lifetime and `keep`, the timer runs normally, but expiry preserves the original prefab and stack and records a permanent minimum-freshness state instead of creating a replacement. The item stays at the configured minimum freshness effect, displays `Minimum freshness reached` (`Min` in slots), and does not receive another timer after moves or restarts. Because its prefab identity is unchanged, other systems still recognize it as the original item. A `0` lifetime, with or without `keep`, disables spoilage without applying this state. Disabling spoilage does not restore items that already reached permanent minimum freshness. A zero-hour override cannot specify a replacement prefab.
 
-When the third override value is omitted, a classified item inherits its group's action while an unclassified force-include uses `RottenMeat`. By default, farming harvests become `FineDining_RottenProduce`; CookingStation inputs, CookingStation outputs, and Fish become `RottenMeat`; unfermented food, fermented food, and other edible food become `FineDining_RottenFood`; feast materials and feast results keep their original prefab.
+When the third override value is omitted, a classified item inherits its group's action while an unclassified force-include uses `RottenMeat`. Unless overridden, farming harvests become `FineDining_RottenProduce`; CookingStation inputs, CookingStation outputs, and Fish become `RottenMeat`; unfermented food, fermented food, and other edible food become `FineDining_RottenFood`; feast materials and feast results keep their original prefab.
 
 `FineDining_RottenProduce` and `FineDining_RottenFood` cannot spoil again. Eating them applies Puke for five and ten seconds respectively.
 
