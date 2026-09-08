@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6
+
+- Cooking skill descriptions now appear to the left of the skills panel, aligned with the hovered row. Long descriptions scale and stay within the screen bounds, with mouse and gamepad support.
+- Preserved existing Cooking descriptions and conditional FineDining tips, and added tooltip cleanup when skill rows are reused or the inventory UI is destroyed. SecondaryAttacks is not required.
+- Reduced repeated HUD number formatting and station input-list construction while preserving live UI updates and the existing station cache timing.
+- Icebox recipe changes no longer trigger an unrelated scene-wide storage-size refresh. Storage row changes retain the existing resize handling.
+- Simplified active-food effect updates and moved Chef collection refresh state alongside its reconciliation logic without changing saved food data or selection order.
+- Added Cooking tooltip layout regression checks and support for automatically deploying the merged Debug DLL with `DeployToGame=true`.
+
 ## 1.0.5
 
 - Added default spoilage overrides: Raspberry, Mushroom, and Blueberries now use `96, keep`, retaining their original items at minimum freshness after 96 hours. Honey now uses `0`, disabling spoilage.

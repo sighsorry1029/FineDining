@@ -15,6 +15,7 @@
         <Nullable>enable</Nullable>
         <JotunnVersion>2.29.2</JotunnVersion>
         <DeployLocal Condition="'$(DeployLocal)' == ''">false</DeployLocal>
+        <DeployToGame Condition="'$(DeployToGame)' == ''">$(DeployLocal)</DeployToGame>
         <AfterTargets Condition="'$(AfterTargets)' == ''">ILRepacker</AfterTargets>
     </PropertyGroup>
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -196,8 +197,9 @@
             <NexusPackageDir>$(ProjectDir)\Nexus\$(PackageName)</NexusPackageDir>
         </PropertyGroup>
     </Target>
-    <Target Name="CopyOutputDLL" AfterTargets="GetAssemblyVersion" Condition="'$(DeployLocal)' == 'true'">
+    <Target Name="CopyOutputDLL" AfterTargets="GetAssemblyVersion" Condition="'$(DeployToGame)' == 'true'">
         <Error Text="DLL not found in target directory." Condition="!Exists('$(TargetDir)$(AssemblyName).dll')"/>
+        <Error Text="Set CopyOutputDLLPath to the Valheim BepInEx plugins directory." Condition="'$(CopyOutputDLLPath)' == ''"/>
         <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(CopyOutputDLLPath)" OverwriteReadOnlyFiles="true"/>
         <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(CopyOutputDLLPath2)" OverwriteReadOnlyFiles="true" Condition="Exists('$(CopyOutputDLLPath2)')"/>
         <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(CopyOutputDLLPath3)" OverwriteReadOnlyFiles="true" Condition="Exists('$(CopyOutputDLLPath3)')"/>

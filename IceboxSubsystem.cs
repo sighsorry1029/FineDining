@@ -88,8 +88,8 @@ internal static class IceboxSubsystem
             FineDiningPlugin.ConfigSync.AddConfigEntry(_recipe);
         synchronizedRecipe.SynchronizedConfig = true;
 
-        _storageRows.SettingChanged += OnGameplayConfigChanged;
-        _recipe.SettingChanged += OnGameplayConfigChanged;
+        _storageRows.SettingChanged += OnStorageRowsChanged;
+        _recipe.SettingChanged += OnRecipeChanged;
         _showMapPins.SettingChanged += OnShowMapPinsChanged;
 
         IceboxLimitPolicy.Initialize();
@@ -121,13 +121,13 @@ internal static class IceboxSubsystem
 
         if (_storageRows != null)
         {
-            _storageRows.SettingChanged -= OnGameplayConfigChanged;
+            _storageRows.SettingChanged -= OnStorageRowsChanged;
             _storageRows = null;
         }
 
         if (_recipe != null)
         {
-            _recipe.SettingChanged -= OnGameplayConfigChanged;
+            _recipe.SettingChanged -= OnRecipeChanged;
             _recipe = null;
         }
 
@@ -519,9 +519,14 @@ internal static class IceboxSubsystem
         IceboxMapPins.HandleConfigChanged();
     }
 
-    private static void OnGameplayConfigChanged(object sender, EventArgs args)
+    private static void OnStorageRowsChanged(object sender, EventArgs args)
     {
         ApplyConfiguredStorageSizeToLoadedIceboxes();
+        GeneratedPrefabRegistry.RefreshIceboxConfiguredContent();
+    }
+
+    private static void OnRecipeChanged(object sender, EventArgs args)
+    {
         GeneratedPrefabRegistry.RefreshIceboxConfiguredContent();
     }
 

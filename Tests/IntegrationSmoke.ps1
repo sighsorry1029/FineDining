@@ -1,3 +1,6 @@
+#requires -Version 7.0
+#requires -PSEdition Core
+
 param(
     [string] $AssemblyPath = "$(Split-Path -Parent $PSScriptRoot)\bin\Debug\FineDining.dll",
     [string] $ManagedDirectory = 'C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed',
@@ -212,11 +215,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.5.0') 'Assembly version must be 1.0.5.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.6.0') 'Assembly version must be 1.0.6.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.5') 'Plugin version must be 1.0.5.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.6') 'Plugin version must be 1.0.6.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -925,10 +928,40 @@ Assert-True ([regex]::IsMatch(
 Assert-True ([regex]::IsMatch(
     $updateRecentSlotsSource,
     'bool\s+chefExemptsDiminishing\s*=\s*isChef\s*&&\s*wouldDiminish\s*;')) 'Chef exemption must apply only when the next regular consumption would diminish.'
-Assert-True ([regex]::IsMatch(
-    $updateRecentSlotsSource,
-    '(?s)wouldDiminish\s*&&\s*!chefExemptsDiminishing\s*\?.*?x\{.*?:\s*string\.Empty')) 'A Chef-exempt recent-history slot must hide the regular diminishing multiplier footer.'
-Assert-True ([regex]::Matches($updateRecentSlotsSource, 'entry\.Stack').Count -ge 2) 'Recent-history corner and hover text must retain the completed consumption count while the footer previews the next one.'
+# Exercise the cached display values instead of requiring formatting expressions
+# and repeated field reads to remain in UpdateRecentSlots.
+$slotContextType = Get-TypeRequired $assembly 'FineDining.HudFoodPanels+SlotContext'
+$slotContext = [Activator]::CreateInstance($slotContextType, $true)
+$getCornerText = Get-MethodRequired $slotContextType 'GetCornerText'
+$getFooterText = Get-MethodRequired $slotContextType 'GetFooterText'
+foreach ($hiddenStack in @(0, 1))
+{
+    Assert-True ([string]::IsNullOrEmpty($getCornerText.Invoke($slotContext, [object[]] @($hiddenStack)))) 'A recent-history count of zero or one must not display corner text.'
+}
+$cornerText = $getCornerText.Invoke($slotContext, [object[]] @([int]4321))
+Assert-True ($cornerText -eq '4321' -and
+             [object]::ReferenceEquals($cornerText, $getCornerText.Invoke($slotContext, [object[]] @([int]4321)))) 'Repeated stack counts must reuse the formatted corner string.'
+$footerText = $getFooterText.Invoke($slotContext, [object[]] @([float]0.75, $true))
+Assert-True ($footerText -eq 'x0.75' -and
+             [object]::ReferenceEquals($footerText, $getFooterText.Invoke($slotContext, [object[]] @([float]0.75, $true)))) 'Repeated visible multipliers must reuse the formatted footer string.'
+Assert-True ([string]::IsNullOrEmpty($getFooterText.Invoke($slotContext, [object[]] @([float]0.75, $false)))) 'A hidden or Chef-exempt footer must clear its previous multiplier.'
+Assert-True ($getFooterText.Invoke($slotContext, [object[]] @([float]0.75, $true)) -eq 'x0.75') 'Making a footer visible again must restore the same multiplier.'
+Assert-True ($getFooterText.Invoke($slotContext, [object[]] @([float]1, $true)) -eq 'x1.00' -and
+             [string]::IsNullOrEmpty($getFooterText.Invoke($slotContext, [object[]] @([float]1, $false)))) 'A neutral Chef multiplier must remain visible while a neutral recent-history footer stays hidden.'
+$formatCulture = [Globalization.CultureInfo]::CurrentCulture
+try
+{
+    [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('fr-FR')
+    foreach ($roundingValue in @([float]1.2349999, [float]1.2350001))
+    {
+        $expectedFooter = 'x' + $roundingValue.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
+        Assert-True ($getFooterText.Invoke($slotContext, [object[]] @($roundingValue, $true)) -eq $expectedFooter) 'Footer caches must retain exact rounding-boundary changes and invariant decimal formatting.'
+    }
+}
+finally
+{
+    [Globalization.CultureInfo]::CurrentCulture = $formatCulture
+}
 Assert-True (-not $hudFoodSlotsSource.Contains('UpdateTooltips(') -and
              -not $hudFoodSlotsSource.Contains('UITooltip')) 'Eaten-food icons must no longer own a cursor-following tooltip update path.'
 Assert-True ($hudFoodPanelsSource.Contains('Localization.instance.Localize(hoveredFood.m_item.m_shared.m_name)')) 'Eaten-food hover must localize its item name before adding rich-text color.'
@@ -1078,10 +1111,24 @@ Assert-True ($updateEatenHoverSource.Contains('LayoutEatenArrow(context, hovered
 
 Assert-True ($hudFoodPanelsSource.Contains('UpdateFullCourseIndicator(context, hud, player);')) 'Full Course indicator updates must remain independent of the new fixed diet hover panels.'
 $fullCourseStart = $hudFoodPanelsSource.IndexOf('private static void UpdateFullCourseIndicator(', [StringComparison]::Ordinal)
-$fullCourseEnd = $hudFoodPanelsSource.IndexOf('private static bool ShouldRefreshChefCollection(', $fullCourseStart, [StringComparison]::Ordinal)
+$fullCourseEnd = $hudFoodPanelsSource.IndexOf('internal static void ResetAll(', $fullCourseStart, [StringComparison]::Ordinal)
 Assert-True ($fullCourseStart -ge 0 -and $fullCourseEnd -gt $fullCourseStart) 'Full Course indicator source boundaries are missing.'
 $fullCourseSource = $hudFoodPanelsSource.Substring($fullCourseStart, $fullCourseEnd - $fullCourseStart)
 Assert-True ((Get-Constant $hudFoodPanelsType 'FullCourseIconResourceName') -eq 'FineDining.Resources.UI.FullCourseIcon.png') 'Full Course must load its embedded tableware icon by the stable manifest resource ID.'
+$fullCourseContextType = Get-TypeRequired $assembly 'FineDining.HudFoodPanels+FullCourseContext'
+$fullCourseContext = [Activator]::CreateInstance($fullCourseContextType, $true)
+$getFullCourseMultiplierText = Get-MethodRequired $fullCourseContextType 'GetMultiplierText'
+$fullCourseValueTextProperty = $fullCourseContextType.GetProperty('MultiplierValueText', [Reflection.BindingFlags] 'Instance,Public,NonPublic')
+$fullCourseMultiplierText = $getFullCourseMultiplierText.Invoke($fullCourseContext, [object[]] @([float]1.2))
+Assert-True ($fullCourseMultiplierText -eq 'x1.20' -and
+             $fullCourseValueTextProperty.GetValue($fullCourseContext) -eq '1.20' -and
+             [object]::ReferenceEquals($fullCourseMultiplierText, $getFullCourseMultiplierText.Invoke($fullCourseContext, [object[]] @([float]1.2)))) 'Full Course must reuse matching multiplier text while retaining the unprefixed value for translated descriptions.'
+foreach ($fullCourseRoundingValue in @([float]1.2349999, [float]1.2350001))
+{
+    $expectedFullCourseValue = $fullCourseRoundingValue.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
+    Assert-True ($getFullCourseMultiplierText.Invoke($fullCourseContext, [object[]] @($fullCourseRoundingValue)) -eq ('x' + $expectedFullCourseValue) -and
+                 $fullCourseValueTextProperty.GetValue($fullCourseContext) -eq $expectedFullCourseValue) 'Full Course display values must update together at exact rounding boundaries.'
+}
 Assert-True ([Math]::Abs([float](Get-Constant $hudFoodPanelsType 'FullCourseIconSize') - 52) -lt 0.0001) 'Full Course must retain the legible 52px tableware icon size.'
 Assert-True ([Math]::Abs([float](Get-Constant $hudFoodPanelsType 'FullCourseTooltipGap') - 6) -lt 0.0001) 'Full Course tooltip must remain six pixels from the icon.'
 Assert-True ($fullCourseSource.Contains('icon.sprite = LoadFullCourseIconSprite();') -and
@@ -1324,7 +1371,7 @@ $showFermenterStart = $stationInputResolverSource.IndexOf('internal static void 
 $stationInputCanShowStart = $stationInputResolverSource.IndexOf('private static bool CanShow(', $showFermenterStart, [StringComparison]::Ordinal)
 Assert-True ($showFermenterStart -ge 0 -and $stationInputCanShowStart -gt $showFermenterStart) 'Fermenter input-icon source boundaries were not found.'
 $showFermenterSource = $stationInputResolverSource.Substring($showFermenterStart, $stationInputCanShowStart - $showFermenterStart)
-Assert-True ($showFermenterSource.Contains('ShowFor("FermenterInput", fermenter, inputs, max);') -and
+Assert-True ($showFermenterSource.Contains('"FermenterInput"') -and
              -not $showFermenterSource.Contains('IsFermenterBonusExcluded')) 'Fermenter exclusion must not suppress the normal available-input icon path.'
 $stationHintCrosshairPatchType = Get-TypeRequired $assembly 'FineDining.StationHintHudCrosshairPatch'
 $resolveSwitchTarget = Get-MethodRequired $stationHintCrosshairPatchType 'ResolveSwitchTarget'
@@ -3173,6 +3220,25 @@ Assert-True ($activeOrder.Count -eq 3 -and
              [float]$activeFreshnessScaleField.GetValue($vanillaActive) -eq [float]1 -and
              [float]$activeDiminishingScaleField.GetValue($vanillaActive) -eq [float]1 -and
              [float]$activeChefMultiplierField.GetValue($vanillaActive) -eq [float]1) 'Vanilla re-consumption must move the same entry to the tail and clear stale Diet snapshot factors.'
+$tailOrderState = [Activator]::CreateInstance($stateType, $true)
+$setActiveFoodEffect.Invoke($null, [object[]] @($tailOrderState, 'A', $replacementEffect)) | Out-Null
+$setActiveFoodEffect.Invoke($null, [object[]] @($tailOrderState, 'B', $null)) | Out-Null
+$tailOrder = $activeField.GetValue($tailOrderState)
+$originalTail = $getActiveFood.Invoke($null, [object[]] @($tailOrderState, 'B'))
+$setActiveFoodEffect.Invoke($null, [object[]] @($tailOrderState, 'B', $replacementEffect)) | Out-Null
+$tailOrderKeys = @($tailOrder | ForEach-Object { [string]$activeKeyField.GetValue($_) })
+Assert-True ($tailOrder.Count -eq 2 -and ($tailOrderKeys -join ',') -eq 'A,B' -and
+             [object]::ReferenceEquals($tailOrder[1], $originalTail) -and
+             [bool]$activeHasBreakdownField.GetValue($originalTail) -and
+             [float]$activeScaleField.GetValue($originalTail) -eq [float]0.9) 'Re-eating the newest food must update the same tail entry without reordering or duplicating it.'
+$setActiveFoodEffect.Invoke($null, [object[]] @($tailOrderState, 'D', $null)) | Out-Null
+$newVanillaActive = $getActiveFood.Invoke($null, [object[]] @($tailOrderState, 'D'))
+Assert-True ($tailOrder.Count -eq 3 -and [object]::ReferenceEquals($tailOrder[2], $newVanillaActive) -and
+             [float]$activeScaleField.GetValue($newVanillaActive) -eq [float]1 -and
+             -not [bool]$activeHasBreakdownField.GetValue($newVanillaActive) -and
+             [float]$activeFreshnessScaleField.GetValue($newVanillaActive) -eq [float]1 -and
+             [float]$activeDiminishingScaleField.GetValue($newVanillaActive) -eq [float]1 -and
+             [float]$activeChefMultiplierField.GetValue($newVanillaActive) -eq [float]1) 'A new vanilla food must append a neutral snapshot without inventing a Diet effect.'
 $hasValidEffectBreakdown = Get-MethodRequired $stateStoreType 'HasValidEffectBreakdown'
 $legacyActive = [Activator]::CreateInstance($activeFoodDataType, $true)
 $activeScaleField.SetValue($legacyActive, [float]0.5625)
@@ -3793,12 +3859,8 @@ Assert-True ([regex]::IsMatch(
 $pukePatchStart = $dietTooltipSource.IndexOf(
     '[HarmonyPatch(typeof(SE_Puke), nameof(SE_Puke.UpdateStatusEffect))]',
     [StringComparison]::Ordinal)
-$pukePatchEnd = $dietTooltipSource.IndexOf(
-    'internal static class CookingSkillTooltipText',
-    $pukePatchStart,
-    [StringComparison]::Ordinal)
-Assert-True ($pukePatchStart -ge 0 -and $pukePatchEnd -gt $pukePatchStart) 'SE_Puke patch source boundaries are missing.'
-$pukePatchSource = $dietTooltipSource.Substring($pukePatchStart, $pukePatchEnd - $pukePatchStart)
+Assert-True ($pukePatchStart -ge 0) 'SE_Puke patch source is missing.'
+$pukePatchSource = $dietTooltipSource.Substring($pukePatchStart)
 Assert-True ([regex]::IsMatch(
     $pukePatchSource,
     '(?s)\[HarmonyPrefix\].*?Prefix\(.*?PukeFoodRemovalRuntime\.EnterPukeUpdate\(\);')) 'SE_Puke prefix must enter the ordered-removal context before vanilla UpdateStatusEffect runs.'
@@ -3888,14 +3950,18 @@ $nullCookingHeadingArguments = New-Object 'System.Object[]' 1
 Assert-True (-not [bool]$hasFineDiningHeading.Invoke($null, $nullCookingHeadingArguments)) 'Cooking alignment must reject null tooltip text.'
 
 Assert-HarmonyPatchTarget $assembly 'FineDining.CookingSkillTooltipPatch' 'SkillsDialog' 'Setup'
+Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPatch' 'HarmonyPrefix'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPatch' 'HarmonyPostfix'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPatch' 'HarmonyPriority'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPatch' 'HarmonyAfter'
-$dietTooltipSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\Patches\TooltipAndConsumePatches.cs') -Raw
-$cookingPatchStart = $dietTooltipSource.IndexOf('internal static class CookingSkillTooltipPatch', [StringComparison]::Ordinal)
-$cookingAlignmentPatchStart = $dietTooltipSource.IndexOf('internal static class CookingSkillTooltipAlignmentPatch', $cookingPatchStart, [StringComparison]::Ordinal)
+$cookingTooltipSource = Get-Content -LiteralPath (Join-Path $projectRoot 'Diet\CookingSkillTooltip.cs') -Raw
+$cookingPatchStart = $cookingTooltipSource.IndexOf('internal static class CookingSkillTooltipPatch', [StringComparison]::Ordinal)
+$cookingAlignmentPatchStart = $cookingTooltipSource.IndexOf('internal static class CookingSkillTooltipAlignmentPatch', $cookingPatchStart, [StringComparison]::Ordinal)
 Assert-True ($cookingPatchStart -ge 0 -and $cookingAlignmentPatchStart -gt $cookingPatchStart) 'Cooking skill tooltip patch source could not be isolated.'
-$cookingPatchSource = $dietTooltipSource.Substring($cookingPatchStart, $cookingAlignmentPatchStart - $cookingPatchStart)
+$cookingPatchSource = $cookingTooltipSource.Substring($cookingPatchStart, $cookingAlignmentPatchStart - $cookingPatchStart)
+Assert-True ([regex]::IsMatch(
+    $cookingPatchSource,
+    '(?s)\[HarmonyPrefix\]\s*\[HarmonyPriority\(Priority\.First\)\]\s*private static void Prefix\(\)\s*=>\s*CookingSkillTooltipPanel\.Clear\(\);')) 'Cooking tooltip bindings must be cleared before SkillsDialog.Setup replaces its rows.'
 Assert-True ([regex]::IsMatch(
     $cookingPatchSource,
     '(?s)\[HarmonyPostfix\]\s*\[HarmonyPriority\(Priority\.Last\)\]\s*\[HarmonyAfter\("randyknapp\.mods\.epicloot"\)\]\s*private static void Postfix')) 'Cooking skill tooltip must run at last priority after EpicLoot.'
@@ -3907,12 +3973,19 @@ Assert-True ([regex]::IsMatch(
     '(?s)DietConfig\.GetChefHighTierSelectionStrength\(\) > 0f,\s*DietConfig\.GetChefMultiplierModeAtMaxCooking\(\) >\s*DietConfig\.GetChefMultiplierMin\(\)\)')) 'Cooking tooltip settings must expose multiplier-mode progression only when Cooking can move the mode above the minimum.'
 Assert-True ($cookingPatchSource.Contains('GetComponentsInChildren<UITooltip>(true)')) 'Cooking skill tooltip must retain a replacement-UI row fallback.'
 Assert-True ($cookingPatchSource.Contains('tooltip.m_topic,') -and $cookingPatchSource.Contains('tooltip.m_anchor,') -and $cookingPatchSource.Contains('tooltip.m_fixedPosition')) 'Cooking skill tooltip update must preserve the existing tooltip layout and topic.'
-Assert-True (-not $dietTooltipSource.Contains('m_info.m_description =')) 'FineDining must not mutate shared skill descriptions.'
+Assert-True (-not $cookingTooltipSource.Contains('m_info.m_description =') -and
+             -not $dietTooltipSource.Contains('m_info.m_description =')) 'FineDining must not mutate shared skill descriptions.'
+Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipPanel.Bind(__instance, tooltip);')) 'Cooking tooltip positioning must bind the resolved Cooking row after extending its text.'
 
 Assert-HarmonyPatchTarget $assembly 'FineDining.CookingSkillTooltipAlignmentPatch' 'UITooltip' 'UpdateTextElements'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipAlignmentPatch' 'HarmonyPostfix'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipAlignmentPatch' 'HarmonyPriority'
-$cookingAlignmentPatchSource = $dietTooltipSource.Substring($cookingAlignmentPatchStart)
+$cookingAlignmentPatchEnd = $cookingTooltipSource.IndexOf(
+    'internal static class ',
+    $cookingAlignmentPatchStart + 'internal static class '.Length,
+    [StringComparison]::Ordinal)
+Assert-True ($cookingAlignmentPatchEnd -gt $cookingAlignmentPatchStart) 'Cooking tooltip alignment source must end before the next class.'
+$cookingAlignmentPatchSource = $cookingTooltipSource.Substring($cookingAlignmentPatchStart, $cookingAlignmentPatchEnd - $cookingAlignmentPatchStart)
 Assert-True ([regex]::IsMatch(
     $cookingAlignmentPatchSource,
     '(?s)\[HarmonyPostfix\]\s*\[HarmonyPriority\(Priority\.Last\)\]\s*private static void Postfix\(UITooltip __instance\)')) 'Cooking tooltip body alignment must run after the instantiated tooltip text has been populated.'
@@ -3925,6 +3998,121 @@ Assert-True (-not $cookingAlignmentPatchSource.Contains('m_tooltipPrefab')) 'Coo
 Assert-True (-not $cookingAlignmentPatchSource.Contains('"Topic"')) 'Cooking tooltip body alignment must leave the topic/title element untouched.'
 Assert-True (-not $cookingAlignmentPatchSource.Contains('textElement.verticalAlignment =') -and
              -not $cookingAlignmentPatchSource.Contains('textElement.alignment =')) 'Cooking tooltip body alignment must not change vertical or combined alignment.'
+
+Assert-HarmonyPatchTarget $assembly 'FineDining.CookingSkillTooltipPositionPatch' 'UITooltip' 'LateUpdate'
+Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPositionPatch' 'HarmonyPostfix'
+Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipPositionPatch' 'HarmonyPriority'
+Assert-HarmonyPatchTarget $assembly 'FineDining.CookingSkillTooltipDestroyPatch' 'InventoryGui' 'OnDestroy'
+Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipDestroyPatch' 'HarmonyPrefix'
+$cookingPanelStart = $cookingTooltipSource.IndexOf('internal static class CookingSkillTooltipPanel', [StringComparison]::Ordinal)
+$cookingLayoutStart = $cookingTooltipSource.IndexOf('internal static class CookingSkillTooltipLayout', $cookingPanelStart, [StringComparison]::Ordinal)
+Assert-True ($cookingPanelStart -ge 0 -and $cookingLayoutStart -gt $cookingPanelStart) 'Cooking tooltip panel lifetime code must be available separately from its pure geometry.'
+$cookingPanelSource = $cookingTooltipSource.Substring($cookingPanelStart, $cookingLayoutStart - $cookingPanelStart)
+Assert-True ($cookingPanelSource.Contains('binding.Tooltip.m_anchor = binding.OriginalAnchor;') -and
+             $cookingPanelSource.Contains('binding.Tooltip.m_fixedPosition = binding.OriginalFixedPosition;')) 'Cooking tooltip cleanup must restore the bound row original anchor and fixed position.'
+Assert-True ([regex]::IsMatch(
+    $cookingPanelSource,
+    '(?s)internal static void ClearForDialog\(SkillsDialog dialog\).*?ReferenceEquals\(_binding\.Dialog, dialog\).*?Clear\(\);')) 'Destroying an old InventoryGui must not clear a replacement dialog Cooking tooltip binding.'
+Assert-True ($cookingTooltipSource.Contains('CookingSkillTooltipPanel.ClearForDialog(__instance.m_skillsDialog);')) 'InventoryGui destruction must release only its own skills dialog binding.'
+Assert-True ($cookingPanelSource.Contains('!ReferenceEquals(binding.Tooltip, tooltip)') -and
+             $cookingPanelSource.Contains('UITooltip.m_current != tooltip') -and
+             $cookingPanelSource.Contains('if (!root.activeSelf)')) 'Cooking panel updates must remain restricted to its active bound tooltip and preserve vanilla hover visibility timing.'
+Assert-True (-not $cookingPanelSource.Contains('m_tooltipPrefab')) 'Cooking skill positioning must operate on the instantiated tooltip, never the shared prefab used by other skills and items.'
+Assert-True ([regex]::IsMatch(
+    $dietModuleSource,
+    '(?s)internal static void Shutdown\(\).*?CookingSkillTooltipPanel\.Clear\(\);.*?DietConfig\.Shutdown\(\);')) 'Diet shutdown must release the Cooking tooltip binding before its configuration is shut down.'
+
+# Exercise the production layout methods with the same Unity value types used
+# by the panel. No Unity objects, scene, or independent layout implementation.
+$cookingLayoutType = Get-TypeRequired $assembly 'FineDining.CookingSkillTooltipLayout'
+$cookingLayoutScale = Get-MethodRequired $cookingLayoutType 'GetScale'
+$cookingLayoutTopLeft = Get-MethodRequired $cookingLayoutType 'GetTopLeft'
+Assert-True ([float](Get-Constant $cookingLayoutType 'BodyWidth') -eq 250 -and
+             [float](Get-Constant $cookingLayoutType 'Padding') -eq 16 -and
+             [float](Get-Constant $cookingLayoutType 'Width') -eq 282) 'Cooking skill panels must retain the 250-unit text width and 16-unit padding used by the SecondaryAttacks skill panels.'
+$cookingRectType = $cookingLayoutScale.GetParameters()[0].ParameterType
+$cookingVectorType = $cookingLayoutScale.GetParameters()[1].ParameterType
+Assert-True ($cookingRectType.FullName -eq 'UnityEngine.Rect' -and
+             $cookingVectorType.FullName -eq 'UnityEngine.Vector2') 'Cooking layout must consume the actual Unity viewport and panel size value types.'
+$cookingRectConstructor = $cookingRectType.GetConstructor([Type[]] @([single], [single], [single], [single]))
+$cookingVectorConstructor = $cookingVectorType.GetConstructor([Type[]] @([single], [single]))
+Assert-True ($null -ne $cookingRectConstructor -and $null -ne $cookingVectorConstructor) 'Unity geometry constructors required by the Cooking layout smoke check are unavailable.'
+
+function Invoke-CookingTooltipGeometry(
+    [double[]] $Viewport,
+    [double[]] $SkillPanel,
+    [float] $RowTop,
+    [double[]] $Size)
+{
+    $viewportRect = $cookingRectConstructor.Invoke([object[]] @(
+        [float]$Viewport[0], [float]$Viewport[1], [float]$Viewport[2], [float]$Viewport[3]))
+    $panelRect = $cookingRectConstructor.Invoke([object[]] @(
+        [float]$SkillPanel[0], [float]$SkillPanel[1], [float]$SkillPanel[2], [float]$SkillPanel[3]))
+    $sizeVector = $cookingVectorConstructor.Invoke([object[]] @([float]$Size[0], [float]$Size[1]))
+    $scale = [float]$cookingLayoutScale.Invoke($null, [object[]] @($viewportRect, $sizeVector))
+    $scaledSize = $cookingVectorConstructor.Invoke([object[]] @(
+        [float]($Size[0] * $scale), [float]($Size[1] * $scale)))
+    $topLeft = $cookingLayoutTopLeft.Invoke($null, [object[]] @($viewportRect, $panelRect, $RowTop, $scaledSize))
+    return [pscustomobject] @{
+        Scale = [double]$scale
+        Left = [double]$topLeft.x
+        Top = [double]$topLeft.y
+        Width = [double]$scaledSize.x
+        Height = [double]$scaledSize.y
+    }
+}
+
+function Assert-CookingTooltipContained($Geometry, [double[]] $Viewport, [string] $CaseName)
+{
+    $tolerance = 0.002
+    Assert-True ($Geometry.Scale -gt 0 -and $Geometry.Scale -le 1) "$CaseName must use a positive scale without enlarging the panel."
+    Assert-True ($Geometry.Left -ge $Viewport[0] + 12 - $tolerance -and
+                 $Geometry.Left + $Geometry.Width -le $Viewport[0] + $Viewport[2] - 12 + $tolerance) "$CaseName must keep both horizontal edges inside the 12-unit viewport margin."
+    Assert-True ($Geometry.Top -le $Viewport[1] + $Viewport[3] - 12 + $tolerance -and
+                 $Geometry.Top - $Geometry.Height -ge $Viewport[1] + 12 - $tolerance) "$CaseName must keep both vertical edges inside the 12-unit viewport margin."
+}
+
+foreach ($layoutCase in @(
+    @{ Name = 'Unclamped row'; Viewport = @(0, 0, 1920, 1080); Panel = @(800, 100, 400, 700); Row = 650; Size = @(282, 300); Scale = 1; Left = 510; Top = 650 },
+    @{ Name = 'Left edge'; Viewport = @(0, 0, 1000, 700); Panel = @(100, 0, 400, 600); Row = 500; Size = @(282, 200); Scale = 1; Left = 12; Top = 500 },
+    @{ Name = 'Right edge'; Viewport = @(0, 0, 1000, 700); Panel = @(1300, 0, 400, 600); Row = 500; Size = @(282, 200); Scale = 1; Left = 706; Top = 500 },
+    @{ Name = 'Top edge'; Viewport = @(0, 0, 1000, 700); Panel = @(500, 0, 400, 600); Row = 900; Size = @(282, 200); Scale = 1; Left = 210; Top = 688 },
+    @{ Name = 'Bottom edge'; Viewport = @(0, 0, 1000, 700); Panel = @(500, 0, 400, 600); Row = 0; Size = @(282, 200); Scale = 1; Left = 210; Top = 212 },
+    @{ Name = 'Negative canvas origin'; Viewport = @(-960, -540, 1920, 1080); Panel = @(100, -300, 400, 600); Row = 120; Size = @(282, 200); Scale = 1; Left = -190; Top = 120 },
+    @{ Name = 'Narrow viewport'; Viewport = @(0, 0, 200, 600); Panel = @(150, 0, 40, 500); Row = 400; Size = @(282, 200); Scale = (176.0 / 282); Left = 12; Top = 400 },
+    @{ Name = 'Tall tooltip'; Viewport = @(0, 0, 1000, 150); Panel = @(500, 0, 400, 150); Row = 100; Size = @(282, 400); Scale = (126.0 / 400); Left = (492 - 282 * 126.0 / 400); Top = 138 }))
+{
+    $geometry = Invoke-CookingTooltipGeometry $layoutCase.Viewport $layoutCase.Panel $layoutCase.Row $layoutCase.Size
+    Assert-True ([Math]::Abs($geometry.Scale - $layoutCase.Scale) -lt 0.00001) "$($layoutCase.Name) has the wrong uniform scale."
+    Assert-True ([Math]::Abs($geometry.Left - $layoutCase.Left) -lt 0.002 -and
+                 [Math]::Abs($geometry.Top - $layoutCase.Top) -lt 0.002) "$($layoutCase.Name) has the wrong top-left anchor."
+    Assert-CookingTooltipContained $geometry $layoutCase.Viewport $layoutCase.Name
+}
+
+# Keep the exact left gap and row alignment whenever clamping is unnecessary.
+$alignedCookingTooltip = Invoke-CookingTooltipGeometry @(0, 0, 1920, 1080) @(800, 100, 400, 700) 650 @(282, 300)
+Assert-True ([Math]::Abs(800 - ($alignedCookingTooltip.Left + $alignedCookingTooltip.Width) - 8) -lt 0.002) 'Cooking tooltip must leave an eight-unit gap on the left of the skills panel.'
+Assert-True ($alignedCookingTooltip.Top -eq 650) 'Cooking tooltip top must follow the hovered row instead of the cursor height.'
+
+# Different canvas origins, small viewports, panel heights, and scrolled rows
+# must all remain contained after applying the returned single scale factor.
+foreach ($viewportCase in @(@(0, 0, 1280, 720), @(-640, -360, 1280, 720), @(100, -50, 180, 130)))
+{
+    foreach ($sizeCase in @(@(282, 180), @(282, 900)))
+    {
+        foreach ($panelLeft in @(($viewportCase[0] + 4), ($viewportCase[0] + $viewportCase[2] - 100)))
+        {
+            foreach ($rowTop in @(($viewportCase[1] - 40), ($viewportCase[1] + $viewportCase[3] / 2), ($viewportCase[1] + $viewportCase[3] + 40)))
+            {
+                $panelCase = @($panelLeft, $viewportCase[1], 100, $viewportCase[3])
+                $geometry = Invoke-CookingTooltipGeometry $viewportCase $panelCase $rowTop $sizeCase
+                Assert-CookingTooltipContained $geometry $viewportCase 'Cooking layout matrix'
+                Assert-True ([Math]::Abs($geometry.Width / $geometry.Height - $sizeCase[0] / $sizeCase[1]) -lt 0.0001) 'Narrow or tall Cooking panels must preserve their aspect ratio under uniform scaling.'
+            }
+        }
+    }
+}
+
 Assert-Method $stateStoreType 'SerializeState'
 Assert-Method $stateStoreType 'DeserializeState'
 

@@ -286,39 +286,36 @@ internal static class FoodRules
     {
         // A null effect records vanilla food's consumption order only. It must
         // also clear any prior diet snapshot when replacing an existing entry.
+        int activeIndex = -1;
         for (int index = 0; index < state.Active.Count; index++)
         {
-            ActiveFoodData active = state.Active[index];
-            if (active.Key != key)
+            if (state.Active[index].Key == key)
             {
-                continue;
+                activeIndex = index;
+                break;
             }
-
-            active.AppliedScale = effect?.AppliedScale ?? 1f;
-            active.HasEffectBreakdown = effect.HasValue;
-            active.ChefMultiplier = effect?.ChefMultiplier ?? 1f;
-            active.FreshnessScale = effect?.FreshnessScale ?? 1f;
-            active.DiminishingScale = effect?.DiminishingScale ?? 1f;
-            if (index != state.Active.Count - 1)
-            {
-                // Active is also the persisted consumption order. Re-eating a
-                // food keeps its Player.Food slot but makes it the newest entry.
-                state.Active.RemoveAt(index);
-                state.Active.Add(active);
-            }
-
-            return;
         }
 
-        state.Active.Add(new ActiveFoodData
+        ActiveFoodData active = activeIndex >= 0
+            ? state.Active[activeIndex]
+            : new ActiveFoodData { Key = key };
+        active.AppliedScale = effect?.AppliedScale ?? 1f;
+        active.HasEffectBreakdown = effect.HasValue;
+        active.ChefMultiplier = effect?.ChefMultiplier ?? 1f;
+        active.FreshnessScale = effect?.FreshnessScale ?? 1f;
+        active.DiminishingScale = effect?.DiminishingScale ?? 1f;
+
+        if (activeIndex < 0)
         {
-            Key = key,
-            AppliedScale = effect?.AppliedScale ?? 1f,
-            HasEffectBreakdown = effect.HasValue,
-            ChefMultiplier = effect?.ChefMultiplier ?? 1f,
-            FreshnessScale = effect?.FreshnessScale ?? 1f,
-            DiminishingScale = effect?.DiminishingScale ?? 1f
-        });
+            state.Active.Add(active);
+        }
+        else if (activeIndex != state.Active.Count - 1)
+        {
+            // Active is also the persisted consumption order. Re-eating a
+            // food keeps its Player.Food slot but makes it the newest entry.
+            state.Active.RemoveAt(activeIndex);
+            state.Active.Add(active);
+        }
     }
 
     internal static ActiveFoodData? GetActiveFood(PlayerFoodStateData state, string key)

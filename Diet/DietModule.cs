@@ -10,6 +10,11 @@ internal static class DietModule
     private static bool _initialized;
     private static bool _dietReconcileRequested;
     private static bool _chefReconcileRequested;
+    private static Player? _chefPlayer;
+    private static ObjectDB? _chefObjectDb;
+    private static int _chefKnownRecipeCount = -1;
+    private static int _chefKnownMaterialCount = -1;
+    private static int _chefObjectDbItemCount = -1;
 
     internal static void Initialize(ConfigFile config, ConfigSync configSync)
     {
@@ -97,11 +102,70 @@ internal static class DietModule
         _dietReconcileRequested = false;
         _chefReconcileRequested = false;
         HudFoodPanels.ResetAll();
+        CookingSkillTooltipPanel.Clear();
         FoodStateStore.Reset();
         FoodSlotProgression.Reset();
         CookingStationAutoPopSystem.Reset();
         FermenterCookingBonusSystem.ResetRuntime();
         DietConfig.Shutdown();
+    }
+
+    internal static PlayerFoodStateData ReconcileChefCollectionForHud(Player player)
+    {
+        // Keep this reconciliation at the existing HUD call site. Moving it to
+        // Tick would change when a hidden or rebuilt HUD consumes Chef rolls.
+        bool refreshChefCollection = ShouldRefreshChefCollection(player);
+        PlayerFoodStateData state = FoodStateStore.GetState(player);
+        if (refreshChefCollection)
+        {
+            if (ChefCollectionService.EnsureChefCollection(player, state))
+            {
+                FoodStateStore.SaveState(player, state);
+            }
+
+            RememberChefCollectionInputs(player);
+        }
+
+        return state;
+    }
+
+    internal static void ResetChefCollectionInputs()
+    {
+        _chefPlayer = null;
+        _chefObjectDb = null;
+        _chefKnownRecipeCount = -1;
+        _chefKnownMaterialCount = -1;
+        _chefObjectDbItemCount = -1;
+    }
+
+    private static bool ShouldRefreshChefCollection(Player player)
+    {
+        ObjectDB objectDb = ObjectDB.instance;
+        if (objectDb == null)
+        {
+            return false;
+        }
+
+        return _chefPlayer != player
+               || _chefObjectDb != objectDb
+               || _chefKnownRecipeCount != PlayerPrivateAccess.KnownRecipes(player).Count
+               || _chefKnownMaterialCount != PlayerPrivateAccess.KnownMaterials(player).Count
+               || _chefObjectDbItemCount != objectDb.m_items.Count;
+    }
+
+    private static void RememberChefCollectionInputs(Player player)
+    {
+        ObjectDB objectDb = ObjectDB.instance;
+        if (objectDb == null)
+        {
+            return;
+        }
+
+        _chefPlayer = player;
+        _chefObjectDb = objectDb;
+        _chefKnownRecipeCount = PlayerPrivateAccess.KnownRecipes(player).Count;
+        _chefKnownMaterialCount = PlayerPrivateAccess.KnownMaterials(player).Count;
+        _chefObjectDbItemCount = objectDb.m_items.Count;
     }
 
     private static void FoodStateShapeChanged(object sender, EventArgs e)

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -65,8 +64,8 @@ internal static class StationInputResolver
             return;
         }
 
-        List<ItemDrop> inputs = new();
         string mode;
+        bool includeInputs = true;
         Switch? addFuelSwitch = station.m_addFuelSwitch;
         Switch? addFoodSwitch = station.m_addFoodSwitch;
         if (switchRef != null && switchRef == addFuelSwitch)
@@ -82,8 +81,6 @@ internal static class StationInputResolver
             {
                 return;
             }
-
-            inputs.Add(fuelItem);
         }
         else if (switchRef == null || switchRef == addFoodSwitch)
         {
@@ -91,12 +88,7 @@ internal static class StationInputResolver
             bool fireBlocked = station.m_requireFire
                                && !InvokeBool(CookingStationIsFireLitMethod, station);
             bool slotBlocked = InvokeInt(CookingStationGetFreeSlotMethod, station, -1) == -1;
-            if (!fireBlocked && !slotBlocked && station.m_conversion != null)
-            {
-                inputs.AddRange(station.m_conversion
-                    .Where(conversion => conversion != null && IsValidItem(conversion.m_from))
-                    .Select(conversion => conversion.m_from));
-            }
+            includeInputs = !fireBlocked && !slotBlocked;
         }
         else
         {
@@ -115,8 +107,8 @@ internal static class StationInputResolver
             ? GetCachedOrBuild(
                 mode,
                 station,
-                inputs,
-                inputLimit)
+                inputLimit,
+                includeInputs)
             : Array.Empty<StationHintCandidate>();
         StationHintUi.ShowCookingStation(progressCandidates, inputCandidates);
     }
@@ -129,7 +121,6 @@ internal static class StationInputResolver
         }
 
         bool isWindmill = smelter.m_windmill != null;
-        string componentName = isWindmill ? "Windmill" : "Smelter";
         int max = StationModule.GetHintLimit(
             isWindmill
                 ? StationModule.WindmillRows.Value
@@ -139,7 +130,6 @@ internal static class StationInputResolver
             return;
         }
 
-        List<ItemDrop> inputs = new();
         string mode;
         Switch? addWoodSwitch = smelter.m_addWoodSwitch;
         Switch? addOreSwitch = smelter.m_addOreSwitch;
@@ -149,28 +139,20 @@ internal static class StationInputResolver
         }
         else if (switchRef != null && switchRef == addOreSwitch)
         {
-            mode = componentName + "Input";
+            mode = isWindmill ? "WindmillInput" : "SmelterInput";
             int maxOre = smelter.m_maxOre;
             if (maxOre <= 0
                 || InvokeInt(SmelterGetQueueSizeMethod, smelter, maxOre) >= maxOre)
             {
                 return;
             }
-
-            if (smelter.m_conversion != null)
-            {
-                inputs.AddRange(smelter.m_conversion
-                    .Where(conversion => conversion != null && IsValidItem(conversion.m_from))
-                    .Select(conversion => conversion.m_from));
-            }
-
         }
         else
         {
             return;
         }
 
-        ShowFor(mode, smelter, inputs, max);
+        ShowFor(mode, smelter, max);
     }
 
     internal static void ShowFermenter(Fermenter fermenter)
@@ -200,13 +182,7 @@ internal static class StationInputResolver
             return;
         }
 
-        List<ItemDrop> inputs = fermenter.m_conversion == null
-            ? new List<ItemDrop>()
-            : fermenter.m_conversion
-                .Where(conversion => conversion != null && IsValidItem(conversion.m_from))
-                .Select(conversion => conversion.m_from)
-                .ToList();
-        ShowFor("FermenterInput", fermenter, inputs, max);
+        ShowFor("FermenterInput", fermenter, max);
     }
 
     private static bool CanShow() =>
@@ -215,13 +191,11 @@ internal static class StationInputResolver
     private static void ShowFor(
         string mode,
         Component station,
-        IEnumerable<ItemDrop> inputs,
         int max)
     {
         IReadOnlyList<StationHintCandidate> candidates = GetCachedOrBuild(
             mode,
             station,
-            inputs,
             max);
         if (candidates.Count > 0)
         {
@@ -232,8 +206,8 @@ internal static class StationInputResolver
     private static IReadOnlyList<StationHintCandidate> GetCachedOrBuild(
         string mode,
         Component station,
-        IEnumerable<ItemDrop> inputs,
-        int max)
+        int max,
+        bool includeInputs = true)
     {
         if (_cachedStation == station
             && _cachedMode == mode
@@ -243,6 +217,11 @@ internal static class StationInputResolver
             return _cachedCandidates;
         }
 
+        // Keep per-frame availability checks in the Show methods, but only
+        // snapshot conversion inputs when the existing candidate cache expires.
+        IEnumerable<ItemDrop> inputs = includeInputs
+            ? GetInputs(station, mode)
+            : Array.Empty<ItemDrop>();
         IReadOnlyList<StationHintCandidate> candidates = BuildCandidates(station, inputs, max);
         _cachedStation = station;
         _cachedMode = mode;
@@ -250,6 +229,56 @@ internal static class StationInputResolver
         _cacheExpiresAt = Time.unscaledTime + CandidateCacheSeconds;
         _cachedCandidates = candidates;
         return candidates;
+    }
+
+    private static IReadOnlyList<ItemDrop> GetInputs(Component station, string mode)
+    {
+        List<ItemDrop> inputs = new();
+        switch (station)
+        {
+            case CookingStation cookingStation:
+                if (mode == "CookingFuel")
+                {
+                    if (IsValidItem(cookingStation.m_fuelItem))
+                    {
+                        inputs.Add(cookingStation.m_fuelItem);
+                    }
+                }
+                else if (cookingStation.m_conversion != null)
+                {
+                    foreach (CookingStation.ItemConversion conversion in cookingStation.m_conversion)
+                    {
+                        if (conversion != null && IsValidItem(conversion.m_from))
+                        {
+                            inputs.Add(conversion.m_from);
+                        }
+                    }
+                }
+
+                break;
+            case Smelter smelter when smelter.m_conversion != null:
+                foreach (Smelter.ItemConversion conversion in smelter.m_conversion)
+                {
+                    if (conversion != null && IsValidItem(conversion.m_from))
+                    {
+                        inputs.Add(conversion.m_from);
+                    }
+                }
+
+                break;
+            case Fermenter fermenter when fermenter.m_conversion != null:
+                foreach (Fermenter.ItemConversion conversion in fermenter.m_conversion)
+                {
+                    if (conversion != null && IsValidItem(conversion.m_from))
+                    {
+                        inputs.Add(conversion.m_from);
+                    }
+                }
+
+                break;
+        }
+
+        return inputs;
     }
 
     private static IReadOnlyList<StationHintCandidate> BuildCandidates(

@@ -64,18 +64,7 @@ internal static class HudFoodPanels
         EnsureSlots(context.ChefSlots, context.ChefRow, DietConfig.GetChefCollectionSize(), hud, slotSize, iconSize);
         UpdateFullCourseIndicator(context, hud, player);
 
-        bool refreshChefCollection = ShouldRefreshChefCollection(context, player);
-        PlayerFoodStateData state = FoodStateStore.GetState(player);
-
-        if (refreshChefCollection)
-        {
-            if (ChefCollectionService.EnsureChefCollection(player, state))
-            {
-                FoodStateStore.SaveState(player, state);
-            }
-
-            RememberChefCollectionInputs(context, player);
-        }
+        PlayerFoodStateData state = DietModule.ReconcileChefCollectionForHud(player);
 
         UpdateHoverGuidance(context);
         UpdateRecentSlots(context.RecentSlots, state, context.RecentGuidance);
@@ -250,10 +239,7 @@ internal static class HudFoodPanels
     private static void EnsureFullCourseTooltip(FullCourseContext indicator)
     {
         float multiplier = DietConfig.GetFullCourseMultiplier();
-        string multiplierValueText = multiplier.ToString(
-            "0.00",
-            CultureInfo.InvariantCulture);
-        string multiplierText = $"x{multiplierValueText}";
+        string multiplierText = indicator.GetMultiplierText(multiplier);
         if (!string.Equals(
                 indicator.Multiplier.text,
                 multiplierText,
@@ -276,7 +262,7 @@ internal static class HudFoodPanels
         string title = localization.Localize("$finedining_diet_full_course_title");
         string description = localization.Localize(
             "$finedining_diet_full_course_description",
-            multiplierValueText);
+            indicator.MultiplierValueText);
         indicator.TooltipPanel.Text.text =
             $"<color=orange><b>{title}</b></color>\n{description}";
         indicator.TooltipLanguage = language;
@@ -457,36 +443,6 @@ internal static class HudFoodPanels
         indicator.Root.gameObject.SetActive(false);
     }
 
-    private static bool ShouldRefreshChefCollection(PanelContext context, Player player)
-    {
-        ObjectDB objectDb = ObjectDB.instance;
-        if (objectDb == null)
-        {
-            return false;
-        }
-
-        return context.ChefPlayer != player
-               || context.ChefObjectDb != objectDb
-               || context.KnownRecipeCount != PlayerPrivateAccess.KnownRecipes(player).Count
-               || context.KnownMaterialCount != PlayerPrivateAccess.KnownMaterials(player).Count
-               || context.ObjectDbItemCount != objectDb.m_items.Count;
-    }
-
-    private static void RememberChefCollectionInputs(PanelContext context, Player player)
-    {
-        ObjectDB objectDb = ObjectDB.instance;
-        if (objectDb == null)
-        {
-            return;
-        }
-
-        context.ChefPlayer = player;
-        context.ChefObjectDb = objectDb;
-        context.KnownRecipeCount = PlayerPrivateAccess.KnownRecipes(player).Count;
-        context.KnownMaterialCount = PlayerPrivateAccess.KnownMaterials(player).Count;
-        context.ObjectDbItemCount = objectDb.m_items.Count;
-    }
-
     internal static void ResetAll()
     {
         if (_context != null)
@@ -510,6 +466,7 @@ internal static class HudFoodPanels
 
         _contextOwner = null;
         _context = null;
+        DietModule.ResetChefCollectionInputs();
     }
 
     private static Vector2 GetFoodIconSize(Hud hud, RectTransform targetRoot)
@@ -920,10 +877,6 @@ internal static class HudFoodPanels
             ShowSlot(
                 slots[index],
                 entry.Key,
-                entry.Stack > 1 ? entry.Stack.ToString(CultureInfo.InvariantCulture) : string.Empty,
-                wouldDiminish && !chefExemptsDiminishing
-                    ? $"x{nextDiminishingScale.ToString("0.00", CultureInfo.InvariantCulture)}"
-                    : string.Empty,
                 isChef: false,
                 chefExemptsDiminishing,
                 stack: entry.Stack,
@@ -949,8 +902,6 @@ internal static class HudFoodPanels
             ShowSlot(
                 slots[index],
                 entry.Key,
-                string.Empty,
-                $"x{entry.Multiplier.ToString("0.00", CultureInfo.InvariantCulture)}",
                 isChef: true,
                 chefExemptsDiminishing: false,
                 stack: 0,
@@ -998,14 +949,16 @@ internal static class HudFoodPanels
     private static void ShowSlot(
         SlotContext slot,
         string key,
-        string cornerText,
-        string footerText,
         bool isChef,
         bool chefExemptsDiminishing,
         int stack,
         float multiplier,
         string guidance)
     {
+        bool showMultiplier = isChef ||
+                              multiplier < 1f && !Mathf.Approximately(multiplier, 1f);
+        string cornerText = slot.GetCornerText(stack);
+        string footerText = slot.GetFooterText(multiplier, showMultiplier);
         UpdateSlotItem(slot, key);
         UpdateSlotHoverText(
             slot,
@@ -1412,11 +1365,6 @@ internal static class HudFoodPanels
         public bool RecentPreferenceEnabled;
         public bool ChefTierEnabled;
         public bool ChefMultiplierEnabled;
-        public Player? ChefPlayer;
-        public ObjectDB? ChefObjectDb;
-        public int KnownRecipeCount = -1;
-        public int KnownMaterialCount = -1;
-        public int ObjectDbItemCount = -1;
     }
 
     private sealed class HoverPanelContext
@@ -1438,6 +1386,22 @@ internal static class HudFoodPanels
         public float HoverStartedAt;
         public string TooltipLanguage = string.Empty;
         public float TooltipMultiplier = float.NaN;
+
+        private float _displayMultiplier = float.NaN;
+        private string _multiplierText = string.Empty;
+        internal string MultiplierValueText { get; private set; } = string.Empty;
+
+        internal string GetMultiplierText(float multiplier)
+        {
+            if (_displayMultiplier != multiplier)
+            {
+                MultiplierValueText = multiplier.ToString("0.00", CultureInfo.InvariantCulture);
+                _multiplierText = $"x{MultiplierValueText}";
+                _displayMultiplier = multiplier;
+            }
+
+            return _multiplierText;
+        }
     }
 
     private sealed class SlotContext
@@ -1458,5 +1422,40 @@ internal static class HudFoodPanels
         public int HoverStack = -1;
         public float HoverMultiplier = float.NaN;
         public string HoverLanguage = string.Empty;
+
+        private int _displayStack = -1;
+        private float _displayMultiplier = float.NaN;
+        private bool _displayMultiplierVisible;
+        private string _cornerText = string.Empty;
+        private string _footerText = string.Empty;
+
+        internal string GetCornerText(int stack)
+        {
+            if (_displayStack != stack)
+            {
+                _cornerText = stack > 1
+                    ? stack.ToString(CultureInfo.InvariantCulture)
+                    : string.Empty;
+                _displayStack = stack;
+            }
+
+            return _cornerText;
+        }
+
+        internal string GetFooterText(float multiplier, bool visible)
+        {
+            // Exact comparison retains text changes across rounding boundaries,
+            // independently of the hover description's approximate cache key.
+            if (_displayMultiplier != multiplier || _displayMultiplierVisible != visible)
+            {
+                _footerText = visible
+                    ? $"x{multiplier.ToString("0.00", CultureInfo.InvariantCulture)}"
+                    : string.Empty;
+                _displayMultiplier = multiplier;
+                _displayMultiplierVisible = visible;
+            }
+
+            return _footerText;
+        }
     }
 }
