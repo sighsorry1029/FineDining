@@ -103,12 +103,11 @@ internal static class StationInputResolver
         int inputLimit = Math.Max(
             0,
             max - progressRows * StationModule.HintColumns);
-        IReadOnlyList<StationHintCandidate> inputCandidates = inputLimit > 0
+        IReadOnlyList<StationHintCandidate> inputCandidates = includeInputs && inputLimit > 0
             ? GetCachedOrBuild(
                 mode,
                 station,
-                inputLimit,
-                includeInputs)
+                inputLimit)
             : Array.Empty<StationHintCandidate>();
         StationHintUi.ShowCookingStation(progressCandidates, inputCandidates);
     }
@@ -206,8 +205,7 @@ internal static class StationInputResolver
     private static IReadOnlyList<StationHintCandidate> GetCachedOrBuild(
         string mode,
         Component station,
-        int max,
-        bool includeInputs = true)
+        int max)
     {
         if (_cachedStation == station
             && _cachedMode == mode
@@ -219,9 +217,7 @@ internal static class StationInputResolver
 
         // Keep per-frame availability checks in the Show methods, but only
         // snapshot conversion inputs when the existing candidate cache expires.
-        IEnumerable<ItemDrop> inputs = includeInputs
-            ? GetInputs(station, mode)
-            : Array.Empty<ItemDrop>();
+        IEnumerable<ItemDrop> inputs = GetInputs(station, mode);
         IReadOnlyList<StationHintCandidate> candidates = BuildCandidates(station, inputs, max);
         _cachedStation = station;
         _cachedMode = mode;
