@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using BepInEx;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -51,10 +50,8 @@ internal static class IceboxLimitPolicy
 
     internal static IceboxLimitSnapshot Current => _current;
 
-    private static string DirectoryPath =>
-        Path.Combine(Paths.ConfigPath, FineDiningPlugin.ModName);
-
-    internal static string FilePath => Path.Combine(DirectoryPath, FileName);
+    internal static string FilePath =>
+        Path.Combine(FineDiningPlugin.ConfigDirectoryPath, FileName);
 
     internal static void Initialize()
     {
@@ -117,7 +114,7 @@ internal static class IceboxLimitPolicy
 
         try
         {
-            Directory.CreateDirectory(DirectoryPath);
+            Directory.CreateDirectory(FineDiningPlugin.ConfigDirectoryPath);
             File.WriteAllText(
                 FilePath,
                 "# FineDining per-Steam64 Icebox limit overrides (server only).\n" +
