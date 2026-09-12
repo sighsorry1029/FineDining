@@ -1,11 +1,10 @@
-#requires -Version 7.0
+﻿#requires -Version 7.0
 #requires -PSEdition Core
 
 param(
     [string] $AssemblyPath = "$(Split-Path -Parent $PSScriptRoot)\bin\Debug\FineDining.dll",
     [string] $ManagedDirectory = 'C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed',
     [string] $BepInExCoreDirectory = '',
-    [string] $JotunnAssemblyPath = '',
     [string] $ThunderstoreZipPath = '',
     [string] $NexusZipPath = ''
 )
@@ -21,14 +20,6 @@ if ([string]::IsNullOrWhiteSpace($BepInExCoreDirectory))
     $BepInExCoreDirectory = Join-Path $gameDirectory 'BepInEx\core'
 }
 
-$jotunnCandidates = @()
-if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
-{
-    $jotunnCandidates += (Resolve-Path -LiteralPath $JotunnAssemblyPath).Path
-}
-
-$jotunnCandidates += Join-Path $env:USERPROFILE '.nuget\packages\jotunnlib\2.29.2\lib\net462\Jotunn.dll'
-
 [AppDomain]::CurrentDomain.add_AssemblyResolve({
     param($sender, $eventArgs)
 
@@ -36,14 +27,8 @@ $jotunnCandidates += Join-Path $env:USERPROFILE '.nuget\packages\jotunnlib\2.29.
     $candidates = @(
         (Join-Path $assemblyDirectory $fileName),
         (Join-Path $BepInExCoreDirectory $fileName),
-        (Join-Path $ManagedDirectory $fileName),
-        (Join-Path (Join-Path $ManagedDirectory 'publicized_assemblies') $fileName),
-        (Join-Path (Join-Path $ManagedDirectory 'publicized_assemblies') ($fileName -replace '\.dll$', '_publicized.dll'))
+        (Join-Path $ManagedDirectory $fileName)
     )
-    if ($fileName -eq 'Jotunn.dll')
-    {
-        $candidates = @($jotunnCandidates) + $candidates
-    }
 
     foreach ($candidate in $candidates)
     {
@@ -204,7 +189,7 @@ function Assert-ZipPackage(
 
             Assert-True ($manifest.name -eq 'FineDining') "Package '$resolvedPath' has the wrong manifest name."
             Assert-True ($manifest.version_number -eq $ExpectedManifestVersion) "Package '$resolvedPath' has a stale manifest version."
-            Assert-True (@($manifest.dependencies) -contains 'ValheimModding-Jotunn-2.29.2') "Package '$resolvedPath' is missing the required Jotunn dependency."
+            Assert-True (@($manifest.dependencies | Where-Object { $_ -like 'ValheimModding-Jotunn-*' }).Count -eq 0) "Package '$resolvedPath' must not require Jotunn."
         }
     }
     finally
@@ -215,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.6.0') 'Assembly version must be 1.0.6.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.0.10.0') 'Assembly version must be 1.0.10.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.6') 'Plugin version must be 1.0.6.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.10') 'Plugin version must be 1.0.10.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -449,8 +434,8 @@ $dependencies = @(
 $jotunnDependency = @($dependencies | Where-Object {
     [string]$_.ConstructorArguments[0].Value -eq 'com.jotunn.jotunn'
 })
-Assert-True ($jotunnDependency.Count -eq 1) 'FineDining must declare one hard Jotunn runtime dependency.'
-Assert-True ([string]$jotunnDependency[0].ConstructorArguments[1].Value -eq '2.29.2') 'The Jotunn runtime dependency must require version 2.29.2 or newer.'
+Assert-True ($jotunnDependency.Count -eq 1) 'FineDining must declare optional Jotunn ordering.'
+Assert-True ([int]$jotunnDependency[0].ConstructorArguments[1].Value -eq 2) 'Jotunn must remain optional.'
 $azuCraftyBoxesDependency = @($dependencies | Where-Object {
     [string]$_.ConstructorArguments[0].Value -eq 'Azumatt.AzuCraftyBoxes'
 })
@@ -679,17 +664,15 @@ Assert-True ($null -eq $generatedType.GetMethod('QueueRegistrationRetry', [Refle
 Assert-True ($null -eq $assembly.GetType('FineDining.FineDiningGeneratedPrefabMarker', $false)) 'Generated content must not retain the old ownership marker.'
 
 $jotunnReference = @($assembly.GetReferencedAssemblies() | Where-Object { $_.Name -eq 'Jotunn' })
-Assert-True ($jotunnReference.Count -eq 1) 'FineDining must reference Jotunn as its generated-content runtime.'
-Assert-True ($jotunnReference[0].Version -eq [Version] '2.29.2.0') 'FineDining must compile against Jotunn 2.29.2.'
+Assert-True ($jotunnReference.Count -eq 0) 'FineDining must load without the Jotunn assembly.'
 Assert-True (@($assembly.GetReferencedAssemblies() | Where-Object { $_.Name -eq 'AzuCraftyBoxes' }).Count -eq 0) 'Optional AzuCraftyBoxes compatibility must not add a hard assembly reference.'
 Assert-True (@($assembly.GetReferencedAssemblies() | Where-Object { $_.Name -eq 'ValheimCuisine' }).Count -eq 0) 'Optional ValheimCuisine compatibility must not add a hard assembly reference.'
 Assert-True ($null -eq $assembly.GetType('FineDining.SpoilageReferenceSection', $false)) 'The mirrored spoilage reference-section enum must remain removed.'
 $ownerResolverSource = Get-Content -LiteralPath (Join-Path $projectRoot 'FoodPrefabOwnerResolver.cs') -Raw
-foreach ($registryCall in @('ModRegistry.GetPrefabs()', 'ModRegistry.GetItems()', 'ModRegistry.GetPieces()'))
-{
-    Assert-True ($ownerResolverSource.Contains($registryCall)) "Jotunn owner resolution must use the public registry API: $registryCall"
-}
-Assert-True (-not $ownerResolverSource.Contains('PrefabManager') -and -not $ownerResolverSource.Contains('AccessTools')) 'Jotunn owner resolution must not return to private manager reflection.'
+Assert-True ($ownerResolverSource.Contains('JotunnCompatibility.GetOwners()')) 'Optional ownership lookup must remain available.'
+Assert-HarmonyPatchTarget $assembly 'FineDining.NativeContentObjectDbAwakePatch' 'ObjectDB' 'Awake'
+Assert-HarmonyPatchTarget $assembly 'FineDining.NativeContentObjectDbCopyPatch' 'ObjectDB' 'CopyOtherDB'
+Assert-HarmonyPatchTarget $assembly 'FineDining.NativeContentSceneAwakePatch' 'ZNetScene' 'Awake'
 
 $calculateReplacementAmount = Get-MethodRequired $decayType 'CalculateReplacementAmount'
 $replacementAmount = [int] $calculateReplacementAmount.Invoke($null, [object[]] @(50))
@@ -842,7 +825,7 @@ $creatorlessCheckSource = $decayRuntimeSource.Substring($creatorlessCheckStart, 
 $creatorlessPlacedGate = $creatorlessCheckSource.IndexOf('IsPlacedGroundDrop(drop)', [StringComparison]::Ordinal)
 $creatorlessZdoRead = $creatorlessCheckSource.IndexOf('GetLong(ZDOVars.s_creator, 0L)', [StringComparison]::Ordinal)
 Assert-True ($creatorlessPlacedGate -ge 0 -and $creatorlessZdoRead -gt $creatorlessPlacedGate) 'NoCreator exemption must first require a placed Piece ItemDrop, leaving ordinary loose ItemDrops eligible for spoilage.'
-Assert-True ($creatorlessCheckSource.Contains('drop.m_nview.GetZDO().GetLong(ZDOVars.s_creator, 0L) == 0L')) 'NoCreator detection must read the persisted ZDO creator field directly.'
+Assert-True ($creatorlessCheckSource.Contains('drop.NetworkView().GetZDO().GetLong(ZDOVars.s_creator, 0L) == 0L')) 'NoCreator detection must read the persisted ZDO creator field directly.'
 Assert-True (-not $creatorlessCheckSource.Contains('GetCreator(')) 'NoCreator detection must not rely on Piece.GetCreator, whose local cache can be stale after Infinity Hammer removes the ZDO field.'
 $creatorlessReconcileSource = $decayRuntimeSource.Substring($creatorlessReconcileStart, $creatorlessReconcileEnd - $creatorlessReconcileStart)
 $creatorlessOwnerGate = $creatorlessReconcileSource.IndexOf('IsOwnedGroundDrop(', [StringComparison]::Ordinal)
@@ -1269,6 +1252,8 @@ Assert-True ($stationHintElementStart -ge 0) 'Station hint element source bounda
 $stationHintElementSource = $stationHintUiSource.Substring($stationHintElementStart)
 Assert-True ($stationHintElementSource.Contains('bool emphasizeStatusText')) 'Station hint elements must receive an explicit status-text emphasis flag.'
 Assert-True ($stationHintElementSource.Contains('float statusTextScale = emphasizeStatusText ? CookingProgressTextScale : 1f;')) 'Station hint status-text emphasis must fall back to x1.00 outside CookingStation progress cards.'
+Assert-True ($stationHintElementSource.Contains('behaviour.enabled = false;')) 'Cloned station cards must disable inherited root behaviours.'
+Assert-True (-not $stationHintElementSource.Contains('Object.Destroy(behaviour);')) 'Cloned station cards must preserve required-component relationships such as TouchRaycastPadding and Image.'
 foreach ($scaledProgressStatusContract in @(
     '_status.fontSize = 12f * statusTextScale;',
     '_status.fontSizeMin = 7f * statusTextScale;',
@@ -2367,7 +2352,7 @@ $fullCourseConfigStart = $dietConfigSource.IndexOf(
 Assert-True ($maxSlotsConfigStart -ge 0 -and $foodStatScaleConfigStart -gt $maxSlotsConfigStart -and $fullCourseConfigStart -gt $foodStatScaleConfigStart) 'Maximum slots, shared food stat scale, and Full Course must be bound together in display order.'
 $maxSlotsConfigSource = $dietConfigSource.Substring($maxSlotsConfigStart, $foodStatScaleConfigStart - $maxSlotsConfigStart)
 $foodStatScaleConfigSource = $dietConfigSource.Substring($foodStatScaleConfigStart, $fullCourseConfigStart - $foodStatScaleConfigStart)
-Assert-True ($maxSlotsConfigSource.Contains('"Maximum Food Slots"') -and [regex]::IsMatch($maxSlotsConfigSource, '(?m)^\s*9,\s*$')) 'Maximum food slots must retain its config key and default to nine.'
+Assert-True ($maxSlotsConfigSource.Contains('"Maximum Food Slots"') -and [regex]::IsMatch($maxSlotsConfigSource, '(?m)^\s*4,\s*$')) 'Maximum food slots must retain its config key and default to four.'
 Assert-True ([regex]::IsMatch($maxSlotsConfigSource, 'new\s+AcceptableValueRange<int>\(\s*3,\s*9\)')) 'Maximum food slots must permit every integer from three through nine.'
 Assert-True ($foodStatScaleConfigSource.Contains('"Food Stat Scale"') -and [regex]::IsMatch($foodStatScaleConfigSource, '(?m)^\s*0\.9f,\s*$')) 'The shared food stat scale must default to 90% of a filled vanilla three-food total.'
 Assert-True ([regex]::IsMatch($foodStatScaleConfigSource, 'new\s+AcceptableValueRange<float>\(\s*0\.1f,\s*3f\)')) 'The shared food stat scale must be constrained to x0.10-x3.00.'
@@ -2550,21 +2535,22 @@ $resourceCountProperty = $resourceMapSnapshotType.GetProperty(
 $tierNamesProperty = $resourceMapSnapshotType.GetProperty(
     'TierNames',
     [Reflection.BindingFlags] 'Instance,Public,NonPublic')
-Assert-True ($null -ne $tierCountProperty -and [int]$tierCountProperty.GetValue($defaultMap) -eq 8) 'The default ResourceMap must retain eight ordered tiers.'
-Assert-True ($null -ne $resourceCountProperty -and [int]$resourceCountProperty.GetValue($defaultMap) -gt 0) 'The default ResourceMap must contain resource tokens.'
+Assert-True ($null -ne $tierCountProperty -and [int]$tierCountProperty.GetValue($defaultMap) -eq 9) 'The default ResourceMap must contain nine ordered tiers.'
+Assert-True ($null -ne $resourceCountProperty -and [int]$resourceCountProperty.GetValue($defaultMap) -eq 142) 'The default ResourceMap must retain 132 existing tokens and add ten North food resources without normalized collisions.'
 Assert-True ($null -ne $tierNamesProperty) 'The ResourceMap snapshot must expose its ordered tier names.'
 $defaultTierNames = @($tierNamesProperty.GetValue($defaultMap))
-Assert-True (($defaultTierNames -join ',') -eq 'Meadows,BlackForest,Swamp,Ocean,Mountain,Plains,Mistlands,AshLands') 'The default ResourceMap tier order must remain stable from low to high.'
+Assert-True (($defaultTierNames -join ',') -eq 'Meadows,BlackForest,Swamp,Ocean,Mountain,Plains,Mistlands,AshLands,DeepNorth') 'The default ResourceMap must append DeepNorth without reordering existing tiers.'
 $getTierName = Get-MethodRequired $resourceMapSnapshotType 'GetTierName'
 Assert-True ([string]$getTierName.Invoke($defaultMap, [object[]] @(0)) -eq 'Meadows') 'The first default ResourceMap tier must be Meadows.'
-Assert-True ([string]$getTierName.Invoke($defaultMap, [object[]] @(7)) -eq 'AshLands') 'The last default ResourceMap tier must be AshLands.'
+Assert-True ([string]$getTierName.Invoke($defaultMap, [object[]] @(7)) -eq 'AshLands') 'AshLands must retain its existing tier index.'
+Assert-True ([string]$getTierName.Invoke($defaultMap, [object[]] @(8)) -eq 'DeepNorth') 'The last default ResourceMap tier must be DeepNorth.'
 $tryGetSnapshotResourceTier = Get-MethodRequired $resourceMapSnapshotType 'TryGetResourceTier'
 $resourceTierArguments = [object[]] @('Resin', 0)
 Assert-True ([bool]$tryGetSnapshotResourceTier.Invoke($defaultMap, $resourceTierArguments)) 'The default Chef ResourceMap must contain Resin.'
 Assert-True ([int]$resourceTierArguments[1] -eq 0) 'Resin must retain its Meadows resource tier.'
 $resourceTierArguments = [object[]] @('$item_AsksvinMeat', 0)
 Assert-True ([bool]$tryGetSnapshotResourceTier.Invoke($defaultMap, $resourceTierArguments)) 'ResourceMap token normalization must strip item localization prefixes.'
-Assert-True ([int]$resourceTierArguments[1] -eq 7) 'Ashlands resources must resolve to the highest default Chef tier.'
+Assert-True ([int]$resourceTierArguments[1] -eq 7) 'Ashlands resources must retain tier seven after adding DeepNorth.'
 foreach ($resourceTierCase in @(
     @('TrophyFrostTroll', 1),
     @('CryptKey', 2),
@@ -2588,7 +2574,17 @@ foreach ($resourceTierCase in @(
     @('Vineberry', 7),
     @('Fiddleheadfern', 7),
     @('TrophySeekerQueen', 7),
-    @('TrophyCharredMelee', 7)))
+    @('TrophyCharredMelee', 7),
+    @('MooseMeat', 8),
+    @('SealBlubber', 8),
+    @('Kale', 8),
+    @('Poteitr', 8),
+    @('Lingonberry', 8),
+    @('GlowWorm', 8),
+    @('Oat', 8),
+    @('OatFlour', 8),
+    @('Ice', 8),
+    @('SpiceDeepNorth', 8)))
 {
     $resourceTierArguments = [object[]] @([string]$resourceTierCase[0], 0)
     Assert-True ([bool]$tryGetSnapshotResourceTier.Invoke($defaultMap, $resourceTierArguments)) "Expanded default ResourceMap is missing $($resourceTierCase[0])."
@@ -3972,7 +3968,7 @@ Assert-True ([regex]::IsMatch(
     $cookingPatchSource,
     '(?s)DietConfig\.GetChefHighTierSelectionStrength\(\) > 0f,\s*DietConfig\.GetChefMultiplierModeAtMaxCooking\(\) >\s*DietConfig\.GetChefMultiplierMin\(\)\)')) 'Cooking tooltip settings must expose multiplier-mode progression only when Cooking can move the mode above the minimum.'
 Assert-True ($cookingPatchSource.Contains('GetComponentsInChildren<UITooltip>(true)')) 'Cooking skill tooltip must retain a replacement-UI row fallback.'
-Assert-True ($cookingPatchSource.Contains('tooltip.m_topic,') -and $cookingPatchSource.Contains('tooltip.m_anchor,') -and $cookingPatchSource.Contains('tooltip.m_fixedPosition')) 'Cooking skill tooltip update must preserve the existing tooltip layout and topic.'
+Assert-True ($cookingPatchSource.Contains('tooltip.m_topic,') -and $cookingPatchSource.Contains('tooltip.Anchor(),') -and $cookingPatchSource.Contains('tooltip.FixedPosition()')) 'Cooking skill tooltip update must preserve the existing tooltip layout and topic.'
 Assert-True (-not $cookingTooltipSource.Contains('m_info.m_description =') -and
              -not $dietTooltipSource.Contains('m_info.m_description =')) 'FineDining must not mutate shared skill descriptions.'
 Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipPanel.Bind(__instance, tooltip);')) 'Cooking tooltip positioning must bind the resolved Cooking row after extending its text.'
@@ -3990,8 +3986,8 @@ Assert-True ([regex]::IsMatch(
     $cookingAlignmentPatchSource,
     '(?s)\[HarmonyPostfix\]\s*\[HarmonyPriority\(Priority\.Last\)\]\s*private static void Postfix\(UITooltip __instance\)')) 'Cooking tooltip body alignment must run after the instantiated tooltip text has been populated.'
 Assert-True ($cookingAlignmentPatchSource.Contains('CookingSkillTooltipText.HasFineDiningHeading(__instance.m_text)')) 'Cooking tooltip body alignment must be restricted by the raw FineDining heading.'
-Assert-True ($cookingAlignmentPatchSource.Contains('UITooltip.m_current != null && UITooltip.m_current != __instance')) 'Cooking tooltip body alignment must ignore a global tooltip owned by another active UITooltip while allowing initial render before ownership is assigned.'
-Assert-True ($cookingAlignmentPatchSource.Contains('UITooltip.m_tooltip.GetComponentsInChildren<TMP_Text>(true)')) 'Cooking tooltip body alignment must inspect only the instantiated tooltip hierarchy.'
+Assert-True ($cookingAlignmentPatchSource.Contains('GameAccess.CurrentTooltip != null && GameAccess.CurrentTooltip != __instance')) 'Cooking tooltip body alignment must ignore a global tooltip owned by another active UITooltip while allowing initial render before ownership is assigned.'
+Assert-True ($cookingAlignmentPatchSource.Contains('GameAccess.TooltipObject.GetComponentsInChildren<TMP_Text>(true)')) 'Cooking tooltip body alignment must inspect only the instantiated tooltip hierarchy.'
 Assert-True ($cookingAlignmentPatchSource.Contains('string.Equals(textElement.name, "Text", StringComparison.Ordinal)')) 'Cooking tooltip body alignment must select only the body element named Text.'
 Assert-True ($cookingAlignmentPatchSource.Contains('textElement.horizontalAlignment = HorizontalAlignmentOptions.Left;')) 'Cooking tooltip body must use horizontal-only left alignment.'
 Assert-True (-not $cookingAlignmentPatchSource.Contains('m_tooltipPrefab')) 'Cooking tooltip body alignment must never mutate the shared tooltip prefab.'
@@ -4008,14 +4004,14 @@ $cookingPanelStart = $cookingTooltipSource.IndexOf('internal static class Cookin
 $cookingLayoutStart = $cookingTooltipSource.IndexOf('internal static class CookingSkillTooltipLayout', $cookingPanelStart, [StringComparison]::Ordinal)
 Assert-True ($cookingPanelStart -ge 0 -and $cookingLayoutStart -gt $cookingPanelStart) 'Cooking tooltip panel lifetime code must be available separately from its pure geometry.'
 $cookingPanelSource = $cookingTooltipSource.Substring($cookingPanelStart, $cookingLayoutStart - $cookingPanelStart)
-Assert-True ($cookingPanelSource.Contains('binding.Tooltip.m_anchor = binding.OriginalAnchor;') -and
-             $cookingPanelSource.Contains('binding.Tooltip.m_fixedPosition = binding.OriginalFixedPosition;')) 'Cooking tooltip cleanup must restore the bound row original anchor and fixed position.'
+Assert-True ($cookingPanelSource.Contains('binding.Tooltip.Anchor() = binding.OriginalAnchor;') -and
+             $cookingPanelSource.Contains('binding.Tooltip.FixedPosition() = binding.OriginalFixedPosition;')) 'Cooking tooltip cleanup must restore the bound row original anchor and fixed position.'
 Assert-True ([regex]::IsMatch(
     $cookingPanelSource,
     '(?s)internal static void ClearForDialog\(SkillsDialog dialog\).*?ReferenceEquals\(_binding\.Dialog, dialog\).*?Clear\(\);')) 'Destroying an old InventoryGui must not clear a replacement dialog Cooking tooltip binding.'
 Assert-True ($cookingTooltipSource.Contains('CookingSkillTooltipPanel.ClearForDialog(__instance.m_skillsDialog);')) 'InventoryGui destruction must release only its own skills dialog binding.'
 Assert-True ($cookingPanelSource.Contains('!ReferenceEquals(binding.Tooltip, tooltip)') -and
-             $cookingPanelSource.Contains('UITooltip.m_current != tooltip') -and
+             $cookingPanelSource.Contains('GameAccess.CurrentTooltip != tooltip') -and
              $cookingPanelSource.Contains('if (!root.activeSelf)')) 'Cooking panel updates must remain restricted to its active bound tooltip and preserve vanilla hover visibility timing.'
 Assert-True (-not $cookingPanelSource.Contains('m_tooltipPrefab')) 'Cooking skill positioning must operate on the instantiated tooltip, never the shared prefab used by other skills and items.'
 Assert-True ([regex]::IsMatch(
@@ -4297,7 +4293,7 @@ $markerOnlySourceGate = [regex]::Match(
     '(?s)!DecayRuntime\.TryGetExpiryTicks\(source,\s*out state\.SourceClockValue\)\s*&&\s*!state\.SourceSpoiled')
 Assert-True $markerOnlySourceGate.Success 'Inventory.AddItem merge tracking must retain a marker-only source even after its active clock was removed.'
 $restoreMetadataSource = $mergeTrackerSource.Substring($restoreMetadataStart, $restoreKeyStart - $restoreMetadataStart)
-Assert-True ($restoreMetadataSource.Contains('state.SourceHadValidClock || inventory.m_inventory.Contains(source)')) 'Temporary source metadata restoration must preserve pre-existing clocks and a source reference actually owned by the destination inventory.'
+Assert-True ($restoreMetadataSource.Contains('state.SourceHadValidClock || inventory.GetAllItems().Contains(source)')) 'Temporary source metadata restoration must preserve pre-existing clocks and a source reference actually owned by the destination inventory.'
 $addItemFinalizerCalls = [regex]::Matches(
     $decayPatchesSource,
     'InventoryAddMergeTracker\.RestoreTemporarySourceMetadataSafe\(__instance, item, __state\);').Count
@@ -4649,5 +4645,25 @@ Assert-ZipPackage $ThunderstoreZipPath @{
 Assert-ZipPackage $NexusZipPath @{
     'FineDining.dll' = $assemblyPath
 }
+
+# Execute provenance preservation against the original managed ItemData implementation.
+# No Unity objects, registry mutation or game native calls are involved in these cases.
+$createReplacement = Get-MethodRequired $decayType 'CreateReplacement'
+$template = [Activator]::CreateInstance($itemDataType)
+$template.m_stack = 17
+$template.m_customData[$expiryDataKey] = '123'
+$template.m_customData[$assignedLifetimeDataKey] = '456'
+$template.m_customData['third.party.fixture'] = 'retained'
+foreach ($cheated in @($false, $true)) {
+    $template.m_cheated = -not $cheated
+    $replacement = $createReplacement.Invoke($null, [object[]]@($template, $null, [int]4, [bool]$cheated))
+    Assert-True (-not [object]::ReferenceEquals($template, $replacement)) 'Replacement must be an independent item.'
+    Assert-True ($replacement.m_cheated -eq $cheated -and $replacement.m_worldLevel -eq 4) 'Replacement must use source provenance and world level, not prefab defaults.'
+    Assert-True ($replacement.m_stack -eq 17) 'Replacement creation must not change stack amount.'
+    Assert-True (-not $replacement.m_customData.ContainsKey($expiryDataKey) -and -not $replacement.m_customData.ContainsKey($assignedLifetimeDataKey)) 'Replacement must start without stale expiry metadata.'
+    Assert-True ($template.m_customData.ContainsKey($expiryDataKey) -and $template.m_cheated -eq (-not $cheated)) 'Replacement must not mutate its template.'
+    Assert-True ($replacement.m_customData['third.party.fixture'] -eq 'retained') 'Replacement must retain unrelated template custom data.'
+}
+Assert-True (@([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq 'Jotunn' }).Count -eq 0) 'Integration tests must run without loading Jotunn.'
 
 Write-Host 'FineDining integration smoke checks passed.'

@@ -2,19 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Jotunn.Configs;
-using Jotunn.Entities;
-using Jotunn.Managers;
 using UnityEngine;
-using UnityEngine.Rendering;
+using HarmonyLib;
 
 namespace FineDining;
 
-/// <summary>
-/// Creates FineDining's fixed custom content and hands its registration
-/// lifecycle to Jotunn. FineDining remains responsible only for gameplay
-/// configuration of those prefabs.
-/// </summary>
+// Owns the fixed native content and its registration in each live game database.
 internal static class GeneratedPrefabRegistry
 {
     internal const string RottenProducePukeStatusEffectName = "FineDining_PukeRottenProduce";
@@ -38,7 +31,6 @@ internal static class GeneratedPrefabRegistry
     private const string IceboxMaterialName = "antifreezegland";
     private const string RottenMaterialName = "LoxMeatRotten";
     private const float IceboxHealth = 1000f;
-    private const int GeneratedIconSize = 128;
 
     private static readonly MethodInfo? MemberwiseCloneMethod = typeof(object).GetMethod(
         "MemberwiseClone",
@@ -58,6 +50,14 @@ internal static class GeneratedPrefabRegistry
     private static Material? _iceboxMaterial;
     private static Material? _rottenMaterial;
     private static bool _initialized;
+    private static bool _registering;
+    private static bool _materialsSearched;
+    private static GameObject? _prefabRoot;
+    private static readonly HashSet<ObjectDB> Databases = new();
+    private static readonly HashSet<ZNetScene> Scenes = new();
+    private static readonly HashSet<Sprite> OwnedIcons = new();
+    private static readonly AccessTools.FieldRef<StatusEffect, int> EffectNameHash =
+        AccessTools.FieldRefAccess<StatusEffect, int>("m_nameHash");
 
     internal static void Initialize()
     {
@@ -67,42 +67,83 @@ internal static class GeneratedPrefabRegistry
         }
 
         _initialized = true;
-        PrefabManager.OnVanillaPrefabsAvailable += CreateContent;
-        PrefabManager.OnPrefabsRegistered += OnJotunnRegistriesReady;
-        ItemManager.OnItemsRegistered += OnJotunnRegistriesReady;
-        PieceManager.OnPiecesRegistered += OnJotunnRegistriesReady;
     }
 
     internal static void Shutdown()
     {
-        if (!_initialized)
-        {
-            return;
-        }
-
-        PrefabManager.OnVanillaPrefabsAvailable -= CreateContent;
-        PrefabManager.OnPrefabsRegistered -= OnJotunnRegistriesReady;
-        ItemManager.OnItemsRegistered -= OnJotunnRegistriesReady;
-        PieceManager.OnPiecesRegistered -= OnJotunnRegistriesReady;
         _initialized = false;
+        foreach (GameObject? prefab in new[] { _rottenProducePrefab, _rottenFoodPrefab, _iceboxPrefab })
+        {
+            if (prefab == null) continue;
+            int hash = prefab.name.GetStableHashCode();
+            foreach (ObjectDB db in Databases)
+            {
+                if (db == null) continue;
+                db.m_items.RemoveAll(item => ReferenceEquals(item, prefab));
+                if (ReferenceEquals(db.GetItemPrefab(hash), prefab)) db.ItemHashes().Remove(hash);
+                ItemDrop? drop = prefab.GetComponent<ItemDrop>();
+                if (drop != null && ReferenceEquals(db.GetItemPrefab(drop.m_itemData.m_shared), prefab))
+                    db.ItemDataPrefabs().Remove(drop.m_itemData.m_shared);
+                GetHammerTable(db)?.m_pieces.RemoveAll(item => ReferenceEquals(item, prefab));
+            }
+            foreach (ZNetScene scene in Scenes)
+            {
+                if (scene == null) continue;
+                scene.m_prefabs.RemoveAll(item => ReferenceEquals(item, prefab));
+                scene.m_nonNetViewPrefabs.RemoveAll(item => ReferenceEquals(item, prefab));
+                if (ReferenceEquals(scene.GetPrefab(hash), prefab)) scene.NamedPrefabs().Remove(hash);
+            }
+        }
+        foreach (SE_Puke? effect in new[] { _rottenProducePukeStatusEffect, _rottenFoodPukeStatusEffect })
+        {
+            if (effect == null) continue;
+            foreach (ObjectDB db in Databases)
+                if (db != null) db.m_StatusEffects.RemoveAll(item => ReferenceEquals(item, effect));
+            UnityEngine.Object.Destroy(effect);
+        }
+        foreach (Sprite icon in OwnedIcons)
+        {
+            if (icon == null) continue;
+            UnityEngine.Object.Destroy(icon.texture);
+            UnityEngine.Object.Destroy(icon);
+        }
+        if (_prefabRoot != null) UnityEngine.Object.Destroy(_prefabRoot);
+        _prefabRoot = _iceboxPrefab = _rottenProducePrefab = _rottenFoodPrefab = null;
+        _rottenProducePukeStatusEffect = _rottenFoodPukeStatusEffect = null;
+        _iceboxIcon = _rottenProduceIcon = _rottenFoodIcon = null;
+        _iceboxMaterial = _rottenMaterial = null;
+        _materialsSearched = false;
+        Databases.Clear();
+        Scenes.Clear();
+        OwnedIcons.Clear();
+        RenderedIcons.Clear();
+        ReportedProblems.Clear();
     }
 
-    private static void CreateContent()
+    internal static void RegisterContent(ObjectDB? objectDb = null)
     {
+        objectDb ??= ObjectDB.instance;
+        if (!_initialized || _registering || objectDb == null) return;
+        _registering = true;
+        _materialsSearched = false;
+        Databases.RemoveWhere(db => db == null);
+        Scenes.RemoveWhere(scene => scene == null);
+        Databases.Add(objectDb);
+        if (ZNetScene.instance != null) Scenes.Add(ZNetScene.instance);
         try
         {
-            ReconcileManagedContent();
-            _rottenProducePukeStatusEffect ??= CreatePukeStatusEffect(
-                RottenProducePukeStatusEffectName,
+
+            _rottenProducePukeStatusEffect = AliveOrNull(_rottenProducePukeStatusEffect) ?? CreatePukeStatusEffect(
+                objectDb, RottenProducePukeStatusEffectName,
                 RottenProducePukeDurationSeconds);
-            _rottenFoodPukeStatusEffect ??= CreatePukeStatusEffect(
-                RottenFoodPukeStatusEffectName,
+            _rottenFoodPukeStatusEffect = AliveOrNull(_rottenFoodPukeStatusEffect) ?? CreatePukeStatusEffect(
+                objectDb, RottenFoodPukeStatusEffectName,
                 RottenFoodPukeDurationSeconds);
 
             if ((object?)_rottenProducePukeStatusEffect != null)
             {
-                _rottenProducePrefab ??= CreateGeneratedItem(
-                    SpoilageDefaults.RottenProducePrefabName,
+                _rottenProducePrefab = AliveOrNull(_rottenProducePrefab) ?? CreateGeneratedItem(
+                    objectDb, SpoilageDefaults.RottenProducePrefabName,
                     RottenProduceSourcePrefabName,
                     RottenProduceNameToken,
                     RottenProduceDescriptionToken,
@@ -112,8 +153,8 @@ internal static class GeneratedPrefabRegistry
 
             if ((object?)_rottenFoodPukeStatusEffect != null)
             {
-                _rottenFoodPrefab ??= CreateGeneratedItem(
-                    SpoilageDefaults.RottenFoodPrefabName,
+                _rottenFoodPrefab = AliveOrNull(_rottenFoodPrefab) ?? CreateGeneratedItem(
+                    objectDb, SpoilageDefaults.RottenFoodPrefabName,
                     RottenFoodSourcePrefabName,
                     RottenFoodNameToken,
                     RottenFoodDescriptionToken,
@@ -121,49 +162,22 @@ internal static class GeneratedPrefabRegistry
                     ref _rottenFoodIcon);
             }
 
-            _iceboxPrefab ??= CreateIcebox();
-
-            if ((object?)_rottenProducePrefab != null &&
-                (object?)_rottenFoodPrefab != null &&
-                (object?)_iceboxPrefab != null)
-            {
-                LogInfoOnce("jotunn-content", "FineDining custom content was created and handed to Jotunn.");
-            }
-
+            _iceboxPrefab = AliveOrNull(_iceboxPrefab) ?? CreateIcebox();
             RefreshConfiguredContent();
+            RegisterItem(objectDb, _rottenProducePrefab, _rottenProducePukeStatusEffect);
+            RegisterItem(objectDb, _rottenFoodPrefab, _rottenFoodPukeStatusEffect);
+            if (_iceboxPrefab != null && ZNetScene.instance != null)
+                RegisterScenePrefab(ZNetScene.instance, _iceboxPrefab);
+
+            RefreshIceboxBuildContent();
         }
         catch (Exception ex)
         {
             LogProblemOnce(
-                "jotunn-content",
-                $"Could not create FineDining custom content through Jotunn: {ex}");
+                "native-content",
+                $"Could not register FineDining native content: {ex}");
         }
-    }
-
-    private static void ReconcileManagedContent()
-    {
-        CustomItem? managedProduce = ItemManager.Instance.GetItem(SpoilageDefaults.RottenProducePrefabName);
-        CustomItem? managedFood = ItemManager.Instance.GetItem(SpoilageDefaults.RottenFoodPrefabName);
-        CustomPiece? managedIcebox = PieceManager.Instance.GetPiece(IceboxSubsystem.PrefabName);
-
-        _rottenProducePrefab = AliveOrNull(managedProduce?.ItemPrefab) ?? AliveOrNull(_rottenProducePrefab);
-        _rottenFoodPrefab = AliveOrNull(managedFood?.ItemPrefab) ?? AliveOrNull(_rottenFoodPrefab);
-        _iceboxPrefab = AliveOrNull(managedIcebox?.PiecePrefab) ?? AliveOrNull(_iceboxPrefab);
-
-        _rottenProducePukeStatusEffect =
-            AliveOrNull(managedProduce?.ItemDrop?.m_itemData?.m_shared?.m_consumeStatusEffect as SE_Puke) ??
-            AliveOrNull(_rottenProducePukeStatusEffect);
-        _rottenFoodPukeStatusEffect =
-            AliveOrNull(managedFood?.ItemDrop?.m_itemData?.m_shared?.m_consumeStatusEffect as SE_Puke) ??
-            AliveOrNull(_rottenFoodPukeStatusEffect);
-    }
-
-    private static void OnJotunnRegistriesReady()
-    {
-        ReconcileManagedContent();
-        RefreshConfiguredContent();
-        FoodClassifier.Invalidate();
-        DecayRuntime.InvalidateAll();
+        finally { _registering = false; }
     }
 
     internal static void RefreshConfiguredContent()
@@ -199,7 +213,7 @@ internal static class GeneratedPrefabRegistry
         catch (Exception ex)
         {
             LogProblemOnce(
-                "jotunn-refresh",
+                "native-refresh",
                 $"Could not refresh FineDining custom content: {ex}");
         }
     }
@@ -213,7 +227,7 @@ internal static class GeneratedPrefabRegistry
         catch (Exception ex)
         {
             LogProblemOnce(
-                "jotunn-icebox-refresh",
+                "native-icebox-refresh",
                 $"Could not refresh FineDining Icebox content: {ex}");
         }
     }
@@ -242,7 +256,7 @@ internal static class GeneratedPrefabRegistry
     }
 
     /// <summary>
-    /// Verifies that Jotunn has installed the generated replacement into the
+    /// Verifies that FineDining has installed the generated replacement into the
     /// live registries. Expired source items are retained when this returns
     /// false, preventing item loss after an incomplete content load.
     /// </summary>
@@ -280,8 +294,7 @@ internal static class GeneratedPrefabRegistry
 
         int hash = replacementName.GetStableHashCode();
         GameObject? objectDbPrefab = AliveOrNull(objectDb!.GetItemPrefab(replacementName));
-        bool sceneReady = scene!.m_namedPrefabs.TryGetValue(hash, out GameObject scenePrefab) &&
-                          ReferenceEquals(scenePrefab, expected);
+        bool sceneReady = ReferenceEquals(scene!.GetPrefab(hash), expected);
         ItemDrop? itemDrop = expected!.GetComponent<ItemDrop>();
         StatusEffect? consumeEffect = itemDrop?.m_itemData?.m_shared?.m_consumeStatusEffect;
         bool statusEffectReady = (object?)consumeEffect != null &&
@@ -291,7 +304,7 @@ internal static class GeneratedPrefabRegistry
         {
             LogProblemOnce(
                 "replacement-not-ready:" + replacementName,
-                $"Jotunn has not installed generated replacement '{replacementName}' into every live registry; expired source items will be retained.");
+                $"FineDining has not installed generated replacement '{replacementName}' into every live registry; expired source items will be retained.");
         }
 
         return ready;
@@ -308,40 +321,28 @@ internal static class GeneratedPrefabRegistry
         return AliveOrNull(_iceboxPrefab)?.GetComponent<Piece>()?.m_icon;
     }
 
-    private static SE_Puke? CreatePukeStatusEffect(string statusEffectName, float durationSeconds)
+    private static SE_Puke? CreatePukeStatusEffect(ObjectDB db, string statusEffectName, float durationSeconds)
     {
-        GameObject? rottenMeat = PrefabManager.Instance.GetPrefab(PukeSourceItemPrefabName);
-        SE_Puke? source = rottenMeat?.GetComponent<ItemDrop>()?.m_itemData?.m_shared
-            ?.m_consumeStatusEffect as SE_Puke;
-        source = AliveOrNull(source) ?? PrefabManager.Cache.GetPrefab<SE_Puke>(PukeSourceStatusEffectName);
-        if ((object?)source == null)
+        SE_Puke? source = db.GetItemPrefab(PukeSourceItemPrefabName)?.GetComponent<ItemDrop>()
+            ?.m_itemData?.m_shared?.m_consumeStatusEffect as SE_Puke;
+        source = AliveOrNull(source) ?? db.GetStatusEffect(PukeSourceStatusEffectName.GetStableHashCode()) as SE_Puke;
+        if (source == null) return null; // ObjectDB may still be empty during menu Awake.
+        if (db.GetStatusEffect(statusEffectName.GetStableHashCode()) != null)
         {
-            LogProblemOnce(
-                "puke-source:" + statusEffectName,
-                $"Could not create '{statusEffectName}': vanilla status effect '{PukeSourceStatusEffectName}' was not found.");
+            LogProblemOnce("effect-collision:" + statusEffectName, "Status effect name/hash occupied: " + statusEffectName);
             return null;
         }
-
-        SE_Puke clone = UnityEngine.Object.Instantiate(source!);
+        SE_Puke clone = UnityEngine.Object.Instantiate(source);
         clone.name = statusEffectName;
-        clone.m_nameHash = statusEffectName.GetStableHashCode();
+        EffectNameHash(clone) = statusEffectName.GetStableHashCode();
         clone.m_ttl = durationSeconds;
         clone.m_category = GeneratedPukeStatusEffectCategory;
         UnityEngine.Object.DontDestroyOnLoad(clone);
-
-        if (ItemManager.Instance.AddStatusEffect(new CustomStatusEffect(clone, fixReference: false)))
-        {
-            return clone;
-        }
-
-        UnityEngine.Object.Destroy(clone);
-        LogProblemOnce(
-            "puke-registration:" + statusEffectName,
-            $"Jotunn refused status effect '{statusEffectName}', usually because that name is already registered.");
-        return null;
+        return clone;
     }
 
     private static GameObject? CreateGeneratedItem(
+        ObjectDB db,
         string prefabName,
         string sourcePrefabName,
         string nameToken,
@@ -349,80 +350,124 @@ internal static class GeneratedPrefabRegistry
         SE_Puke consumeStatusEffect,
         ref Sprite? storedIcon)
     {
-        if ((object?)AliveOrNull(PrefabManager.Instance.GetPrefab(prefabName)) != null)
+        GameObject? source = FindItemPrefab(db, sourcePrefabName);
+        if (source == null) return null;
+        if (db.GetItemPrefab(prefabName) != null || ZNetScene.instance?.GetPrefab(prefabName) != null)
         {
-            LogProblemOnce(
-                "item-collision:" + prefabName,
-                $"Jotunn could not create '{prefabName}' because that prefab name is already occupied.");
+            LogProblemOnce("item-collision:" + prefabName, "Prefab name/hash occupied: " + prefabName);
             return null;
         }
-
-        CustomItem customItem = new(prefabName, sourcePrefabName);
-        GameObject? prefab = AliveOrNull(customItem.ItemPrefab);
-        ItemDrop? itemDrop = AliveOrNull(customItem.ItemDrop);
-        if ((object?)prefab == null || (object?)itemDrop == null)
+        GameObject prefab = UnityEngine.Object.Instantiate(source, EnsurePrefabRoot().transform);
+        prefab.name = prefabName;
+        if (prefab.GetComponent<ItemDrop>() == null || prefab.GetComponent<ZNetView>() == null)
         {
-            LogProblemOnce(
-                "item-source:" + prefabName,
-                $"Could not clone source item '{sourcePrefabName}' as '{prefabName}'.");
+            UnityEngine.Object.Destroy(prefab);
+            LogProblemOnce("item-shape:" + prefabName, "Item source is not a complete network prefab: " + sourcePrefabName);
             return null;
         }
-
-        ConfigureGeneratedItem(
-            prefab!,
-            prefabName,
-            nameToken,
-            descriptionToken,
-            consumeStatusEffect,
-            ref storedIcon);
-        if (!ItemManager.Instance.AddItem(customItem))
+        try
         {
-            LogProblemOnce(
-                "item-registration:" + prefabName,
-                $"Jotunn refused generated item '{prefabName}'.");
-            return null;
+            ConfigureGeneratedItem(
+                prefab,
+                prefabName,
+                nameToken,
+                descriptionToken,
+                consumeStatusEffect,
+                ref storedIcon);
+            return prefab;
         }
-
-        return prefab;
+        catch
+        {
+            UnityEngine.Object.Destroy(prefab);
+            throw;
+        }
     }
 
     private static GameObject? CreateIcebox()
     {
-        if ((object?)AliveOrNull(PrefabManager.Instance.GetPrefab(IceboxSubsystem.PrefabName)) != null)
+        ZNetScene? scene = ZNetScene.instance;
+        GameObject? source = scene?.GetPrefab(IceboxSourcePrefabName);
+        if (source == null) return null;
+        if (scene!.GetPrefab(IceboxSubsystem.PrefabName) != null)
         {
-            LogProblemOnce(
-                "piece-collision:" + IceboxSubsystem.PrefabName,
-                $"Jotunn could not create '{IceboxSubsystem.PrefabName}' because that prefab name is already occupied.");
+            LogProblemOnce("piece-collision", "Icebox prefab name/hash is occupied.");
             return null;
         }
-
-        CustomPiece customPiece = new(
-            IceboxSubsystem.PrefabName,
-            IceboxSourcePrefabName,
-            PieceTables.Hammer);
-        GameObject? prefab = AliveOrNull(customPiece.PiecePrefab);
-        if ((object?)prefab == null ||
-            (object?)AliveOrNull(customPiece.Piece) == null ||
-            (object?)prefab!.GetComponent<Container>() == null ||
-            (object?)prefab.GetComponent<WearNTear>() == null)
+        GameObject prefab = UnityEngine.Object.Instantiate(source, EnsurePrefabRoot().transform);
+        prefab.name = IceboxSubsystem.PrefabName;
+        if (prefab.GetComponent<Piece>() == null || prefab.GetComponent<Container>() == null ||
+            prefab.GetComponent<WearNTear>() == null || prefab.GetComponent<ZNetView>() == null)
         {
-            LogProblemOnce(
-                "piece-source:" + IceboxSubsystem.PrefabName,
-                $"Could not clone '{IceboxSourcePrefabName}' as '{IceboxSubsystem.PrefabName}' with its required components.");
+            UnityEngine.Object.Destroy(prefab);
+            LogProblemOnce("icebox-shape", "Icebox source is missing required components.");
             return null;
         }
-
-        ConfigureIceboxPrefab(prefab);
-        if (!PieceManager.Instance.AddPiece(customPiece))
+        try
         {
-            LogProblemOnce(
-                "piece-registration:" + IceboxSubsystem.PrefabName,
-                $"Jotunn refused generated piece '{IceboxSubsystem.PrefabName}'.");
-            return null;
+            ConfigureIceboxPrefab(prefab);
+            return prefab;
         }
-
-        return prefab;
+        catch
+        {
+            UnityEngine.Object.Destroy(prefab);
+            throw;
+        }
     }
+
+    private static GameObject EnsurePrefabRoot()
+    {
+        if (_prefabRoot != null) return _prefabRoot;
+        _prefabRoot = new GameObject("FineDining Native Prefabs");
+        _prefabRoot.SetActive(false);
+        UnityEngine.Object.DontDestroyOnLoad(_prefabRoot);
+        return _prefabRoot;
+    }
+
+    private static bool CanRegisterScenePrefab(ZNetScene scene, GameObject prefab)
+    {
+        int hash = prefab.name.GetStableHashCode();
+        GameObject? existing = scene.GetPrefab(hash);
+        return (existing == null || ReferenceEquals(existing, prefab)) &&
+            !scene.m_prefabs.Concat(scene.m_nonNetViewPrefabs).Any(p =>
+                p != null && !ReferenceEquals(p, prefab) && p.name.GetStableHashCode() == hash);
+    }
+
+    private static bool RegisterScenePrefab(ZNetScene scene, GameObject prefab)
+    {
+        if (!CanRegisterScenePrefab(scene, prefab))
+        {
+            LogProblemOnce("scene-collision:" + prefab.name, "Network prefab name/hash occupied: " + prefab.name);
+            return false;
+        }
+        var list = prefab.GetComponent<ZNetView>() != null ? scene.m_prefabs : scene.m_nonNetViewPrefabs;
+        if (!list.Contains(prefab)) list.Add(prefab);
+        scene.NamedPrefabs()[prefab.name.GetStableHashCode()] = prefab;
+        return true;
+    }
+
+    private static void RegisterItem(ObjectDB db, GameObject? prefab, SE_Puke? effect)
+    {
+        if (prefab == null || effect == null) return;
+        int hash = prefab.name.GetStableHashCode();
+        GameObject? existing = db.GetItemPrefab(hash);
+        StatusEffect? existingEffect = db.GetStatusEffect(effect.NameHash());
+        if ((existing != null && !ReferenceEquals(existing, prefab)) ||
+            (existingEffect != null && !ReferenceEquals(existingEffect, effect)) ||
+            db.m_items.Any(p => p != null && !ReferenceEquals(p, prefab) && p.name.GetStableHashCode() == hash) ||
+            (ZNetScene.instance != null && !CanRegisterScenePrefab(ZNetScene.instance, prefab)))
+        {
+            LogProblemOnce("registration-collision:" + prefab.name, "Native registration refused a conflicting name/hash: " + prefab.name);
+            return;
+        }
+        if (!db.m_StatusEffects.Contains(effect)) db.m_StatusEffects.Add(effect);
+        if (!db.m_items.Contains(prefab)) db.m_items.Add(prefab);
+        db.ItemHashes()[hash] = prefab;
+        db.ItemDataPrefabs()[prefab.GetComponent<ItemDrop>().m_itemData.m_shared] = prefab;
+        if (ZNetScene.instance != null) RegisterScenePrefab(ZNetScene.instance, prefab);
+    }
+
+    private static PieceTable? GetHammerTable(ObjectDB? db) =>
+        db?.GetItemPrefab("Hammer")?.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_buildPieces;
 
     private static void ConfigureGeneratedItem(
         GameObject prefab,
@@ -651,8 +696,12 @@ internal static class GeneratedPrefabRegistry
         piece.m_enabled = true;
         try
         {
-            PieceManager.Instance.RegisterPieceInPieceTable(prefab!, PieceTables.Hammer);
-            RefreshLocalPieceTable(PieceManager.Instance.GetPieceTable(PieceTables.Hammer));
+            PieceTable? table = GetHammerTable(objectDb);
+            // Keep the build menu unavailable until the world can actually instantiate the piece.
+            if (table == null || ZNetScene.instance == null ||
+                !ReferenceEquals(ZNetScene.instance.GetPrefab(prefab!.name), prefab)) return;
+            if (!table.m_pieces.Contains(prefab)) table.m_pieces.Add(prefab);
+            RefreshLocalPieceTable(table);
         }
         catch (Exception ex)
         {
@@ -662,7 +711,7 @@ internal static class GeneratedPrefabRegistry
 
     private static void RemoveIceboxFromCurrentPieceTable(GameObject prefab)
     {
-        PieceTable? pieceTable = PieceManager.Instance.GetPieceTable(PieceTables.Hammer);
+        PieceTable? pieceTable = GetHammerTable(ObjectDB.instance);
         if ((object?)pieceTable == null)
         {
             return;
@@ -676,8 +725,8 @@ internal static class GeneratedPrefabRegistry
     {
         if ((object?)pieceTable != null &&
             (object?)Player.m_localPlayer != null &&
-            (object?)Player.m_localPlayer!.m_buildPieces != null &&
-            ReferenceEquals(Player.m_localPlayer.m_buildPieces, pieceTable))
+            (object?)Player.m_localPlayer!.BuildPieces() != null &&
+            ReferenceEquals(Player.m_localPlayer.BuildPieces(), pieceTable))
         {
             ((Humanoid)Player.m_localPlayer).SetPlaceMode(pieceTable);
         }
@@ -694,12 +743,9 @@ internal static class GeneratedPrefabRegistry
                 : null;
         }
 
-        GameObject? managed = AliveOrNull(PrefabManager.Instance.GetPrefab(prefabName));
-        return (object?)managed != null &&
-               string.Equals(managed!.name, prefabName, StringComparison.Ordinal) &&
-               (object?)managed.GetComponent<ItemDrop>() != null
-            ? managed
-            : null;
+        GameObject? managed = AliveOrNull(ZNetScene.instance?.GetPrefab(prefabName));
+        return managed != null && string.Equals(managed.name, prefabName, StringComparison.Ordinal) &&
+               managed.GetComponent<ItemDrop>() != null ? managed : null;
     }
 
     private static void TryApplyRenderedItemIcon(
@@ -759,36 +805,9 @@ internal static class GeneratedPrefabRegistry
 
     private static Sprite? RenderGeneratedIcon(GameObject prefab, string iconName)
     {
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
-        {
-            return null;
-        }
-
-        try
-        {
-            Sprite? rendered = RenderManager.Instance.Render(
-                new RenderManager.RenderRequest(prefab)
-                {
-                    Width = GeneratedIconSize,
-                    Height = GeneratedIconSize,
-                    Rotation = Quaternion.Euler(23f, 51f, 25.8f),
-                    ParticleSimulationTime = -1f,
-                    UseCache = false
-                });
-            if ((object?)rendered != null)
-            {
-                rendered!.name = iconName;
-            }
-
-            return rendered;
-        }
-        catch (Exception ex)
-        {
-            LogProblemOnce(
-                "icon-render:" + iconName,
-                $"Could not render icon '{iconName}' through Jotunn; using the source icon instead: {ex.Message}");
-            return null;
-        }
+        Sprite? icon = GeneratedIconRenderer.Render(prefab, iconName);
+        if (icon != null) OwnedIcons.Add(icon);
+        return icon;
     }
 
     private static Material? ResolveMaterial(string materialName, ref Material? cached)
@@ -799,23 +818,21 @@ internal static class GeneratedPrefabRegistry
             return cached;
         }
 
-        cached = AliveOrNull(PrefabManager.Cache.GetPrefab<Material>(materialName));
-        if ((object?)cached != null)
+        // Search once per content notification, including misses. Retain only the two
+        // borrowed materials, not an array holding every loaded game material alive.
+        if (!_materialsSearched)
         {
-            return cached;
+            _materialsSearched = true;
+            foreach (Material material in Resources.FindObjectsOfTypeAll<Material>())
+            {
+                if (material == null) continue;
+                string name = NormalizeMaterialName(material.name);
+                if (_iceboxMaterial == null && name.Equals(IceboxMaterialName, StringComparison.OrdinalIgnoreCase))
+                    _iceboxMaterial = material;
+                if (_rottenMaterial == null && name.Equals(RottenMaterialName, StringComparison.OrdinalIgnoreCase))
+                    _rottenMaterial = material;
+            }
         }
-
-        string normalizedTarget = NormalizeMaterialName(materialName);
-        cached = PrefabManager.Cache.GetPrefabs(typeof(Material))
-            .Values
-            .OfType<Material>()
-            .Select(AliveOrNull)
-            .FirstOrDefault(material =>
-                (object?)material != null &&
-                string.Equals(
-                    NormalizeMaterialName(material!.name),
-                    normalizedTarget,
-                    StringComparison.OrdinalIgnoreCase));
         return cached;
     }
 
@@ -859,19 +876,35 @@ internal static class GeneratedPrefabRegistry
         }
     }
 
-    private static void LogInfoOnce(string key, string message)
-    {
-        if (ReportedProblems.Add("info:" + key))
-        {
-            FineDiningPlugin.Log.LogInfo(message);
-        }
-    }
-
     internal static void LogDebugOnce(string key, string message)
     {
         if (ReportedProblems.Add("debug:" + key))
         {
             FineDiningPlugin.Log.LogDebug(message);
         }
+    }
+}
+
+[HarmonyPatch(typeof(ObjectDB), "Awake")]
+internal static class NativeContentObjectDbAwakePatch
+{
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(ObjectDB __instance) => GeneratedPrefabRegistry.RegisterContent(__instance);
+}
+
+[HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB))]
+internal static class NativeContentObjectDbCopyPatch
+{
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(ObjectDB __instance) => GeneratedPrefabRegistry.RegisterContent(__instance);
+}
+
+[HarmonyPatch(typeof(ZNetScene), "Awake")]
+internal static class NativeContentSceneAwakePatch
+{
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix()
+    {
+        SpoilageContentLifecycle.Refresh();
     }
 }

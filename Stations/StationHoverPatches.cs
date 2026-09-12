@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace FineDining;
 
-[HarmonyPatch(typeof(Hud), nameof(Hud.Awake))]
+[HarmonyPatch(typeof(Hud), "Awake")]
 internal static class StationHintHudAwakePatch
 {
     private static void Postfix()
@@ -15,7 +15,7 @@ internal static class StationHintHudAwakePatch
     }
 }
 
-[HarmonyPatch(typeof(Hud), nameof(Hud.UpdateCrosshair))]
+[HarmonyPatch(typeof(Hud), "UpdateCrosshair")]
 internal static class StationHintHudCrosshairPatch
 {
     private static void Postfix(Hud __instance, Player player)

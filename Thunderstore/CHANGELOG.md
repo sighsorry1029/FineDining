@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.10
+
+- Changed the default `Maximum Food Slots` from 9 to 4 for newly created configurations. Existing local and server configuration values remain unchanged, and the supported range stays at 3 through 9.
+- Fixed cooking-station input hints briefly reusing a cached available or unavailable state after the fire or free-slot condition changed. Transient availability is now checked on every hover update without caching an empty result.
+- Restored configured Icebox dimensions when `Container.Load` exits with an exception, while preserving the original load error for Harmony and other mods.
+- Centralized freshness lifetime composition across vanilla and optional inventory integrations, and reused FineDining's shared config directory for Icebox policy loading without changing data keys or file locations.
+
+## 1.0.8
+
+- Fixed repeated Unity errors when station hint cards cloned Valheim 1.0 inventory elements containing `TouchRaycastPadding`. Inherited root behaviours are now disabled without breaking their required `Image` component relationship.
+
+## 1.0.7
+
+- Updated FineDining for Valheim 1.0.7, including the changed crafting, food, HUD, fermenter, and inventory contracts used by its Harmony patches and runtime integrations.
+- Removed the hard Jotunn dependency. FineDining now registers its generated rotten foods, Icebox, icons, and effects itself; Jotunn remains an optional compatibility integration when another installed mod uses it.
+- Updated the bundled ServerSync compatibility build for Valheim 1.0.7 while preserving configuration locking, version checks, and synchronization identifiers.
+- Fixed Cooking bonus-output patch detection for Valheim 1.0.7. Per-item bonuses once again apply to single and batch crafting while retaining the guarded vanilla fallback if the target method changes again.
+- Added a Deep North tier and its confirmed food ingredients to the default `ResourceMap.yml`. Existing server and single-player maps remain unchanged and must merge the new section manually to adopt it.
+- Updated AzuExtendedPlayerInventory compatibility validation for 2.4.10 and retained safe spoilage metadata recovery without adding a hard dependency.
+- Tightened lifecycle cleanup, private game-member access, item provenance handling, and hot-path UI/station work while preserving saved food data, network ownership checks, and external configuration formats.
+
 ## 1.0.6
 
 - Cooking skill descriptions now appear to the left of the skills panel, aligned with the hovered row. Long descriptions scale and stay within the screen bounds, with mouse and gamepad support.

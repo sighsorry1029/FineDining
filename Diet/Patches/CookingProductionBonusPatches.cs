@@ -370,7 +370,7 @@ internal static class InventoryGuiCookingProductionBonusPatch
 
         int getAmountCallIndex = FindCall(codes, GetAmountMethod, 0);
         int stationCallIndex = FindCall(codes, GetCurrentCraftingStationMethod, 0);
-        if (getAmountCallIndex < 0 || stationCallIndex < 0 || getAmountCallIndex >= stationCallIndex)
+        if (getAmountCallIndex < 0 || stationCallIndex < 0)
         {
             failure = "could not locate Recipe.GetAmount and GetCurrentCraftingStation anchors";
             return false;
@@ -384,18 +384,18 @@ internal static class InventoryGuiCookingProductionBonusPatch
         }
 
         int stationStoreIndex = stationCallIndex + 1;
-        int bonusZeroIndex = stationCallIndex + 2;
-        int bonusStoreIndex = stationCallIndex + 3;
-        if (bonusStoreIndex >= codes.Count
-            || !TryGetStoredLocal(codes[stationStoreIndex], out int stationLocal)
-            || !IsLoadConstantZero(codes[bonusZeroIndex])
-            || !TryGetStoredLocal(codes[bonusStoreIndex], out int bonusLocal))
+        if (stationStoreIndex >= codes.Count
+            || !TryGetStoredLocal(codes[stationStoreIndex], out int stationLocal))
         {
-            failure = "the vanilla crafting-bonus local initialization changed";
+            failure = "could not resolve the current crafting-station local";
             return false;
         }
 
-        int randomValueIndex = FindCall(codes, RandomValueGetter, bonusStoreIndex + 1);
+        // 1.0.7 resolves the station before GetAmount, then checks requirements
+        // before initializing the bonus. Locate the bonus by its accumulation,
+        // rather than assuming it immediately follows the station store.
+        int anchorsEnd = Math.Max(getAmountCallIndex + 1, stationStoreIndex);
+        int randomValueIndex = FindCall(codes, RandomValueGetter, anchorsEnd + 1);
         int bonusChanceIndex = FindFieldLoad(codes, CraftBonusChanceField, randomValueIndex + 1);
         int bonusAmountIndex = FindFieldLoad(codes, CraftBonusAmountField, bonusChanceIndex + 1);
         if (randomValueIndex < 3
@@ -424,6 +424,8 @@ internal static class InventoryGuiCookingProductionBonusPatch
         int resultStoreIndex = bonusAmountIndex + 6;
         if (bonusLoadIndex <= randomValueIndex
             || resultStoreIndex >= codes.Count
+            || !TryGetStoredLocal(codes[bonusStoreAfterIncrementIndex], out int bonusLocal)
+            || bonusLocal == resultLocal
             || !LoadsLocal(codes[bonusLoadIndex], bonusLocal)
             || codes[bonusAmountIndex - 1].opcode != OpCodes.Ldarg_0
             || codes[bonusAmountIndex + 1].opcode != OpCodes.Add
@@ -434,6 +436,31 @@ internal static class InventoryGuiCookingProductionBonusPatch
             || !StoresLocal(codes[resultStoreIndex], resultLocal))
         {
             failure = "the vanilla production-bonus accumulation pattern changed";
+            return false;
+        }
+
+        int bonusStoreIndex = -1;
+        for (int index = anchorsEnd + 1; index + 2 < loopInitializationIndex; index++)
+        {
+            if (!IsLoadConstantZero(codes[index])
+                || !StoresLocal(codes[index + 1], bonusLocal)
+                || !LoadsLocal(codes[index + 2], stationLocal))
+            {
+                continue;
+            }
+
+            if (bonusStoreIndex >= 0)
+            {
+                failure = "the vanilla crafting-bonus initialization is ambiguous";
+                return false;
+            }
+
+            bonusStoreIndex = index + 1;
+        }
+
+        if (bonusStoreIndex < 0)
+        {
+            failure = "could not locate zero initialization of the accumulated crafting bonus";
             return false;
         }
 

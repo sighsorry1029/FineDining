@@ -452,8 +452,8 @@ internal static class IceboxMapPins
             seen.Add(entry.ZdoId);
             bool create = !LocalPins.TryGetValue(entry.ZdoId, out Minimap.PinData? pin) ||
                           pin == null ||
-                          minimap.m_pins == null ||
-                          !minimap.m_pins.Contains(pin);
+                          minimap.Pins() == null ||
+                          !minimap.Pins().Contains(pin);
             if (create)
             {
                 pin = TryAddPin(minimap, entry.Position, _pinType);
@@ -494,25 +494,25 @@ internal static class IceboxMapPins
             RemoveLocalPin(remove[index]);
         }
 
-        minimap.m_pinUpdateRequired = true;
+        minimap.PinUpdateRequired() = true;
     }
 
     private static void EnsureCustomPinType(Minimap minimap, Sprite? icon)
     {
-        if (minimap.m_visibleIconTypes == null || minimap.m_icons == null)
+        if (minimap.VisibleIconTypes() == null || minimap.m_icons == null)
         {
             return;
         }
 
         if (!ReferenceEquals(_pinTypeMinimap, minimap) ||
             (int)_pinType < 0 ||
-            (int)_pinType >= minimap.m_visibleIconTypes.Length)
+            (int)_pinType >= minimap.VisibleIconTypes().Length)
         {
-            int index = minimap.m_visibleIconTypes.Length;
+            int index = minimap.VisibleIconTypes().Length;
             bool[] expanded = new bool[index + 1];
-            Array.Copy(minimap.m_visibleIconTypes, expanded, index);
+            Array.Copy(minimap.VisibleIconTypes(), expanded, index);
             expanded[index] = true;
-            minimap.m_visibleIconTypes = expanded;
+            minimap.VisibleIconTypes() = expanded;
             _pinType = (Minimap.PinType)index;
             _pinTypeMinimap = minimap;
             minimap.m_icons.Add(new Minimap.SpriteData
@@ -670,7 +670,7 @@ internal static class IceboxMapPins
     }
 }
 
-[HarmonyPatch(typeof(Minimap), nameof(Minimap.UpdatePins))]
+[HarmonyPatch(typeof(Minimap), "UpdatePins")]
 internal static class MinimapUpdatePinsIceboxMapPinsPatch
 {
     [HarmonyPostfix]

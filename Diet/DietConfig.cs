@@ -38,7 +38,7 @@ internal static class DietConfig
             configSync,
             ConfigPresentation.Diet,
             "Maximum Food Slots",
-            9,
+            4,
             ConfigPresentation.Synced(
                 "Maximum number of active food slots, from three through nine. Slots unlock from three as the player learns more directly edible Health/Stamina/Eitr foods, up to this limit.",
                 ConfigPresentation.Diet,

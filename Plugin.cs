@@ -9,7 +9,7 @@ using ServerSync;
 namespace FineDining;
 
 [BepInPlugin(ModGUID, ModName, ModVersion)]
-[BepInDependency(Jotunn.Main.ModGuid, "2.29.2")]
+[BepInDependency(JotunnCompatibility.PluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency(
     AzuExtendedPlayerInventoryCompatibility.PluginGuid,
     BepInDependency.DependencyFlags.SoftDependency)]
@@ -29,7 +29,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.0.6";
+    internal const string ModVersion = "1.0.10";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -66,6 +66,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         GeneratedPrefabRegistry.Initialize();
         DietModule.Initialize(Config, ConfigSync);
         StationModule.Initialize(Config, ConfigSync);
+        JotunnCompatibility.Initialize();
         _harmony.PatchAll(Assembly.GetExecutingAssembly());
         AzuExtendedPlayerInventoryCompatibility.TryInstall(_harmony);
         InventorySlotsCompatibility.TryInstall();
@@ -96,6 +97,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        JotunnCompatibility.Shutdown();
         StationModule.Shutdown();
         DietModule.Shutdown();
         ChefResourceMapPolicy.Shutdown();

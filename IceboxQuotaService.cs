@@ -239,7 +239,7 @@ internal static class IceboxQuotaService
         }
 
         Player? localPlayer = Player.m_localPlayer;
-        ZNetView? view = piece.m_nview;
+        ZNetView? view = piece.NetworkView();
         if (localPlayer == null ||
             view == null ||
             !view.IsValid() ||
@@ -355,7 +355,7 @@ internal static class IceboxQuotaService
             }
         }
 
-        List<ZNet.PlayerInfo>? players = ZNet.instance.m_players;
+        List<ZNet.PlayerInfo>? players = ZNet.instance.GetPlayerList();
         if (players == null)
         {
             return false;
@@ -388,8 +388,8 @@ internal static class IceboxQuotaService
             return string.Empty;
         }
 
-        ZDOID characterId = znet.m_characterID;
-        List<ZNet.PlayerInfo>? players = znet.m_players;
+        ZDOID characterId = znet.CharacterId();
+        List<ZNet.PlayerInfo>? players = znet.GetPlayerList();
         if (players != null)
         {
             for (int index = 0; index < players.Count; index++)
@@ -1050,7 +1050,7 @@ internal static class IceboxQuotaService
 
     private static string ResolveAccountIdForCharacter(ZDOID characterId)
     {
-        List<ZNet.PlayerInfo>? players = ZNet.instance?.m_players;
+        List<ZNet.PlayerInfo>? players = ZNet.instance?.GetPlayerList();
         if (players == null)
         {
             return string.Empty;

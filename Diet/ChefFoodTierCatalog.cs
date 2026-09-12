@@ -111,7 +111,7 @@ internal static class ChefFoodTierCatalog
         ObjectDB? objectDb = ObjectDB.instance;
         ZNetScene? scene = ZNetScene.instance;
         if (objectDb?.m_items == null || objectDb.m_recipes == null ||
-            scene?.m_namedPrefabs == null || scene.m_prefabs == null ||
+            scene?.NamedPrefabs() == null || scene.m_prefabs == null ||
             scene.m_nonNetViewPrefabs == null)
         {
             return;
@@ -457,7 +457,7 @@ internal static class ChefFoodTierCatalog
     {
         List<GameObject> result = new();
         HashSet<int> seen = new();
-        AddScenePrefabs(scene.m_namedPrefabs.Values, result, seen);
+        AddScenePrefabs(scene.NamedPrefabs().Values, result, seen);
         AddScenePrefabs(scene.m_prefabs, result, seen);
         AddScenePrefabs(scene.m_nonNetViewPrefabs, result, seen);
         return result;

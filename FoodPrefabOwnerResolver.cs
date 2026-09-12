@@ -5,8 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using BepInEx.Bootstrap;
-using Jotunn.Entities;
-using Jotunn.Utils;
 using UnityEngine;
 
 namespace FineDining;
@@ -148,31 +146,9 @@ internal static class FoodPrefabOwnerResolver
 
         try
         {
-            foreach (CustomPrefab customPrefab in ModRegistry.GetPrefabs())
+            foreach (var entry in JotunnCompatibility.GetOwners())
             {
-                AddJotunnOwner(
-                    customPrefab.Prefab,
-                    customPrefab,
-                    lookupCandidates,
-                    owners);
-            }
-
-            foreach (CustomItem customItem in ModRegistry.GetItems())
-            {
-                AddJotunnOwner(
-                    customItem.ItemPrefab,
-                    customItem,
-                    lookupCandidates,
-                    owners);
-            }
-
-            foreach (CustomPiece customPiece in ModRegistry.GetPieces())
-            {
-                AddJotunnOwner(
-                    customPiece.PiecePrefab,
-                    customPiece,
-                    lookupCandidates,
-                    owners);
+                AddJotunnOwner(entry.Prefab, entry.SourceMod, lookupCandidates, owners);
             }
         }
         catch (Exception exception)
@@ -187,7 +163,7 @@ internal static class FoodPrefabOwnerResolver
 
     private static void AddJotunnOwner(
         GameObject? prefab,
-        CustomEntity customEntity,
+        BepInEx.BepInPlugin? sourceMod,
         HashSet<string> lookupCandidates,
         Dictionary<string, string> owners)
     {
@@ -199,7 +175,7 @@ internal static class FoodPrefabOwnerResolver
             return;
         }
 
-        string pluginGuid = (customEntity.SourceMod?.GUID ?? "").Trim();
+        string pluginGuid = (sourceMod?.GUID ?? "").Trim();
         if (pluginGuid.Length > 0 &&
             Chainloader.PluginInfos.TryGetValue(pluginGuid, out var pluginInfo))
         {
@@ -210,7 +186,7 @@ internal static class FoodPrefabOwnerResolver
             return;
         }
 
-        string pluginName = (customEntity.SourceMod?.Name ?? "").Trim();
+        string pluginName = (sourceMod?.Name ?? "").Trim();
         string ownerName = NormalizeOwnerName(pluginName.Length > 0 ? pluginName : pluginGuid);
         if (!ownerName.Equals(UnknownOwnerName, StringComparison.OrdinalIgnoreCase))
         {

@@ -25,11 +25,11 @@ internal static class CookingSkillTooltipPanel
 
         if (binding.Tooltip != null)
         {
-            binding.Tooltip.m_anchor = binding.OriginalAnchor;
-            binding.Tooltip.m_fixedPosition = binding.OriginalFixedPosition;
+            binding.Tooltip.Anchor() = binding.OriginalAnchor;
+            binding.Tooltip.FixedPosition() = binding.OriginalFixedPosition;
         }
 
-        if (ReferenceEquals(UITooltip.m_current, binding.Tooltip))
+        if (ReferenceEquals(GameAccess.CurrentTooltip, binding.Tooltip))
         {
             UITooltip.HideTooltip();
         }
@@ -70,8 +70,8 @@ internal static class CookingSkillTooltipPanel
 
         _binding = new Binding(dialog, panel, row, canvas, canvasRect, tooltip);
         // Gamepad tooltips must also stay outside the scroll viewport's mask.
-        tooltip.m_anchor = canvasRect;
-        tooltip.m_fixedPosition = Vector2.zero;
+        tooltip.Anchor() = canvasRect;
+        tooltip.FixedPosition() = Vector2.zero;
     }
 
     private static RectTransform? FindSkillPanel(SkillsDialog dialog)
@@ -97,7 +97,7 @@ internal static class CookingSkillTooltipPanel
     {
         Binding? binding = _binding;
         if (binding == null || !ReferenceEquals(binding.Tooltip, tooltip) ||
-            UITooltip.m_current != tooltip || UITooltip.m_tooltip == null)
+            GameAccess.CurrentTooltip != tooltip || GameAccess.TooltipObject == null)
         {
             return;
         }
@@ -113,7 +113,7 @@ internal static class CookingSkillTooltipPanel
                 return;
             }
 
-            GameObject root = UITooltip.m_tooltip;
+            GameObject root = GameAccess.TooltipObject;
             if (!root.activeSelf)
             {
                 return; // Preserve vanilla's mouse hover delay and gamepad timing.
@@ -125,8 +125,8 @@ internal static class CookingSkillTooltipPanel
                 if (binding.View == null)
                 {
                     // No compatible Text child: leave the unmodified clone visible in its original layout.
-                    tooltip.m_anchor = binding.OriginalAnchor;
-                    tooltip.m_fixedPosition = binding.OriginalFixedPosition;
+                    tooltip.Anchor() = binding.OriginalAnchor;
+                    tooltip.FixedPosition() = binding.OriginalFixedPosition;
                     _binding = null;
                     return;
                 }
@@ -196,8 +196,8 @@ internal static class CookingSkillTooltipPanel
             Canvas = canvas;
             CanvasRect = canvasRect;
             Tooltip = tooltip;
-            OriginalAnchor = tooltip.m_anchor;
-            OriginalFixedPosition = tooltip.m_fixedPosition;
+            OriginalAnchor = tooltip.Anchor();
+            OriginalFixedPosition = tooltip.FixedPosition();
         }
     }
 
@@ -484,8 +484,8 @@ internal static class CookingSkillTooltipPatch
                 tooltip.Set(
                     tooltip.m_topic,
                     text,
-                    tooltip.m_anchor,
-                    tooltip.m_fixedPosition);
+                    tooltip.Anchor(),
+                    tooltip.FixedPosition());
             }
 
             CookingSkillTooltipPanel.Bind(__instance, tooltip);
@@ -509,11 +509,11 @@ internal static class CookingSkillTooltipPatch
         int cookingIndex,
         string cookingDescription)
     {
-        if (dialog.m_elements != null &&
+        if (dialog.Elements() != null &&
             cookingIndex >= 0 &&
-            cookingIndex < dialog.m_elements.Count)
+            cookingIndex < dialog.Elements().Count)
         {
-            UITooltip? indexedTooltip = dialog.m_elements[cookingIndex]?
+            UITooltip? indexedTooltip = dialog.Elements()[cookingIndex]?
                 .GetComponentInChildren<UITooltip>();
             if (indexedTooltip != null &&
                 CookingSkillTooltipText.MatchesSkillDescription(
@@ -559,7 +559,7 @@ internal static class CookingSkillTooltipPatch
     }
 }
 
-[HarmonyPatch(typeof(UITooltip), nameof(UITooltip.UpdateTextElements))]
+[HarmonyPatch(typeof(UITooltip), "UpdateTextElements")]
 internal static class CookingSkillTooltipAlignmentPatch
 {
     [HarmonyPostfix]
@@ -568,14 +568,14 @@ internal static class CookingSkillTooltipAlignmentPatch
     {
         if (__instance == null
             || !CookingSkillTooltipText.HasFineDiningHeading(__instance.m_text)
-            || UITooltip.m_current != null && UITooltip.m_current != __instance
-            || UITooltip.m_tooltip == null)
+            || GameAccess.CurrentTooltip != null && GameAccess.CurrentTooltip != __instance
+            || GameAccess.TooltipObject == null)
         {
             return;
         }
 
         TMP_Text[] textElements =
-            UITooltip.m_tooltip.GetComponentsInChildren<TMP_Text>(true);
+            GameAccess.TooltipObject.GetComponentsInChildren<TMP_Text>(true);
         foreach (TMP_Text textElement in textElements)
         {
             if (textElement != null
@@ -588,7 +588,7 @@ internal static class CookingSkillTooltipAlignmentPatch
     }
 }
 
-[HarmonyPatch(typeof(UITooltip), nameof(UITooltip.LateUpdate))]
+[HarmonyPatch(typeof(UITooltip), "LateUpdate")]
 internal static class CookingSkillTooltipPositionPatch
 {
     [HarmonyPostfix]
@@ -596,7 +596,7 @@ internal static class CookingSkillTooltipPositionPatch
     private static void Postfix(UITooltip __instance) => CookingSkillTooltipPanel.UpdateVisibleTooltip(__instance);
 }
 
-[HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.OnDestroy))]
+[HarmonyPatch(typeof(InventoryGui), "OnDestroy")]
 internal static class CookingSkillTooltipDestroyPatch
 {
     [HarmonyPrefix]

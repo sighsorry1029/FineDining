@@ -13,7 +13,6 @@
         <FileAlignment>512</FileAlignment>
         <LangVersion>12.0</LangVersion>
         <Nullable>enable</Nullable>
-        <JotunnVersion>2.29.2</JotunnVersion>
         <DeployLocal Condition="'$(DeployLocal)' == ''">false</DeployLocal>
         <DeployToGame Condition="'$(DeployToGame)' == ''">$(DeployLocal)</DeployToGame>
         <AfterTargets Condition="'$(AfterTargets)' == ''">ILRepacker</AfterTargets>
@@ -47,7 +46,6 @@
                 <BepInExPath Condition="!Exists('$(BepInExPath)') AND Exists('$(GamePath)')">$(GamePath)/BepInEx</BepInExPath>
                 <CorlibPath Condition="!Exists('$(CorlibPath)') AND Exists('$(GamePath)')">$(GamePath)\valheim_Data\Managed</CorlibPath>
                 <CorlibPath Condition="!Exists('$(CorlibPath)')">$(GamePath)/unstripped_corelib</CorlibPath>
-                <PublicizedAssembliesPath Condition="!Exists('$(PublicizedAssembliesPath)') AND Exists('$(CorlibPath)')">$(CorlibPath)/publicized_assemblies</PublicizedAssembliesPath>
             </PropertyGroup>
         </When>
         <When Condition="($(OS) == 'Windows_NT') AND $(GamePath) == ''">
@@ -62,7 +60,6 @@
                 <BepInExPath Condition="!Exists('$(BepInExPath)')AND Exists('$(GamePath)')">$(GamePath)\BepInEx</BepInExPath>
                 <CorlibPath Condition="!Exists('$(CorlibPath)') AND Exists('$(GamePath)')">$(GamePath)\valheim_Data\Managed</CorlibPath>
                 <CorlibPath Condition="!Exists('$(CorlibPath)') AND Exists('$(GamePath)')">$(GamePath)\unstripped_corlib</CorlibPath>
-                <PublicizedAssembliesPath Condition="!Exists('$(PublicizedAssembliesPath)') AND Exists('$(GamePath)')">$(GamePath)\valheim_Data\Managed\publicized_assemblies</PublicizedAssembliesPath>
             </PropertyGroup>
         </When>
     </Choose>
@@ -74,23 +71,16 @@
             <HintPath>$(BepInExPath)\core\0Harmony.dll</HintPath>
         </Reference>
         <Reference Include="assembly_guiutils">
-            <HintPath>$(PublicizedAssembliesPath)\assembly_guiutils_publicized.dll</HintPath>
+            <HintPath>$(CorlibPath)\assembly_guiutils.dll</HintPath>
         </Reference>
         <Reference Include="assembly_utils">
-            <HintPath>$(PublicizedAssembliesPath)\assembly_utils_publicized.dll</HintPath>
+            <HintPath>$(CorlibPath)\assembly_utils.dll</HintPath>
         </Reference>
         <Reference Include="assembly_valheim">
-            <HintPath>$(PublicizedAssembliesPath)\assembly_valheim_publicized.dll</HintPath>
+            <HintPath>$(CorlibPath)\assembly_valheim.dll</HintPath>
         </Reference>
         <Reference Include="BepInEx">
             <HintPath>$(BepInExPath)\core\BepInEx.dll</HintPath>
-        </Reference>
-        <!-- Jotunn is a required external runtime dependency. Keep it out of the
-             FineDining output and ILRepack while compiling against the pinned
-             NuGet package below. -->
-        <Reference Include="Jotunn">
-            <HintPath>$(PkgJotunnLib)\lib\net462\Jotunn.dll</HintPath>
-            <Private>False</Private>
         </Reference>
         <Reference Include="ServerSync">
             <HintPath>Libs\ServerSync.dll</HintPath>
@@ -105,6 +95,7 @@
         <Reference Include="UnityEngine">
             <HintPath>$(CorlibPath)\UnityEngine.dll</HintPath>
         </Reference>
+        <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(CorlibPath)\UnityEngine.ImageConversionModule.dll</HintPath></Reference>
         <Reference Include="UnityEngine.AssetBundleModule">
             <HintPath>$(CorlibPath)\UnityEngine.AssetBundleModule.dll</HintPath>
         </Reference>
@@ -143,7 +134,7 @@
         </Reference>
     </ItemGroup>
     <ItemGroup>
-        <Compile Include="**\*.cs" Exclude="bin\**;obj\**"/>
+        <Compile Include="**\*.cs" Exclude="bin\**;obj\**;tests\**;tools\**"/>
     </ItemGroup>
     <ItemGroup>
         <Content Include=".gitignore"/>
@@ -167,10 +158,6 @@
         <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44.1">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="JotunnLib" Version="$(JotunnVersion)" GeneratePathProperty="true">
-          <PrivateAssets>all</PrivateAssets>
-          <ExcludeAssets>all</ExcludeAssets>
         </PackageReference>
         <PackageReference Include="YamlDotNet" Version="16.3.0" GeneratePathProperty="true">
           <PrivateAssets>all</PrivateAssets>

@@ -36,6 +36,8 @@ internal static class FermenterCookingBonusSystem
             modifiers: null);
     private static readonly FieldInfo? DelayedTapItemField =
         typeof(Fermenter).GetField("m_delayedTapItem", InstanceMemberFlags);
+    private static readonly FieldInfo? DelayedTapCheatedField =
+        typeof(Fermenter).GetField("m_delayedTapItemCheated", InstanceMemberFlags);
 
     private static ConditionalWeakTable<Fermenter, ClientTapRequest> ClientRequests = new();
     private static ConditionalWeakTable<Fermenter, OwnerTapContext> OwnerTapContexts = new();
@@ -269,7 +271,9 @@ internal static class FermenterCookingBonusSystem
                     UnityObject.Instantiate<ItemDrop>(
                         conversion.m_to,
                         spawnPosition,
-                        Quaternion.identity));
+                        Quaternion.identity),
+                    ((DelayedTapCheatedField!.GetValue(fermenter) is true) || GetNView(fermenter).GetZDO().GetBool(ZDOVars.s_cheated))
+                    && !PlayerProfile.s_bypassCheatChecks);
                 spawnedBonusItems++;
             }
         }
@@ -379,9 +383,9 @@ internal static class FermenterCookingBonusSystem
             return;
         }
 
-        string content = GetContent(nview);
+        int content = GetContent(nview);
         Fermenter.ItemConversion? conversion = GetItemConversion(fermenter, content);
-        if (string.IsNullOrEmpty(content)
+        if (content == 0
             || conversion == null
             || (UnityObject)(object)conversion.m_to == null
             || conversion.m_producedItems <= 0)
@@ -416,7 +420,7 @@ internal static class FermenterCookingBonusSystem
         try
         {
             RpcTapMethod!.Invoke(fermenter, new object[] { sender });
-            if (!string.IsNullOrEmpty(GetContent(nview))
+            if (GetContent(nview) != 0
                 && !TryRecoverScheduledTap(
                     fermenter,
                     batchTicks,
@@ -537,9 +541,10 @@ internal static class FermenterCookingBonusSystem
             long currentBatchTicks = FermenterEnvironmentSpeedSystem.GetBatchToken(fermenter);
             if (currentBatchTicks == 0L)
             {
-                if (!string.IsNullOrEmpty(GetContent(nview)))
+                if (GetContent(nview) != 0)
                 {
-                    zdo.Set(ZDOVars.s_content, string.Empty);
+                    zdo.Set(ZDOVars.s_content, 0);
+                    zdo.Set(ZDOVars.s_cheatedQueued, false);
                 }
 
                 FermenterEnvironmentSpeedSystem.NotifyBatchCleared(fermenter);
@@ -551,7 +556,8 @@ internal static class FermenterCookingBonusSystem
                 return false;
             }
 
-            zdo.Set(ZDOVars.s_content, string.Empty);
+            zdo.Set(ZDOVars.s_content, 0);
+            zdo.Set(ZDOVars.s_cheatedQueued, false);
             FermenterEnvironmentSpeedSystem.NotifyBatchCleared(fermenter);
             return true;
         }
@@ -652,10 +658,10 @@ internal static class FermenterCookingBonusSystem
         return fermenter.GetComponent<ZNetView>();
     }
 
-    private static string GetContent(ZNetView nview)
+    private static int GetContent(ZNetView nview)
     {
         ZDO zdo = nview.GetZDO();
-        return zdo == null ? string.Empty : zdo.GetString(ZDOVars.s_content);
+        return zdo == null ? 0 : zdo.GetInt(ZDOVars.s_content);
     }
 
     private static bool IsReady(Fermenter fermenter)
@@ -672,22 +678,22 @@ internal static class FermenterCookingBonusSystem
         }
     }
 
-    private static string GetDelayedTapItem(Fermenter fermenter)
+    private static int GetDelayedTapItem(Fermenter fermenter)
     {
         try
         {
-            return DelayedTapItemField?.GetValue(fermenter) as string ?? string.Empty;
+            return DelayedTapItemField?.GetValue(fermenter) is int hash ? hash : 0;
         }
         catch (Exception exception)
         {
             LogCompletionFailure(exception);
-            return string.Empty;
+            return 0;
         }
     }
 
     private static Fermenter.ItemConversion? GetItemConversion(
         Fermenter fermenter,
-        string itemName)
+        int itemHash)
     {
         if (fermenter.m_conversion == null)
         {
@@ -697,7 +703,7 @@ internal static class FermenterCookingBonusSystem
         foreach (Fermenter.ItemConversion conversion in fermenter.m_conversion)
         {
             if (conversion?.m_from != null
-                && conversion.m_from.gameObject.name == itemName)
+                && conversion.m_from.gameObject.name.GetStableHashCode() == itemHash)
             {
                 return conversion;
             }
@@ -710,7 +716,8 @@ internal static class FermenterCookingBonusSystem
     {
         if (GetStatusMethod != null
             && RpcTapMethod != null
-            && DelayedTapItemField != null)
+            && DelayedTapItemField?.FieldType == typeof(int)
+            && DelayedTapCheatedField?.FieldType == typeof(bool))
         {
             return true;
         }

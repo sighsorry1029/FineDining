@@ -14,7 +14,8 @@ namespace FineDining;
         typeof(int),
         typeof(bool),
         typeof(float),
-        typeof(int)
+        typeof(int),
+        typeof(bool)
     })]
 internal static class DietTooltipPatch
 {
@@ -137,7 +138,8 @@ internal static class DietTooltipPatch
         typeof(int),
         typeof(bool),
         typeof(float),
-        typeof(int)
+        typeof(int),
+        typeof(bool)
     })]
 internal static class DietPukeTooltipPatch
 {

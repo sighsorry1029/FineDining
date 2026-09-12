@@ -2,7 +2,7 @@ using HarmonyLib;
 
 namespace FineDining;
 
-[HarmonyPatch(typeof(Hud), nameof(Hud.UpdateFood))]
+[HarmonyPatch(typeof(Hud), "UpdateFood")]
 internal static class DietHudPatches
 {
     [HarmonyPostfix]

@@ -2,6 +2,11 @@
 
 FineDining is a server-synchronized Valheim food overhaul focused on food storage, diet variety, and the Cooking skill.
 
+The current source targets Valheim 1.0.7 and BepInExPack 5.4.2350. Jotunn is
+optional; FineDining registers its own content and can observe other mods'
+Jotunn content when available. See [the compatibility record](Docs/Valheim-1.0.7.md)
+for verification status and integration limits of the current development patch.
+
 ## Showcase
 
 ### Spoilage and preservation
@@ -151,7 +156,7 @@ Ingredient freshness is not inherited by recipes, CookingStation output, Ferment
 
 ## Diet and Chef's Choice
 
-`Maximum Food Slots` accepts any integer from `3` through `9` and defaults to `9`. Slots unlock as the player learns directly edible Health/Stamina/Eitr foods, stopping at the configured maximum:
+`Maximum Food Slots` accepts any integer from `3` through `9` and defaults to `4`. Slots unlock as the player learns directly edible Health/Stamina/Eitr foods, stopping at the configured maximum:
 
 ```text
 Known foods  0-6  7-9  10-12  13-15  16-18  19-21  22+
@@ -175,6 +180,14 @@ Hover an eaten food to see its name and **Net effect ×N** above the recent-food
 Chef's Choice only uses consumables with positive health, stamina, or eitr. Exact exclusions belong in `chefChoiceBlacklist` in `Spoilage.yml`.
 
 `ResourceMap.yml` defines Chef food tiers from lowest to highest. The server or single-player host creates, hot-reloads, and synchronizes it. Connected clients ignore their local copy, and invalid edits keep the last valid map.
+
+The default map includes DeepNorth food ingredients after AshLands. Existing
+ResourceMap files are preserved on update; merge the new DeepNorth section from
+`Resources/Defaults/ResourceMap.yml` into your server or single-player map to
+use it. Adding a tier also changes the relative selection weights of earlier
+tiers. It does not change the Chef multiplier formula or reroll existing valid
+Chef entries. `FoodTier.reference.yml` is regenerated for diagnosis, not edited
+as configuration.
 
 ## Cooking and stations
 

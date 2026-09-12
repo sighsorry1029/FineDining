@@ -1,7 +1,6 @@
-param(
+﻿param(
     [string] $AzuEpiAssemblyPath = '',
     [string] $AssemblyPath = '',
-    [string] $JotunnAssemblyPath = '',
     [string] $GameDirectory = 'C:\Program Files (x86)\Steam\steamapps\common\Valheim'
 )
 
@@ -22,10 +21,6 @@ if ($PSVersionTable.PSEdition -eq 'Core' -and $env:OS -eq 'Windows_NT')
     if (-not [string]::IsNullOrWhiteSpace($AssemblyPath))
     {
         $relayArguments += @('-AssemblyPath', $AssemblyPath)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
-    {
-        $relayArguments += @('-JotunnAssemblyPath', $JotunnAssemblyPath)
     }
     if (-not [string]::IsNullOrWhiteSpace($GameDirectory))
     {
@@ -62,13 +57,7 @@ $azuEpiAssemblyPath = (Resolve-Path -LiteralPath $AzuEpiAssemblyPath).Path
 $assemblyDirectory = Split-Path -Parent $assemblyPath
 $azuEpiDirectory = Split-Path -Parent $azuEpiAssemblyPath
 $managedDirectory = Join-Path $GameDirectory 'valheim_Data\Managed'
-$publicizedDirectory = Join-Path $managedDirectory 'publicized_assemblies'
 $bepInExCoreDirectory = Join-Path $GameDirectory 'BepInEx\core'
-$jotunnDirectory = Join-Path $env:USERPROFILE '.nuget\packages\jotunnlib\2.29.2\lib\net462'
-if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
-{
-    $jotunnDirectory = Split-Path -Parent (Resolve-Path -LiteralPath $JotunnAssemblyPath).Path
-}
 
 [AppDomain]::CurrentDomain.add_AssemblyResolve({
     param($sender, $eventArgs)
@@ -77,10 +66,8 @@ if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
     foreach ($directory in @(
         $assemblyDirectory,
         $azuEpiDirectory,
-        $jotunnDirectory,
         $bepInExCoreDirectory,
-        $managedDirectory,
-        $publicizedDirectory))
+        $managedDirectory))
     {
         $candidate = Join-Path $directory $fileName
         if (Test-Path -LiteralPath $candidate)
@@ -88,14 +75,7 @@ if (-not [string]::IsNullOrWhiteSpace($JotunnAssemblyPath))
             return [Reflection.Assembly]::UnsafeLoadFrom($candidate)
         }
 
-        if ($fileName -like 'assembly_*.dll')
-        {
-            $candidate = Join-Path $directory ($fileName -replace '\.dll$', '_publicized.dll')
-            if (Test-Path -LiteralPath $candidate)
-            {
-                return [Reflection.Assembly]::UnsafeLoadFrom($candidate)
-            }
-        }
+
     }
 
     return $null
@@ -108,6 +88,28 @@ function Assert-True([bool] $Condition, [string] $Message)
         throw "Assertion failed: $Message"
     }
 }
+
+# Diagnose stale optional DLLs before Harmony's IL importer obscures a missing member.
+$cecilPath = Join-Path $env:USERPROFILE '.nuget\packages\mono.cecil\0.11.6\lib\netstandard2.0\Mono.Cecil.dll'
+Add-Type -Path $cecilPath
+$resolver = New-Object Mono.Cecil.DefaultAssemblyResolver
+$resolver.AddSearchDirectory($managedDirectory)
+$resolver.AddSearchDirectory($bepInExCoreDirectory)
+$resolver.AddSearchDirectory($azuEpiDirectory)
+$reader = New-Object Mono.Cecil.ReaderParameters
+$reader.AssemblyResolver = $resolver
+$azuMetadata = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($azuEpiAssemblyPath, $reader)
+try {
+    $owner = $azuMetadata.MainModule.GetType('AzuEPI.Game.Patches.InventoryPatches')
+    $recovery = $owner.NestedTypes | Where-Object Name -eq 'Load_TrackAndFixHiddenItems_Patch'
+    $postfix = $recovery.Methods | Where-Object Name -eq 'Postfix'
+    foreach ($instruction in $postfix.Body.Instructions) {
+        $member = $instruction.Operand
+        if ($member -is [Mono.Cecil.MemberReference] -and $member.DeclaringType.Scope.Name -like 'assembly_*' -and -not $member.Resolve()) {
+            throw "Optional AzuEPI reference is incompatible with this game: $member at IL offset $($instruction.Offset). Update the external reference before running its transpiler smoke test."
+        }
+    }
+} finally { $azuMetadata.Dispose(); $resolver.Dispose() }
 
 $fineDiningAssembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 $azuEpiAssembly = [Reflection.Assembly]::UnsafeLoadFrom($azuEpiAssemblyPath)
@@ -142,7 +144,8 @@ Assert-True ($null -ne $getOriginalInstructions) 'Harmony original-instruction r
 $originalInstructionArguments = [object[]]::new(2)
 $originalInstructionArguments[0] = $target
 $originalInstructionArguments[1] = $null
-$originalInstructions = $getOriginalInstructions.Invoke($null, $originalInstructionArguments)
+try { $originalInstructions = $getOriginalInstructions.Invoke($null, $originalInstructionArguments) }
+catch { throw $_.Exception.InnerException.ToString() }
 
 $compatibilityType = $fineDiningAssembly.GetType(
     'FineDining.AzuExtendedPlayerInventoryCompatibility',

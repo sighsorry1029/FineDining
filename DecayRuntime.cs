@@ -89,13 +89,13 @@ internal static class DecayRuntime
 
     internal static void RegisterContainer(Container? container)
     {
-        if (container == null || container.m_inventory == null)
+        if (container == null || container.GetInventory() == null)
         {
             return;
         }
 
         bool alreadyRegistered = ContainersByInventory.TryGetValue(
-                                     container.m_inventory,
+                                     container.GetInventory(),
                                      out WeakReference<Container> existing) &&
                                  existing.TryGetTarget(out Container existingContainer) &&
                                  ReferenceEquals(existingContainer, container);
@@ -104,8 +104,8 @@ internal static class DecayRuntime
             return;
         }
 
-        ContainersByInventory[container.m_inventory] = new WeakReference<Container>(container);
-        GetState(container.m_inventory).Dirty = true;
+        ContainersByInventory[container.GetInventory()] = new WeakReference<Container>(container);
+        GetState(container.GetInventory()).Dirty = true;
     }
 
     internal static void ContainerLoaded(Container? container)
@@ -116,9 +116,9 @@ internal static class DecayRuntime
             return;
         }
 
-        InventoryState state = GetState(container.m_inventory);
+        InventoryState state = GetState(container.GetInventory());
         state.Dirty = true;
-        ProcessIfDue(container.m_inventory, nowTicks);
+        ProcessIfDue(container.GetInventory(), nowTicks);
     }
 
     internal static void MarkDirty(Inventory? inventory)
@@ -148,12 +148,12 @@ internal static class DecayRuntime
         // A policy reload can turn a previously disabled/not-tracked placed
         // food into a tracked one. Re-register loaded ItemDrop pieces so they
         // are reconsidered without scanning world ZDOs or waiting for reload.
-        if (ItemDrop.s_instances == null)
+        if (GameAccess.ItemInstances == null)
         {
             return;
         }
 
-        foreach (ItemDrop drop in ItemDrop.s_instances.ToArray())
+        foreach (ItemDrop drop in GameAccess.ItemInstances.ToArray())
         {
             if (drop != null && IsPlacedGroundDrop(drop))
             {
@@ -453,9 +453,9 @@ internal static class DecayRuntime
     internal static void ComposeGroundStackExpiry(ItemDrop? destination, ItemDrop? source)
     {
         if (destination == null || source == null ||
-            destination.m_nview == null || source.m_nview == null ||
-            !destination.m_nview.IsValid() || !source.m_nview.IsValid() ||
-            !destination.m_nview.IsOwner() || !source.m_nview.IsOwner())
+            destination.NetworkView() == null || source.NetworkView() == null ||
+            !destination.NetworkView().IsValid() || !source.NetworkView().IsValid() ||
+            !destination.NetworkView().IsOwner() || !source.NetworkView().IsOwner())
         {
             return;
         }
@@ -693,7 +693,7 @@ internal static class DecayRuntime
 
     internal static bool IsContainerLoading(Inventory? inventory)
     {
-        return TryGetContainer(inventory, out Container? container) && container!.m_loading;
+        return TryGetContainer(inventory, out Container? container) && container!.Loading();
     }
 
     internal static bool TryGetContainer(Inventory? inventory, out Container? container)
@@ -734,7 +734,7 @@ internal static class DecayRuntime
 
     private static bool IsPolicyReadyForInventory(Inventory inventory)
     {
-        foreach (ItemDrop.ItemData item in inventory.m_inventory)
+        foreach (ItemDrop.ItemData item in inventory.GetAllItems())
         {
             if (item != null &&
                 !SpoilageClock.IsSpoiled(item) &&
@@ -752,7 +752,7 @@ internal static class DecayRuntime
         List<Inventory>? staleInventories = null;
         foreach (KeyValuePair<Inventory, WeakReference<Container>> pair in ContainersByInventory)
         {
-            if (!pair.Value.TryGetTarget(out Container container) || container == null || container.m_inventory == null)
+            if (!pair.Value.TryGetTarget(out Container container) || container == null || container.GetInventory() == null)
             {
                 staleInventories ??= new List<Inventory>();
                 staleInventories.Add(pair.Key);
@@ -1169,7 +1169,7 @@ internal static class DecayRuntime
     {
         try
         {
-            return drop.m_nview != null && drop.m_nview.IsValid();
+            return drop.NetworkView() != null && drop.NetworkView().IsValid();
         }
         catch
         {
@@ -1181,7 +1181,7 @@ internal static class DecayRuntime
     {
         try
         {
-            return HasValidGroundView(drop) && drop.m_nview.IsOwner();
+            return HasValidGroundView(drop) && drop.NetworkView().IsOwner();
         }
         catch
         {
@@ -1198,7 +1198,7 @@ internal static class DecayRuntime
                 return false;
             }
 
-            return drop.m_nview.GetZDO().GetBool(ZDOVars.s_piece) || drop.IsPiece();
+            return drop.NetworkView().GetZDO().GetBool(ZDOVars.s_piece) || drop.IsPiece();
         }
         catch
         {
@@ -1216,7 +1216,7 @@ internal static class DecayRuntime
             // cache until the next load; the persisted ZDO is authoritative.
             return drop != null &&
                    IsPlacedGroundDrop(drop) &&
-                   drop.m_nview.GetZDO().GetLong(ZDOVars.s_creator, 0L) == 0L;
+                   drop.NetworkView().GetZDO().GetLong(ZDOVars.s_creator, 0L) == 0L;
         }
         catch
         {
@@ -1370,16 +1370,16 @@ internal static class DecayRuntime
             // Modded Fish pickup items may be separate ItemDrop prefabs without
             // a Fish component. Use their existing water-only Floating state as
             // a bounded fallback; do not treat tar as preservation.
-            Floating? floating = drop.m_floating ?? drop.GetComponent<Floating>();
-            if (floating == null || floating.m_waterLevel <= -10000f)
+            Floating? floating = drop.FloatingComponent() ?? drop.GetComponent<Floating>();
+            if (floating == null || floating.WaterLevel() <= -10000f)
             {
                 return false;
             }
 
-            float sampleY = floating.m_body != null
-                ? floating.m_body.worldCenterOfMass.y
+            float sampleY = floating.Body() != null
+                ? floating.Body().worldCenterOfMass.y
                 : drop.transform.position.y;
-            return sampleY - floating.m_waterLevel - floating.m_waterLevelOffset <= 0.05f;
+            return sampleY - floating.WaterLevel() - floating.m_waterLevelOffset <= 0.05f;
         }
         catch
         {
@@ -1458,7 +1458,7 @@ internal static class DecayRuntime
             return pausedClocks;
         }
 
-        foreach (ItemDrop.ItemData item in inventory.m_inventory)
+        foreach (ItemDrop.ItemData item in inventory.GetAllItems())
         {
             if (TryGetSpoilageClock(item, nowTicks, out long remainingTicks, out bool paused) && paused &&
                 item.m_customData.TryGetValue(ExpiryDataKey, out string originalValue))
@@ -1494,7 +1494,7 @@ internal static class DecayRuntime
     {
         try
         {
-            return container.m_nview != null && container.m_nview.IsValid() && container.m_nview.IsOwner();
+            return container.NetworkView() != null && container.NetworkView().IsValid() && container.NetworkView().IsOwner();
         }
         catch
         {
@@ -1527,7 +1527,7 @@ internal static class DecayRuntime
         bool isPlayerInventory = IsLocalPlayerInventory(inventory);
         try
         {
-            List<ItemDrop.ItemData> items = inventory.m_inventory;
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
             for (int index = items.Count - 1; index >= 0; index--)
             {
                 ItemDrop.ItemData item = items[index];
@@ -1725,7 +1725,7 @@ internal static class DecayRuntime
         GameObject? replacementPrefab = ResolveItemPrefab(objectDb, configuredPrefab);
         if (replacementPrefab == null && generatedReplacement)
         {
-            // Jotunn had installed the same prefab in both registries. A failed
+            // FineDining had installed the same prefab in both registries. A failed
             // lookup here means a late mutation raced this expiry pass, so
             // preserve the original and retry next tick.
             return ReplacementResolution.NotReady;
@@ -1772,7 +1772,7 @@ internal static class DecayRuntime
 
         if (resolution == ReplacementResolution.Invalid)
         {
-            return inventory.m_inventory.Remove(item);
+            return inventory.GetAllItems().Remove(item);
         }
 
         GameObject replacementPrefab = replacementDrop.gameObject;
@@ -1781,7 +1781,8 @@ internal static class DecayRuntime
         int sourceAmount = Math.Max(0, item.m_stack);
         Vector2i originalPosition = item.m_gridPos;
         int sourceWorldLevel = item.m_worldLevel;
-        if (!inventory.m_inventory.Remove(item))
+        bool sourceCheated = item.m_cheated;
+        if (!inventory.GetAllItems().Remove(item))
         {
             return false;
         }
@@ -1793,7 +1794,7 @@ internal static class DecayRuntime
 
         int maxStack = Math.Max(1, template.m_shared.m_maxStackSize);
         int remaining = CalculateReplacementAmount(sourceAmount);
-        ItemDrop.ItemData stackTemplate = CreateReplacement(template, replacementPrefab, sourceWorldLevel);
+        ItemDrop.ItemData stackTemplate = CreateReplacement(template, replacementPrefab, sourceWorldLevel, sourceCheated);
         // Preserve the source count in its original slot even when the
         // replacement's nominal max stack is smaller. Inventory.AddItem's
         // positioned overload accepts that intentional over-stack for an
@@ -1804,7 +1805,7 @@ internal static class DecayRuntime
 
         if (remaining > 0)
         {
-            foreach (ItemDrop.ItemData existing in inventory.m_inventory)
+            foreach (ItemDrop.ItemData existing in inventory.GetAllItems())
             {
                 if (remaining <= 0)
                 {
@@ -1824,7 +1825,7 @@ internal static class DecayRuntime
 
         while (remaining > 0)
         {
-            ItemDrop.ItemData extra = CreateReplacement(template, replacementPrefab, sourceWorldLevel);
+            ItemDrop.ItemData extra = CreateReplacement(template, replacementPrefab, sourceWorldLevel, sourceCheated);
             Vector2i position = inventory.FindEmptySlot(inventory.TopFirst(extra));
             if (position.x < 0)
             {
@@ -1864,7 +1865,7 @@ internal static class DecayRuntime
             return;
         }
 
-        ZDO sourceZdo = drop.m_nview.GetZDO();
+        ZDO sourceZdo = drop.NetworkView().GetZDO();
         ZDOID sourceZdoId = sourceZdo.m_uid;
         if (!TryGetExpiryTicks(drop.m_itemData, out long sourceExpiryTicks))
         {
@@ -1890,7 +1891,7 @@ internal static class DecayRuntime
         int sourceAmount = Math.Max(0, sourceItem?.m_stack ?? 0);
         if (sourceItem == null || sourceAmount <= 0)
         {
-            drop.m_nview.Destroy();
+            drop.NetworkView().Destroy();
             return;
         }
 
@@ -1932,7 +1933,7 @@ internal static class DecayRuntime
         string sourcePrefab = FoodIdentity.GetCanonicalPrefabName(sourceItem);
         if (resolution == ReplacementResolution.Invalid)
         {
-            drop.m_nview.Destroy();
+            drop.NetworkView().Destroy();
             return;
         }
 
@@ -1955,6 +1956,7 @@ internal static class DecayRuntime
         }
 
         int sourceWorldLevel = sourceItem.m_worldLevel;
+        bool sourceCheated = sourceItem.m_cheated;
         int replacementAmount = CalculateReplacementAmount(sourceAmount);
         // ItemDrop.DropItem accepts the preserved count even when it exceeds
         // the replacement's nominal stack limit, so one expired ground stack
@@ -1962,7 +1964,7 @@ internal static class DecayRuntime
         ItemDrop.ItemData replacementTemplate = CreateReplacement(
             template,
             replacementPrefab,
-            sourceWorldLevel);
+            sourceWorldLevel, sourceCheated);
 
         ItemDrop? spawnedReplacement = null;
         try
@@ -2003,7 +2005,7 @@ internal static class DecayRuntime
             return;
         }
 
-        drop.m_nview.Destroy();
+        drop.NetworkView().Destroy();
     }
 
     private static bool GroundSourceStillMatches(
@@ -2014,7 +2016,7 @@ internal static class DecayRuntime
         int sourceAmount)
     {
         if (!IsOwnedGroundDrop(drop) || IsCreatorlessPlacedDrop(drop) ||
-            drop.m_nview.GetZDO().m_uid != sourceZdoId ||
+            drop.NetworkView().GetZDO().m_uid != sourceZdoId ||
             drop.m_itemData == null || drop.m_itemData.m_stack != sourceAmount ||
             !TryGetExpiryTicks(drop.m_itemData, out long currentExpiryTicks) ||
             currentExpiryTicks != sourceExpiryTicks)
@@ -2038,7 +2040,7 @@ internal static class DecayRuntime
         try
         {
             return HasValidGroundView(drop)
-                ? drop.m_nview.GetZDO().GetLong(ZDOVars.s_spawnTime, 0L)
+                ? drop.NetworkView().GetZDO().GetLong(ZDOVars.s_spawnTime, 0L)
                 : 0L;
         }
         catch
@@ -2054,7 +2056,7 @@ internal static class DecayRuntime
             return;
         }
 
-        replacement.m_nview.GetZDO().Set(ZDOVars.s_spawnTime, sourceSpawnTimeTicks);
+        replacement.NetworkView().GetZDO().Set(ZDOVars.s_spawnTime, sourceSpawnTimeTicks);
     }
 
     private static void DestroySpawnedGroundReplacement(ItemDrop? replacement)
@@ -2066,7 +2068,7 @@ internal static class DecayRuntime
 
         if (IsOwnedGroundDrop(replacement))
         {
-            replacement.m_nview.Destroy();
+            replacement.NetworkView().Destroy();
             return;
         }
 
@@ -2106,11 +2108,13 @@ internal static class DecayRuntime
     private static ItemDrop.ItemData CreateReplacement(
         ItemDrop.ItemData template,
         GameObject prefab,
-        int sourceWorldLevel)
+        int sourceWorldLevel,
+        bool sourceCheated)
     {
         ItemDrop.ItemData replacement = template.Clone();
         replacement.m_dropPrefab = prefab;
         replacement.m_worldLevel = sourceWorldLevel;
+        replacement.m_cheated = sourceCheated;
         replacement.m_equipped = false;
         replacement.m_customData.Remove(ExpiryDataKey);
         SpoilageClock.ClearSpoiled(replacement);
@@ -2149,6 +2153,7 @@ internal static class DecayRuntime
     {
         return candidate.m_shared.m_name == template.m_shared.m_name &&
                candidate.m_quality == template.m_quality &&
+               candidate.m_cheated == template.m_cheated &&
                candidate.m_worldLevel == template.m_worldLevel &&
                candidate.m_stack < candidate.m_shared.m_maxStackSize &&
                CustomDataEqual(candidate.m_customData, template.m_customData);

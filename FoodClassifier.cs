@@ -25,7 +25,7 @@ internal static class FoodClassifier
             ObjectDbId = objectDb.GetInstanceID();
             ZNetSceneId = scene.GetInstanceID();
             ItemCount = objectDb.m_items.Count;
-            NamedPrefabCount = scene.m_namedPrefabs.Count;
+            NamedPrefabCount = scene.NamedPrefabs().Count;
             NetPrefabCount = scene.m_prefabs.Count;
             NonNetPrefabCount = scene.m_nonNetViewPrefabs.Count;
             FarmingHarvestPrefabs = farmingHarvestPrefabs;
@@ -58,7 +58,7 @@ internal static class FoodClassifier
             ObjectDbId == objectDb.GetInstanceID() &&
             ZNetSceneId == scene.GetInstanceID() &&
             ItemCount == objectDb.m_items.Count &&
-            NamedPrefabCount == scene.m_namedPrefabs.Count &&
+            NamedPrefabCount == scene.NamedPrefabs().Count &&
             NetPrefabCount == scene.m_prefabs.Count &&
             NonNetPrefabCount == scene.m_nonNetViewPrefabs.Count;
     }
@@ -209,10 +209,10 @@ internal static class FoodClassifier
     private static bool IsDatabaseReady(ObjectDB? objectDb, ZNetScene? scene)
     {
         return objectDb != null && objectDb.m_items != null &&
-               scene != null && scene.m_namedPrefabs != null && scene.m_prefabs != null &&
+               scene != null && scene.NamedPrefabs() != null && scene.m_prefabs != null &&
                scene.m_nonNetViewPrefabs != null &&
                objectDb.m_items.Count > 0 &&
-               scene.m_namedPrefabs.Count + scene.m_prefabs.Count + scene.m_nonNetViewPrefabs.Count > 0;
+               scene.NamedPrefabs().Count + scene.m_prefabs.Count + scene.m_nonNetViewPrefabs.Count > 0;
     }
 
     private static ClassificationSnapshot BuildCache(ObjectDB objectDb, ZNetScene scene)
@@ -262,7 +262,7 @@ internal static class FoodClassifier
         List<GameObject> prefabs = new();
         HashSet<int> seenInstanceIds = new();
 
-        AddScenePrefabs(scene.m_namedPrefabs.Values, prefabs, seenInstanceIds);
+        AddScenePrefabs(scene.NamedPrefabs().Values, prefabs, seenInstanceIds);
         AddScenePrefabs(scene.m_prefabs, prefabs, seenInstanceIds);
         AddScenePrefabs(scene.m_nonNetViewPrefabs, prefabs, seenInstanceIds);
         return prefabs;

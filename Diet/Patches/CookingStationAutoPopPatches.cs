@@ -114,7 +114,7 @@ internal static class CookingStationAutoPopSystem
         AccessTools.DeclaredMethod(
             typeof(CookingStation),
             "SpawnItem",
-            new[] { typeof(string), typeof(int), typeof(Vector3) });
+            new[] { typeof(string), typeof(int), typeof(Vector3), typeof(bool) });
 
     private static ConditionalWeakTable<CookingStation, RegistrationMarker>
         _registeredStations = new();
@@ -217,7 +217,8 @@ internal static class CookingStationAutoPopSystem
             || localPlayer == null
             || player != localPlayer
             || vanillaParameters == null
-            || vanillaParameters.Length != 1
+            || vanillaParameters.Length != 2
+            || vanillaParameters[1] is not bool
             || vanillaParameters[0] is not string itemName
             || string.IsNullOrEmpty(itemName))
         {
@@ -791,7 +792,7 @@ internal static class CookingStationAutoPopSystem
             {
                 SpawnItemMethod.Invoke(
                     station,
-                    new object[] { plan.ExpectedOutput, slot, autoPoint });
+                    new object[] { plan.ExpectedOutput, slot, autoPoint, zdo.GetBool(ZDOVars.s_cheatedQueued + slot) });
             }
         }
         catch (Exception exception)
@@ -868,6 +869,7 @@ internal static class CookingStationAutoPopSystem
         zdo.Set("slot" + slot, string.Empty);
         zdo.Set("slot" + slot, 0f);
         zdo.Set("slotstatus" + slot, StatusNotDone);
+        zdo.Set(ZDOVars.s_cheatedQueued + slot, false);
         try
         {
             nview.InvokeRPC(
@@ -1109,19 +1111,22 @@ internal static class CookingStationPlannedAddPatch
                 }
             }
 
-            if (addNameIndex >= 0)
+            // Match the 1.0.7 two-argument payload, including provenance. A broader
+            // scan could redirect an unrelated RPC inserted by another transpiler.
+            if (addNameIndex >= 0 && addNameIndex + 13 < codes.Count)
             {
-                for (int index = addNameIndex + 1;
-                     index < Math.Min(codes.Count, addNameIndex + 12);
-                     index++)
-                {
-                    if (codes[index].opcode == OpCodes.Callvirt
-                        && Equals(codes[index].operand, InvokeRpcMethod))
-                    {
-                        invokeIndex = index;
-                        break;
-                    }
-                }
+                int i = addNameIndex;
+                if (codes[i + 1].opcode == OpCodes.Ldc_I4_2 &&
+                    codes[i + 2].opcode == OpCodes.Newarr && Equals(codes[i + 2].operand, typeof(object)) &&
+                    codes[i + 3].opcode == OpCodes.Dup && codes[i + 4].opcode == OpCodes.Ldc_I4_0 &&
+                    codes[i + 6].opcode == OpCodes.Stelem_Ref && codes[i + 7].opcode == OpCodes.Dup &&
+                    codes[i + 8].opcode == OpCodes.Ldc_I4_1 && codes[i + 9].opcode == OpCodes.Ldarg_2 &&
+                    codes[i + 10].opcode == OpCodes.Ldfld &&
+                    Equals(codes[i + 10].operand, AccessTools.Field(typeof(ItemDrop.ItemData), nameof(ItemDrop.ItemData.m_cheated))) &&
+                    codes[i + 11].opcode == OpCodes.Box && Equals(codes[i + 11].operand, typeof(bool)) &&
+                    codes[i + 12].opcode == OpCodes.Stelem_Ref && codes[i + 13].opcode == OpCodes.Callvirt &&
+                    Equals(codes[i + 13].operand, InvokeRpcMethod))
+                    invokeIndex = i + 13;
             }
 
             if (addNameIndex < 0 || invokeIndex < 0)

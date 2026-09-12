@@ -357,7 +357,7 @@ internal static class IceboxSubsystem
             return;
         }
 
-        ZNetView? view = piece.m_nview ?? piece.GetComponent<ZNetView>();
+        ZNetView? view = piece.NetworkView() ?? piece.GetComponent<ZNetView>();
         if (view == null || !view.IsValid() || !view.IsOwner())
         {
             return;
@@ -389,7 +389,7 @@ internal static class IceboxSubsystem
         }
 
         Piece? piece = container.GetComponent<Piece>();
-        ZNetView? view = piece?.m_nview ?? container.GetComponent<ZNetView>();
+        ZNetView? view = piece?.NetworkView() ?? container.GetComponent<ZNetView>();
         if (piece == null || view == null || !view.IsValid())
         {
             return;
@@ -472,7 +472,7 @@ internal static class IceboxSubsystem
             return false;
         }
 
-        ZNetView? view = piece.m_nview;
+        ZNetView? view = piece.NetworkView();
         if (view != null && view.IsValid())
         {
             return IsIcebox(view.GetZDO());
@@ -558,7 +558,7 @@ internal static class ZNetAwakeIceboxSubsystemPatch
     }
 }
 
-[HarmonyPatch(typeof(ZNetScene), nameof(ZNetScene.Awake))]
+[HarmonyPatch(typeof(ZNetScene), "Awake")]
 internal static class ZNetSceneAwakeIceboxSubsystemPatch
 {
     private static void Postfix()
@@ -587,7 +587,7 @@ internal static class PieceSetCreatorIceboxSubsystemPatch
     }
 }
 
-[HarmonyPatch(typeof(Minimap), nameof(Minimap.OnDestroy))]
+[HarmonyPatch(typeof(Minimap), "OnDestroy")]
 internal static class MinimapDestroyIceboxSubsystemPatch
 {
     private static void Prefix(Minimap __instance)

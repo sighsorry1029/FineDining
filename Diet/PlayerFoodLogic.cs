@@ -132,6 +132,7 @@ internal static class PlayerFoodLogic
 
         RecalculateFoodStats(player, state);
         Game.instance?.IncrementPlayerStat(PlayerStatType.FoodEaten);
+        Game.instance?.GetPlayerProfile()?.IncrementStatFoodEaten(item.m_shared.m_name, 1f, item.m_cheated);
         return true;
     }
 

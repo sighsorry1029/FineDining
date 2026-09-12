@@ -1,6 +1,5 @@
 using System;
 using BepInEx.Configuration;
-using Jotunn.Managers;
 using ServerSync;
 
 namespace FineDining;
@@ -31,8 +30,6 @@ internal static class DietModule
         DietConfig.ChefMultiplierMin.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefMultiplierMax.SettingChanged += FoodStateShapeChanged;
         FineDiningLocalization.OnLocalizationComplete += HudFoodPanels.ResetAll;
-        ItemManager.OnItemsRegistered += ChefContentRegistered;
-        PrefabManager.OnPrefabsRegistered += ChefContentRegistered;
         CookingStationAutoPopSystem.Reset();
         FermenterCookingBonusSystem.ResetRuntime();
         _dietReconcileRequested = true;
@@ -94,14 +91,12 @@ internal static class DietModule
             DietConfig.ChefMultiplierMin.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefMultiplierMax.SettingChanged -= FoodStateShapeChanged;
             FineDiningLocalization.OnLocalizationComplete -= HudFoodPanels.ResetAll;
-            ItemManager.OnItemsRegistered -= ChefContentRegistered;
-            PrefabManager.OnPrefabsRegistered -= ChefContentRegistered;
         }
 
         _initialized = false;
         _dietReconcileRequested = false;
         _chefReconcileRequested = false;
-        HudFoodPanels.ResetAll();
+        HudFoodPanels.Shutdown();
         CookingSkillTooltipPanel.Clear();
         FoodStateStore.Reset();
         FoodSlotProgression.Reset();
@@ -193,9 +188,5 @@ internal static class DietModule
         _dietReconcileRequested = true;
     }
 
-    private static void ChefContentRegistered()
-    {
-        InvalidateChefTierCatalog();
-    }
 
 }

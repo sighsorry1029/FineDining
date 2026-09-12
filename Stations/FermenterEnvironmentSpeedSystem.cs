@@ -129,9 +129,9 @@ internal static class FermenterEnvironmentSpeedSystem
             return;
         }
 
-        string content = zdo!.GetString(ZDOVars.s_content);
+        int content = zdo!.GetInt(ZDOVars.s_content);
         long batchToken = zdo.GetLong(ZDOVars.s_startTime, 0L);
-        if (string.IsNullOrEmpty(content) || batchToken <= 0L)
+        if (content == 0 || batchToken <= 0L)
         {
             if (HasState(zdo))
             {
@@ -257,9 +257,9 @@ internal static class FermenterEnvironmentSpeedSystem
             return;
         }
 
-        string content = zdo!.GetString(ZDOVars.s_content);
+        int content = zdo!.GetInt(ZDOVars.s_content);
         long batchToken = zdo.GetLong(ZDOVars.s_startTime, 0L);
-        if (string.IsNullOrEmpty(content) || batchToken <= 0L)
+        if (content == 0 || batchToken <= 0L)
         {
             ClearState(zdo);
             return;
@@ -305,7 +305,7 @@ internal static class FermenterEnvironmentSpeedSystem
     internal static bool HasContent(Fermenter fermenter)
     {
         return TryGetZdo(fermenter, requireOwner: false, out ZDO? zdo)
-               && !string.IsNullOrEmpty(zdo!.GetString(ZDOVars.s_content));
+               && zdo!.GetInt(ZDOVars.s_content) != 0;
     }
 
     internal static double ProjectEffectiveElapsed(Fermenter fermenter, double vanillaElapsed)
@@ -320,7 +320,7 @@ internal static class FermenterEnvironmentSpeedSystem
 
         long batchToken = zdo!.GetLong(ZDOVars.s_startTime, 0L);
         if (batchToken <= 0L
-            || string.IsNullOrEmpty(zdo.GetString(ZDOVars.s_content))
+            || zdo.GetInt(ZDOVars.s_content) == 0
             || !TryReadValidState(zdo, batchToken, out StateSnapshot snapshot))
         {
             return vanillaElapsed;
@@ -351,7 +351,7 @@ internal static class FermenterEnvironmentSpeedSystem
         if (!StationModule.IsInitialized
             || fermenter.m_fermentationDuration <= 0f
             || !TryGetZdo(fermenter, requireOwner: false, out ZDO? zdo)
-            || string.IsNullOrEmpty(zdo!.GetString(ZDOVars.s_content)))
+            || zdo!.GetInt(ZDOVars.s_content) == 0)
         {
             return false;
         }
@@ -830,7 +830,7 @@ internal static class FermenterEnvironmentSpeedSystem
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.Awake))]
+[HarmonyPatch(typeof(Fermenter), "Awake")]
 internal static class StationFermenterEnvironmentAwakePatch
 {
     private static void Prefix(Fermenter __instance)
@@ -857,7 +857,7 @@ internal static class StationFermenterEnvironmentAwakePatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.SlowUpdate))]
+[HarmonyPatch(typeof(Fermenter), "SlowUpdate")]
 internal static class StationFermenterEnvironmentSlowUpdatePatch
 {
     private static void Postfix(Fermenter __instance)
@@ -869,7 +869,7 @@ internal static class StationFermenterEnvironmentSlowUpdatePatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.UpdateCover))]
+[HarmonyPatch(typeof(Fermenter), "UpdateCover")]
 internal static class StationFermenterEnvironmentCoverScopePatch
 {
     private static void Prefix(Fermenter __instance, out Fermenter? __state)
@@ -894,7 +894,7 @@ internal static class StationFermenterEnvironmentCoverResultPatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.GetFermentationTime))]
+[HarmonyPatch(typeof(Fermenter), "GetFermentationTime")]
 internal static class StationFermenterEnvironmentElapsedPatch
 {
     private static void Postfix(Fermenter __instance, ref double __result)
@@ -905,7 +905,7 @@ internal static class StationFermenterEnvironmentElapsedPatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.RPC_AddItem))]
+[HarmonyPatch(typeof(Fermenter), "RPC_AddItem")]
 internal static class StationFermenterEnvironmentAddPatch
 {
     private static void Postfix(Fermenter __instance)
@@ -914,7 +914,7 @@ internal static class StationFermenterEnvironmentAddPatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.ResetFermentationTimer))]
+[HarmonyPatch(typeof(Fermenter), "ResetFermentationTimer")]
 internal static class StationFermenterEnvironmentResetPatch
 {
     private static void Postfix(Fermenter __instance)
@@ -923,7 +923,7 @@ internal static class StationFermenterEnvironmentResetPatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.RPC_Tap))]
+[HarmonyPatch(typeof(Fermenter), "RPC_Tap")]
 internal static class StationFermenterEnvironmentTapPatch
 {
     private static void Prefix(Fermenter __instance, out bool __state)
@@ -944,7 +944,7 @@ internal static class StationFermenterEnvironmentTapPatch
     }
 }
 
-[HarmonyPatch(typeof(Fermenter), nameof(Fermenter.DropAllItems))]
+[HarmonyPatch(typeof(Fermenter), "DropAllItems")]
 internal static class StationFermenterEnvironmentDropPatch
 {
     private static void Prefix(Fermenter __instance, out bool __state)
@@ -974,7 +974,7 @@ internal static class StationFermenterEnvironmentResetZdoPatch
     }
 }
 
-[HarmonyPatch(typeof(ZNetView), nameof(ZNetView.OnDestroy))]
+[HarmonyPatch(typeof(ZNetView), "OnDestroy")]
 internal static class StationFermenterEnvironmentViewDestroyedPatch
 {
     private static void Prefix(ZNetView __instance)

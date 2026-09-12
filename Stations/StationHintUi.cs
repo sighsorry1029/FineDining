@@ -333,12 +333,10 @@ internal sealed class StationHintUi : MonoBehaviour
 
             foreach (MonoBehaviour behaviour in _go.GetComponents<MonoBehaviour>())
             {
-                if (behaviour is Graphic graphic)
-                {
-                    graphic.enabled = false;
-                }
-
-                Object.Destroy(behaviour);
+                // The Valheim 1.0 inventory element includes TouchRaycastPadding,
+                // which requires the root Image. Keep the cloned component graph
+                // intact and disable its behaviours instead of removing them.
+                behaviour.enabled = false;
             }
 
             Transform iconTransform = _go.transform.Find("icon");

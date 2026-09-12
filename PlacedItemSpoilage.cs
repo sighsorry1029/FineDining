@@ -104,7 +104,7 @@ internal static class PlacementSpoilageTracker
         }
 
         Dictionary<ItemDrop.ItemData, int> virtualStacks = new();
-        foreach (ItemDrop.ItemData item in inventory.m_inventory)
+        foreach (ItemDrop.ItemData item in inventory.GetAllItems())
         {
             if (item != null)
             {
@@ -132,7 +132,7 @@ internal static class PlacementSpoilageTracker
                 continue;
             }
 
-            foreach (ItemDrop.ItemData item in inventory.m_inventory)
+            foreach (ItemDrop.ItemData item in inventory.GetAllItems())
             {
                 if (remaining <= 0)
                 {
@@ -466,7 +466,7 @@ internal static class PieceDropResourcesSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.OnCreateNew), typeof(ItemDrop))]
+[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.OnCreateNew), typeof(ItemDrop), typeof(bool))]
 internal static class ItemDropCreateRecoveredSpoilagePatch
 {
     private static bool _loggedFailure;

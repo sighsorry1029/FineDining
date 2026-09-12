@@ -3,7 +3,7 @@ using HarmonyLib;
 
 namespace FineDining;
 
-[HarmonyPatch(typeof(Terminal), nameof(Terminal.InitTerminal))]
+[HarmonyPatch(typeof(Terminal), "InitTerminal")]
 internal static class DietTerminalCommands
 {
     private static bool _registered;

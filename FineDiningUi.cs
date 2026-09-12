@@ -10,7 +10,7 @@ namespace FineDining;
 
 [HarmonyPatch(
     typeof(InventoryGrid),
-    nameof(InventoryGrid.UpdateGui),
+    "UpdateGui",
     new[] { typeof(Player), typeof(ItemData) })]
 internal static class InventoryGridSpoilageTimerPatch
 {
@@ -45,12 +45,12 @@ internal static class InventoryGridSpoilageTimerPatch
 
     private static void Render(InventoryGrid grid)
     {
-        if (grid?.m_elements == null)
+        if (grid?.Elements() == null)
         {
             return;
         }
 
-        Inventory inventory = grid.m_inventory;
+        Inventory inventory = grid.GetInventory();
         if (inventory == null)
         {
             HideAllExistingOverlays(grid);
@@ -83,16 +83,16 @@ internal static class InventoryGridSpoilageTimerPatch
             }
 
             int index = item.m_gridPos.y * width + item.m_gridPos.x;
-            if (index < 0 || index >= grid.m_elements.Count)
+            if (index < 0 || index >= grid.Elements().Count)
             {
                 continue;
             }
 
-            InventoryGrid.Element element = grid.m_elements[index];
-            if (element?.m_go == null ||
+            InventoryElement element = grid.Elements()[index];
+            if (element?.gameObject == null ||
                 !element.m_used ||
-                element.m_pos.x != item.m_gridPos.x ||
-                element.m_pos.y != item.m_gridPos.y)
+                element.Position.x != item.m_gridPos.x ||
+                element.Position.y != item.m_gridPos.y)
             {
                 continue;
             }
@@ -152,9 +152,9 @@ internal static class InventoryGridSpoilageTimerPatch
         }
     }
 
-    private static FineDiningTimerOverlayCache EnsureOverlay(InventoryGrid.Element element)
+    private static FineDiningTimerOverlayCache EnsureOverlay(InventoryElement element)
     {
-        GameObject root = element.m_go;
+        GameObject root = element.gameObject;
         FineDiningTimerOverlayCache cache = root.GetComponent<FineDiningTimerOverlayCache>() ??
                                                  root.AddComponent<FineDiningTimerOverlayCache>();
         if (cache.TimerText != null)
@@ -386,14 +386,14 @@ internal static class InventoryGridSpoilageTimerPatch
 
     private static void HideOverlaysNotSeenInUpdate(InventoryGrid grid, int updateId)
     {
-        foreach (InventoryGrid.Element element in grid.m_elements)
+        foreach (InventoryElement element in grid.Elements())
         {
-            if (element?.m_go == null)
+            if (element?.gameObject == null)
             {
                 continue;
             }
 
-            FineDiningTimerOverlayCache? cache = element.m_go.GetComponent<FineDiningTimerOverlayCache>();
+            FineDiningTimerOverlayCache? cache = element.gameObject.GetComponent<FineDiningTimerOverlayCache>();
             if (cache != null && cache.LastSeenUpdateId != updateId)
             {
                 HideOverlay(cache);
@@ -403,14 +403,14 @@ internal static class InventoryGridSpoilageTimerPatch
 
     private static void HideAllExistingOverlays(InventoryGrid grid)
     {
-        foreach (InventoryGrid.Element element in grid.m_elements)
+        foreach (InventoryElement element in grid.Elements())
         {
-            if (element?.m_go == null)
+            if (element?.gameObject == null)
             {
                 continue;
             }
 
-            FineDiningTimerOverlayCache? cache = element.m_go.GetComponent<FineDiningTimerOverlayCache>();
+            FineDiningTimerOverlayCache? cache = element.gameObject.GetComponent<FineDiningTimerOverlayCache>();
             if (cache != null)
             {
                 HideOverlay(cache);

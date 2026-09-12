@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -224,7 +224,7 @@ internal static class FineDiningLocalizationLanguagePatch
         FineDiningLocalization.LoadLocalization(__instance, language);
 }
 
-[HarmonyPatch(typeof(FejdStartup), nameof(FejdStartup.SetupGui))]
+[HarmonyPatch(typeof(FejdStartup), "SetupGui")]
 internal static class FineDiningLocalizationGuiPatch
 {
     [HarmonyPostfix]

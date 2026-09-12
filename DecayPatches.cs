@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace FineDining;
 
-[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.SlowUpdate))]
+[HarmonyPatch(typeof(ItemDrop), "SlowUpdate")]
 internal static class ItemDropSlowUpdateSpoilageSafetyPatch
 {
     private static void Postfix(ItemDrop __instance)
@@ -34,7 +34,7 @@ internal static class ItemDropExternalLoadSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.Save))]
+[HarmonyPatch(typeof(ItemDrop), "Save")]
 internal static class ItemDropSavedSpoilagePatch
 {
     private static void Postfix(ItemDrop __instance)
@@ -43,7 +43,7 @@ internal static class ItemDropSavedSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.OnDestroy))]
+[HarmonyPatch(typeof(ItemDrop), "OnDestroy")]
 internal static class ItemDropDestroyedSpoilagePatch
 {
     private static void Prefix(ItemDrop __instance)
@@ -52,7 +52,7 @@ internal static class ItemDropDestroyedSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(Container), nameof(Container.Awake))]
+[HarmonyPatch(typeof(Container), "Awake")]
 internal static class ContainerAwakeSpoilagePatch
 {
     private static void Prefix(Container __instance)
@@ -68,7 +68,7 @@ internal static class ContainerAwakeSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(Container), nameof(Container.Load))]
+[HarmonyPatch(typeof(Container), "Load")]
 internal static class ContainerLoadSpoilagePatch
 {
     private static void Prefix(Container __instance, out bool __state)
@@ -123,7 +123,7 @@ internal static class ContainerLoadSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(Inventory), nameof(Inventory.Changed))]
+[HarmonyPatch(typeof(Inventory), "Changed")]
 internal static class InventoryChangedSpoilagePatch
 {
     private static void Postfix(Inventory __instance)
@@ -155,7 +155,7 @@ internal static class PlayerSaveSpoilageClockPatch
     }
 }
 
-[HarmonyPatch(typeof(ItemDrop), nameof(ItemDrop.AutoStackItems))]
+[HarmonyPatch(typeof(ItemDrop), "AutoStackItems")]
 internal static class ItemDropAutoStackSpoilagePatch
 {
     private static readonly FieldInfo ItemDataField = AccessTools.Field(typeof(ItemDrop), nameof(ItemDrop.m_itemData));
@@ -239,14 +239,14 @@ internal static class SpoilageContentLifecycle
 {
     internal static void Refresh()
     {
-        GeneratedPrefabRegistry.RefreshConfiguredContent();
+        GeneratedPrefabRegistry.RegisterContent();
         FoodClassifier.Invalidate();
         DietModule.InvalidateChefTierCatalog();
         DecayRuntime.InvalidateAll();
     }
 }
 
-[HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.UpdateRegisters))]
+[HarmonyPatch(typeof(ObjectDB), "UpdateRegisters")]
 internal static class ObjectDbUpdateRegistersSpoilagePatch
 {
     [HarmonyPriority(Priority.Last)]
@@ -259,7 +259,7 @@ internal static class ObjectDbUpdateRegistersSpoilagePatch
     }
 }
 
-[HarmonyPatch(typeof(ZNet), nameof(ZNet.OnDestroy))]
+[HarmonyPatch(typeof(ZNet), "OnDestroy")]
 internal static class ZNetDestroySpoilagePatch
 {
     private static void Postfix()
@@ -308,7 +308,7 @@ internal static class InventoryAddMergeTracker
             return null;
         }
 
-        foreach (ItemDrop.ItemData existing in inventory.m_inventory)
+        foreach (ItemDrop.ItemData existing in inventory.GetAllItems())
         {
             if (existing == null)
             {
@@ -421,7 +421,7 @@ internal static class InventoryAddMergeTracker
         // new player-inventory clock. If the source reference did not actually
         // enter that inventory, restore its pre-call state so failed or partial
         // transfers do not activate the remainder left in a container/world drop.
-        if (state.SourceHadValidClock || inventory.m_inventory.Contains(source))
+        if (state.SourceHadValidClock || inventory.GetAllItems().Contains(source))
         {
             return;
         }
@@ -534,7 +534,8 @@ internal static class InventoryAddItemAtPositionSpoilagePatch
     typeof(ItemDrop.ItemData),
     typeof(int),
     typeof(int),
-    typeof(int))]
+    typeof(int),
+    typeof(bool))]
 internal static class InventoryAddItemAmountAtPositionSpoilagePatch
 {
     [HarmonyPrefix]

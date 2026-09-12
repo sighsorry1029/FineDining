@@ -391,6 +391,7 @@ internal static class HudFoodPanels
         }
 
         _fullCourseIconLoadAttempted = true;
+        Texture2D? texture = null;
         try
         {
             using Stream? stream = typeof(HudFoodPanels).Assembly.GetManifestResourceStream(
@@ -404,8 +405,8 @@ internal static class HudFoodPanels
 
             using MemoryStream buffer = new();
             stream.CopyTo(buffer);
-            Texture2D texture = Jotunn.Utils.AssetUtils.LoadImage(buffer.ToArray());
-            if (texture == null)
+            texture = new Texture2D(2, 2);
+            if (!GameAccess.LoadImage(texture, buffer.ToArray()))
             {
                 FineDiningPlugin.Log.LogWarning("Embedded Full Course icon could not be decoded.");
                 return null;
@@ -428,6 +429,10 @@ internal static class HudFoodPanels
                 $"Embedded Full Course icon load failed: {exception.Message}");
             return null;
         }
+        finally
+        {
+            if (_fullCourseIconSprite == null && texture != null) Object.Destroy(texture);
+        }
     }
 
     private static void HideFullCourseIndicator(FullCourseContext? indicator)
@@ -441,6 +446,18 @@ internal static class HudFoodPanels
         indicator.HoverStartedAt = 0f;
         indicator.TooltipPanel.Root.gameObject.SetActive(false);
         indicator.Root.gameObject.SetActive(false);
+    }
+
+    internal static void Shutdown()
+    {
+        ResetAll();
+        if (_fullCourseIconSprite != null)
+        {
+            Object.Destroy(_fullCourseIconSprite.texture);
+            Object.Destroy(_fullCourseIconSprite);
+        }
+        _fullCourseIconSprite = null;
+        _fullCourseIconLoadAttempted = false;
     }
 
     internal static void ResetAll()
@@ -1338,7 +1355,7 @@ internal static class HudFoodPanels
                && Cursor.visible
                && RectTransformUtility.RectangleContainsScreenPoint(
                    icon.rectTransform,
-                   ZInput.mousePosition,
+                   ZInput.pointerPosition,
                    eventCamera);
     }
 
