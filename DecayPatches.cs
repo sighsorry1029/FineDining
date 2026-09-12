@@ -89,6 +89,38 @@ internal static class ContainerLoadSpoilagePatch
             DecayRuntime.ContainerLoaded(__instance);
         }
     }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(
+        Container __instance,
+        bool __state,
+        Exception? __exception)
+    {
+        if (!__state || __exception == null)
+        {
+            return __exception;
+        }
+
+        try
+        {
+            IceboxSubsystem.ApplyConfiguredStorageSize(__instance);
+        }
+        catch (Exception restoreException)
+        {
+            try
+            {
+                FineDiningPlugin.Log?.LogWarning(
+                    "Could not restore the Icebox storage size after Container.Load failed: " +
+                    restoreException.GetBaseException().Message);
+            }
+            catch
+            {
+                // A cleanup or logging failure must not replace the original load exception.
+            }
+        }
+
+        return __exception;
+    }
 }
 
 [HarmonyPatch(typeof(Inventory), nameof(Inventory.Changed))]
