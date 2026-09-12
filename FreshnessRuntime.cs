@@ -160,6 +160,11 @@ internal static class FreshnessRuntime
     {
         string? rawValue = null;
         item?.m_customData?.TryGetValue(AssignedLifetimeDataKey, out rawValue);
+        return CaptureAssignedLifetimeValue(rawValue);
+    }
+
+    private static AssignedLifetimeSnapshot CaptureAssignedLifetimeValue(string? rawValue)
+    {
         bool valid = TryParsePositiveLong(rawValue, out long value);
         return new AssignedLifetimeSnapshot(rawValue, value, valid);
     }
@@ -169,24 +174,8 @@ internal static class FreshnessRuntime
         AssignedLifetimeSnapshot destination,
         AssignedLifetimeSnapshot source)
     {
-        if (target == null || !source.Valid)
-        {
-            return false;
-        }
-
-        // Preserve unknown future destination formats. A genuinely missing
-        // destination inherits the source; two valid values use the larger basis
-        // so an earlier expiry cannot make a merged stack appear fresher.
-        long merged;
-        if (destination.Valid)
-        {
-            merged = Math.Max(destination.Value, source.Value);
-        }
-        else if (destination.RawValue == null)
-        {
-            merged = source.Value;
-        }
-        else
+        if (target == null ||
+            !TryComposeAssignedLifetime(destination, source, out long merged))
         {
             return false;
         }
@@ -207,21 +196,12 @@ internal static class FreshnessRuntime
         string? destinationValue,
         string? sourceValue)
     {
-        bool hasDestination = TryParsePositiveLong(destinationValue, out long destination);
-        bool hasSource = TryParsePositiveLong(sourceValue, out long source);
-        if (!hasSource)
-        {
-            return destinationValue;
-        }
-
-        if (!hasDestination)
-        {
-            return destinationValue == null
-                ? source.ToString(CultureInfo.InvariantCulture)
-                : destinationValue;
-        }
-
-        return Math.Max(destination, source).ToString(CultureInfo.InvariantCulture);
+        AssignedLifetimeSnapshot destination =
+            CaptureAssignedLifetimeValue(destinationValue);
+        AssignedLifetimeSnapshot source = CaptureAssignedLifetimeValue(sourceValue);
+        return TryComposeAssignedLifetime(destination, source, out long merged)
+            ? merged.ToString(CultureInfo.InvariantCulture)
+            : destinationValue;
     }
 
     internal static bool CanMergeAssignedLifetimeValues(
@@ -236,6 +216,35 @@ internal static class FreshnessRuntime
         return item?.m_customData != null &&
                item.m_customData.TryGetValue(AssignedLifetimeDataKey, out string value) &&
                TryParsePositiveLong(value, out lifetime);
+    }
+
+    private static bool TryComposeAssignedLifetime(
+        AssignedLifetimeSnapshot destination,
+        AssignedLifetimeSnapshot source,
+        out long merged)
+    {
+        merged = 0L;
+        if (!source.Valid)
+        {
+            return false;
+        }
+
+        // Preserve unknown future destination formats. A genuinely missing
+        // destination inherits the source; two valid values use the larger basis
+        // so an earlier expiry cannot make a merged stack appear fresher.
+        if (destination.Valid)
+        {
+            merged = Math.Max(destination.Value, source.Value);
+            return true;
+        }
+
+        if (destination.RawValue != null)
+        {
+            return false;
+        }
+
+        merged = source.Value;
+        return true;
     }
 
     private static long ResolveRuleLifetime(ItemData item, long fallbackRemaining)
