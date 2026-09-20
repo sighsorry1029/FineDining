@@ -208,6 +208,7 @@ internal static class SpoilageReferenceGenerator
             .Append(FineDiningPlugin.ModVersion)
             .AppendLine(". This file is overwritten automatically.");
         builder.AppendLine("# It is a local lookup only; it is not loaded as configuration or synchronized to clients.");
+        builder.AppendLine("# Rows describe Spoilage.yml; the global Spoilage Mode does not rewrite this reference.");
         builder.AppendLine("# Copy selected '- Prefab, hours[, replacement prefab or keep]' rows under 'overrides:' in Spoilage.yml.");
         builder.AppendLine("# Classification is primary; prefab owner is the secondary comment section.");
 
@@ -309,7 +310,7 @@ internal static class SpoilageReferenceGenerator
         HashSet<string> capturedPrefabs = new(StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, ItemDrop> pair in itemDrops)
         {
-            ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(pair.Value.m_itemData);
+            ResolvedSpoilageRule rule = SpoilagePolicy.ResolveYaml(pair.Value.m_itemData);
             if (rule.State is not (SpoilageRuleState.Enabled or SpoilageRuleState.Disabled))
             {
                 continue;

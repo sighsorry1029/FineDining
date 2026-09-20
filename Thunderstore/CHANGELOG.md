@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Added the server-synchronized, live `Spoilage Mode` setting. `FollowYaml` is the default and preserves existing rules; `Off` stops new timers and expiry processing, hides spoilage UI, and removes freshness penalties from food eaten while Off; `StatDecreaseOnly` follows YAML lifetimes and exclusions but keeps expired items at minimum freshness instead of replacing them.
+- Mode changes preserve saved spoilage data. `Off` does not freeze world time, so existing running deadlines can expire when re-enabled. Already-eaten food effects, rotten replacements, and permanent minimum-freshness markers are not reset by switching modes.
+- Preserved inherited timers and permanent minimum-freshness markers when placing and recovering tracked food, including while spoilage is Off. The generated spoilage reference continues to describe the underlying YAML rules independently of the selected mode.
+- Added regression checks for mode defaults, YAML rule handling, Off UI and freshness suppression, and inherited spoilage state.
+- Reorganized related README screenshots into two-column groups and replaced static images with smaller WebP previews linked to their full-resolution originals. Animated GIFs remain unchanged.
+
 ## 1.0.10
 
 - Changed the default `Maximum Food Slots` from 9 to 4 for newly created configurations. Existing local and server configuration values remain unchanged, and the supported range stays at 3 through 9.

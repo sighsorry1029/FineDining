@@ -61,7 +61,7 @@ internal static class FreshnessRuntime
 
     internal static float GetFoodStatMultiplier(ItemData? item)
     {
-        if (!FoodIdentity.IsDirectlyEdible(item))
+        if (!SpoilagePolicy.IsEnabled || !FoodIdentity.IsDirectlyEdible(item))
         {
             return 1f;
         }
@@ -89,7 +89,7 @@ internal static class FreshnessRuntime
     internal static bool TryGetFreshnessRatio(ItemData? item, out float ratio)
     {
         ratio = 1f;
-        if (item == null)
+        if (!SpoilagePolicy.IsEnabled || item == null)
         {
             return false;
         }

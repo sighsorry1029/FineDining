@@ -700,7 +700,7 @@ internal static class ItemDataSpoilageTooltipPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(ItemData __instance, ref string __result)
     {
-        if (__instance == null || __instance.m_stack <= 0)
+        if (!SpoilagePolicy.IsEnabled || __instance == null || __instance.m_stack <= 0)
         {
             return;
         }
@@ -759,7 +759,7 @@ internal static class WorldItemSpoilageHover
     {
         // Preserve vanilla's empty hover result for depleted or otherwise
         // non-interactable world items.
-        if (host == null || string.IsNullOrEmpty(hoverText))
+        if (!SpoilagePolicy.IsEnabled || host == null || string.IsNullOrEmpty(hoverText))
         {
             return;
         }
@@ -834,7 +834,7 @@ internal static class WorldItemSpoilageHover
         out string timerLine)
     {
         timerLine = string.Empty;
-        if (DecayRuntime.IsCreatorlessPlacedDrop(worldDrop))
+        if (!SpoilagePolicy.IsEnabled || DecayRuntime.IsCreatorlessPlacedDrop(worldDrop))
         {
             return false;
         }

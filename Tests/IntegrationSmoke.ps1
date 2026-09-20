@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.0.10.0') 'Assembly version must be 1.0.10.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.0.0') 'Assembly version must be 1.1.0.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.0.10') 'Plugin version must be 1.0.10.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.0') 'Plugin version must be 1.1.0.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -279,6 +279,7 @@ Assert-True ([string]$clientDescription.Description -eq 'Client test. [Client On
 
 $configBindingSource = (@(
     'Plugin.cs',
+    'SpoilagePolicy.cs',
     'FreshnessRuntime.cs',
     'PreservationConfig.cs',
     'IceboxSubsystem.cs',
@@ -313,6 +314,7 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Maximum Multiplier'; Order = 400; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'High-Tier Selection Strength'; Order = 300; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Recent Food-Type Preference (%)'; Order = 100; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'SpoilagePolicy.cs'; Section = 'Spoilage'; Key = 'Spoilage Mode'; Order = 700; Scope = 'Synced' },
     [pscustomobject]@{ File = 'PreservationConfig.cs'; Section = 'Spoilage'; Key = 'No-Spoil Biomes'; Order = 600; Scope = 'Synced' },
     [pscustomobject]@{ File = 'FreshnessRuntime.cs'; Section = 'Spoilage'; Key = 'Stale Food Minimum Multiplier'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Default Placement Limit'; Order = 450; Scope = 'Synced' },
@@ -4253,6 +4255,124 @@ Assert-True ([bool]$clearSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 
 Assert-True (-not [bool]$isSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'Clearing the marker must return the item to an unmarked metadata state.'
 Assert-True ([bool]$markSpoiled.Invoke($null, [object[]] @($keepExpiredItem)) -and
              -not [bool]$markSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'Writing the canonical spoiled marker must be idempotent.'
+
+# Exercise the global policy overlay and Off metadata behavior without a Unity world.
+$spoilageModeType = Get-TypeRequired $assembly 'FineDining.SpoilageMode'
+Assert-True (([Enum]::GetNames($spoilageModeType) -join ',') -eq 'FollowYaml,Off,StatDecreaseOnly') 'Spoilage modes must retain their serialized enum names.'
+$modeStaticFlags = [Reflection.BindingFlags] 'Static,Public,NonPublic'
+$modeInstanceFlags = [Reflection.BindingFlags] 'Instance,Public,NonPublic'
+$modeField = $spoilagePolicyType.GetField('_mode', $modeStaticFlags)
+$previousModeEntry = $modeField.GetValue($null)
+$bindSpoilageMode = Get-MethodRequired $spoilagePolicyType 'BindMode'
+$modeConfigFileType = $bindSpoilageMode.GetParameters()[0].ParameterType
+$modeConfigPath = Join-Path ([IO.Path]::GetTempPath()) ('FineDining-spoilage-smoke-' + [Guid]::NewGuid() + '.cfg')
+$modeConfigConstructor = $modeConfigFileType.GetConstructor([Type[]] @([string], [bool]))
+$modeConfigFile = $modeConfigConstructor.Invoke([object[]] @([string]$modeConfigPath, $false))
+$modeConfigFile.SaveOnConfigSet = $false
+$modeEntry = $bindSpoilageMode.Invoke($null, [object[]] @(,$modeConfigFile))
+Assert-True ($modeEntry.Value.ToString() -eq 'FollowYaml' -and $modeEntry.DefaultValue.ToString() -eq 'FollowYaml') 'Existing installs without the new key must keep FollowYaml behavior.'
+Assert-True ($modeEntry.Definition.Section -eq '5 - Spoilage' -and $modeEntry.Definition.Key -eq 'Spoilage Mode') 'The mode must use the documented config key.'
+Assert-True ($modeEntry.Description.Description.Contains('[Synced with Server]')) 'The mode must be presented as a server setting.'
+Assert-True (-not (Test-Path -LiteralPath $modeConfigPath)) 'The isolated config test must not create or edit a user config file.'
+Assert-True ($spoilagePolicySource.Contains('sync.AddConfigEntry(_mode).SynchronizedConfig = true;') -and
+             $spoilagePolicySource.Contains('_mode.SettingChanged += OnModeChanged;') -and
+             $spoilagePolicySource.Contains('_mode.SettingChanged -= OnModeChanged;') -and
+             $spoilagePolicySource.Contains('OnModeChanged(object sender, EventArgs args) => DecayRuntime.InvalidateAll();')) 'Mode changes must sync, invalidate runtime work, and unsubscribe at shutdown.'
+$modeValueField = $modeField.FieldType.GetField('_typedValue', $modeInstanceFlags)
+$applySpoilageMode = Get-MethodRequired $spoilagePolicyType 'ApplyMode'
+$resolvedRuleType = Get-TypeRequired $assembly 'FineDining.ResolvedSpoilageRule'
+$ruleStateType = Get-TypeRequired $assembly 'FineDining.SpoilageRuleState'
+$ruleConstructor = $resolvedRuleType.GetConstructors($modeInstanceFlags)[0]
+$ruleActionProperty = $resolvedRuleType.GetProperty('ExpiryAction', $modeInstanceFlags)
+$inheritWhileOff = Get-MethodRequired $decayType 'InheritWhileOff'
+$getFoodStatMultiplier = Get-MethodRequired $freshnessType 'GetFoodStatMultiplier'
+$prepareItemForAdd = Get-MethodRequired $decayType 'PrepareItemForAdd'
+$prepareVisibleTimers = Get-MethodRequired $decayType 'TryPrepareVisibleInventoryTimers'
+$processIfDue = Get-MethodRequired $decayType 'ProcessIfDue'
+$modeTooltipPatch = Get-TypeRequired $assembly 'FineDining.ItemDataSpoilageTooltipPatch'
+$modeTooltipPostfix = Get-MethodRequired $modeTooltipPatch 'Postfix'
+try
+{
+    $modeField.SetValue($null, $modeEntry)
+    foreach ($modeName in @('FollowYaml', 'Off', 'StatDecreaseOnly'))
+    {
+        $modeValueField.SetValue($modeEntry, [Enum]::Parse($spoilageModeType, $modeName))
+        foreach ($ruleState in [Enum]::GetValues($ruleStateType))
+        {
+            foreach ($expiryAction in [Enum]::GetValues($spoilageExpiryActionType))
+            {
+                $yamlRule = $ruleConstructor.Invoke([object[]] @(
+                    $ruleState, [long]432000000000, 'CustomRottenFood',
+                    [Enum]::Parse($spoilageGroupType, 'FarmingHarvest'), $true, $expiryAction))
+                $effectiveRule = $applySpoilageMode.Invoke($null, [object[]] @($yamlRule))
+                if ($modeName -eq 'StatDecreaseOnly' -and $ruleState.ToString() -eq 'Enabled')
+                {
+                    Assert-True ($ruleActionProperty.GetValue($effectiveRule).ToString() -eq 'KeepOriginal') 'StatDecreaseOnly must keep both group and explicit replacement results.'
+                    foreach ($rulePropertyName in @('State', 'LifetimeTicks', 'Group', 'IsOverride'))
+                    {
+                        $ruleProperty = $resolvedRuleType.GetProperty($rulePropertyName, $modeInstanceFlags)
+                        Assert-True ($ruleProperty.GetValue($yamlRule).Equals($ruleProperty.GetValue($effectiveRule))) "Mode override must preserve $rulePropertyName."
+                    }
+                    Assert-True ([string]::IsNullOrEmpty($resolvedRuleType.GetProperty('ReplacementPrefab', $modeInstanceFlags).GetValue($effectiveRule))) 'A global keep result must not retain a replacement prefab.'
+                }
+                else
+                {
+                    Assert-True ($yamlRule.Equals($effectiveRule)) 'FollowYaml, Off, exclusions, terminals, and not-ready rules must retain the raw YAML rule.'
+                }
+            }
+        }
+
+        $modeFreshnessArgs = [object[]] @($keepExpiredItem, [single]1)
+        $hasFreshness = [bool]$tryGetFreshnessRatio.Invoke($null, $modeFreshnessArgs)
+        Assert-True ([bool]$isSpoiled.Invoke($null, [object[]] @($keepExpiredItem))) 'Changing mode must retain a permanent marker.'
+        if ($modeName -eq 'Off')
+        {
+            Assert-True (-not $hasFreshness -and [single]$modeFreshnessArgs[1] -eq 1) 'Off must suppress the minimum-freshness effect without clearing the marker.'
+            Assert-True ([single]$getFoodStatMultiplier.Invoke($null, [object[]] @($keepExpiredItem)) -eq 1) 'New consumption must have a neutral freshness multiplier while Off.'
+            $modeTooltipArgs = [object[]] @($keepExpiredItem, 'Existing tooltip')
+            $modeTooltipPostfix.Invoke($null, $modeTooltipArgs)
+            Assert-True ($modeTooltipArgs[1] -ceq 'Existing tooltip') 'Off must not append spoilage UI for a marked item.'
+            foreach ($rawClock in @('123', '-456'))
+            {
+                $offItem = [Activator]::CreateInstance($itemDataType)
+                $offData = $itemCustomDataField.GetValue($offItem)
+                $offData[$expiryDataKey] = $rawClock
+                $offData[$assignedLifetimeDataKey] = '789'
+                $offData['third.party.keep'] = 'preserve'
+                Assert-True (-not [bool]$prepareItemForAdd.Invoke($null, [object[]] @($null, $offItem))) 'Off must skip timer preparation before ownership or world access.'
+                $offFreshnessArgs = [object[]] @($offItem, [single]0)
+                Assert-True (-not [bool]$tryGetFreshnessRatio.Invoke($null, $offFreshnessArgs) -and [single]$offFreshnessArgs[1] -eq 1) 'Off must suppress running and paused freshness clocks.'
+                Assert-True ($offData.Count -eq 3 -and $offData[$expiryDataKey] -ceq $rawClock -and $offData[$assignedLifetimeDataKey] -ceq '789' -and $offData['third.party.keep'] -ceq 'preserve') 'Off must preserve saved running/paused clocks, assigned lifetime, and foreign metadata exactly.'
+            }
+            $offVisibleArgs = [object[]] @($null, [long]123)
+            Assert-True (-not [bool]$prepareVisibleTimers.Invoke($null, $offVisibleArgs) -and [long]$offVisibleArgs[1] -eq 0) 'Off must hide slot timers without querying world time.'
+            $processIfDue.Invoke($null, [object[]] @($null, [long]123))
+            foreach ($sourceSpoiled in @($false, $true))
+            {
+                $offInheritedItem = [Activator]::CreateInstance($itemDataType)
+                $offInheritedData = $itemCustomDataField.GetValue($offInheritedItem)
+                $offInheritedData['third.party.keep'] = 'preserve'
+                $itemStackField.SetValue($offInheritedItem, 7)
+                Assert-True ([bool]$inheritWhileOff.Invoke($null, [object[]] @($offInheritedItem, [long]0, $sourceSpoiled, $false))) 'An inherited expired source must retain its state while Off.'
+                Assert-True ([bool]$isSpoiled.Invoke($null, [object[]] @($offInheritedItem)) -eq $sourceSpoiled) 'Only a source already marked spoiled may produce a terminal marker while Off.'
+                Assert-True ($offInheritedData.ContainsKey($expiryDataKey) -ne $sourceSpoiled) 'An overdue unmarked source must retain a clock for later YAML expiry; a marked source must remain terminal.'
+                Assert-True ($offInheritedData['third.party.keep'] -ceq 'preserve' -and [int]$itemStackField.GetValue($offInheritedItem) -eq 7) 'Off inheritance must preserve foreign data and stack count.'
+            }
+            $offNewItem = [Activator]::CreateInstance($itemDataType)
+            Assert-True (-not [bool]$inheritWhileOff.Invoke($null, [object[]] @($offNewItem, [long]-1, $false, $false)) -and $itemCustomDataField.GetValue($offNewItem).Count -eq 0) 'An untracked source must not create spoilage metadata while Off.'
+        }
+        else
+        {
+            Assert-True ($hasFreshness -and [single]$modeFreshnessArgs[1] -eq 0) 'Re-enabling spoilage must expose the retained minimum freshness.'
+        }
+    }
+}
+finally
+{
+    $modeField.SetValue($null, $previousModeEntry)
+}
+Assert-True ((Get-Content -LiteralPath (Join-Path $projectRoot 'SpoilageReferenceGenerator.cs') -Raw).Contains('SpoilagePolicy.ResolveYaml(pair.Value.m_itemData)')) 'Generated reference rows must preserve YAML results when the global mode forces keep.'
+
 foreach ($removedClockMethod in @('EncodeClockValue', 'TryDecodeClockValue', 'ComposeClockValues'))
 {
     Assert-True ($null -eq $decayType.GetMethod($removedClockMethod, [Reflection.BindingFlags] 'Static,Public,NonPublic')) "DecayRuntime must not retain a forwarding clock method: $removedClockMethod"

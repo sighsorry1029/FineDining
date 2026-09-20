@@ -29,7 +29,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.0.10";
+    internal const string ModVersion = "1.1.0";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -60,7 +60,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         ConfigSync.AddLockingConfigEntry(BindConfigurationLock(Config));
         PreservationConfig.Initialize(Config, ConfigSync);
         FreshnessRuntime.Initialize(Config, ConfigSync);
-        SpoilagePolicy.Initialize(ConfigSync);
+        SpoilagePolicy.Initialize(Config, ConfigSync);
         ChefResourceMapPolicy.Initialize(ConfigSync);
         IceboxSubsystem.Initialize(this);
         GeneratedPrefabRegistry.Initialize();

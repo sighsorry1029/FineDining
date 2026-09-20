@@ -177,7 +177,7 @@ internal static class DecayRuntime
     internal static bool TryPrepareVisibleInventoryTimers(Inventory? inventory, out long nowTicks)
     {
         nowTicks = 0L;
-        if (inventory == null || !TryGetWorldTicks(out nowTicks))
+        if (!SpoilagePolicy.IsEnabled || inventory == null || !TryGetWorldTicks(out nowTicks))
         {
             return false;
         }
@@ -280,7 +280,7 @@ internal static class DecayRuntime
 
     internal static bool PrepareItemForAdd(Inventory inventory, ItemDrop.ItemData? item)
     {
-        if (item == null ||
+        if (!SpoilagePolicy.IsEnabled || item == null ||
             !IsAuthoritativeInventory(inventory) ||
             SpoilageClock.IsSpoiled(item))
         {
@@ -319,7 +319,8 @@ internal static class DecayRuntime
     internal static bool PrepareInheritedItemForAdd(
         Inventory inventory,
         ItemDrop.ItemData? item,
-        long inheritedRemainingTicks)
+        long inheritedRemainingTicks,
+        bool inheritedSpoiled = false)
     {
         if (item == null || !IsAuthoritativeInventory(inventory))
         {
@@ -333,13 +334,25 @@ internal static class DecayRuntime
 
         bool changed = PrepareItemForAdd(inventory, item);
         ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(item);
-        if (inheritedRemainingTicks < 0L || rule.State != SpoilageRuleState.Enabled)
+        if (inheritedRemainingTicks < 0L)
         {
             return changed;
         }
 
-        if (inheritedRemainingTicks == 0L &&
-            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        if (!SpoilagePolicy.IsEnabled)
+        {
+            return (rule.State is SpoilageRuleState.Enabled or SpoilageRuleState.NotReady) &&
+                   InheritWhileOff(item, inheritedRemainingTicks, inheritedSpoiled,
+                       ResolveInventoryPausedState(inventory));
+        }
+
+        if (rule.State != SpoilageRuleState.Enabled)
+        {
+            return changed;
+        }
+
+        if (inheritedSpoiled || (inheritedRemainingTicks == 0L &&
+            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal))
         {
             return CompleteKeepOriginalExpiry(item) || changed;
         }
@@ -562,7 +575,8 @@ internal static class DecayRuntime
     internal static void InitializePlacedDrop(
         ItemDrop? drop,
         long inheritedRemainingTicks,
-        long placementTicks = 0L)
+        long placementTicks = 0L,
+        bool inheritedSpoiled = false)
     {
         if (drop == null || !HasValidGroundView(drop) || !IsPlacedGroundDrop(drop))
         {
@@ -602,7 +616,8 @@ internal static class DecayRuntime
                 drop,
                 inheritedRemainingTicks,
                 placementTicks,
-                keepPendingWhenNotReady: true);
+                keepPendingWhenNotReady: true,
+                inheritedSpoiled: inheritedSpoiled);
             return;
         }
 
@@ -617,7 +632,8 @@ internal static class DecayRuntime
         return placementTicks > 0L || !hasPersistedExpiry || hasPendingAnchor;
     }
 
-    internal static void InitializeRecoveredDrop(ItemDrop? drop, long inheritedRemainingTicks)
+    internal static void InitializeRecoveredDrop(
+        ItemDrop? drop, long inheritedRemainingTicks, bool inheritedSpoiled = false)
     {
         if (drop == null || inheritedRemainingTicks < 0L || !IsOwnedGroundDrop(drop))
         {
@@ -628,7 +644,8 @@ internal static class DecayRuntime
             drop,
             inheritedRemainingTicks,
             anchorTicks: 0L,
-            keepPendingWhenNotReady: false);
+            keepPendingWhenNotReady: false,
+            inheritedSpoiled: inheritedSpoiled);
     }
 
     internal static long CalculateEffectiveRemainingTicks(
@@ -713,6 +730,11 @@ internal static class DecayRuntime
 
     private static void ProcessIfDue(Inventory inventory, long nowTicks)
     {
+        if (!SpoilagePolicy.IsEnabled)
+        {
+            return;
+        }
+
         InventoryState state = GetState(inventory);
         PreservationState preservation = ResolveInventoryPreservationState(inventory);
         if (preservation != PreservationState.Unknown)
@@ -795,6 +817,11 @@ internal static class DecayRuntime
             {
                 registrationsToRemove ??= new List<int>();
                 registrationsToRemove.Add(pair.Key);
+                continue;
+            }
+
+            if (!SpoilagePolicy.IsEnabled)
+            {
                 continue;
             }
 
@@ -1033,7 +1060,8 @@ internal static class DecayRuntime
         ItemDrop drop,
         long inheritedRemainingTicks,
         long anchorTicks,
-        bool keepPendingWhenNotReady)
+        bool keepPendingWhenNotReady,
+        bool inheritedSpoiled = false)
     {
         if (!IsOwnedGroundDrop(drop))
         {
@@ -1048,6 +1076,27 @@ internal static class DecayRuntime
 
         if (ReconcileCreatorlessPlacedDrop(drop))
         {
+            return;
+        }
+
+        if (!SpoilagePolicy.IsEnabled)
+        {
+            // Keep transfer bookkeeping active while Off, without starting a
+            // timer/placement anchor or applying a new YAML lifetime cap.
+            ResolvedSpoilageRule inheritedRule = SpoilagePolicy.ResolveYaml(drop.m_itemData);
+            if (inheritedRemainingTicks >= 0L &&
+                inheritedRule.State is SpoilageRuleState.Enabled or SpoilageRuleState.NotReady)
+            {
+                Dictionary<string, string> previousCustomData =
+                    new(drop.m_itemData.m_customData, StringComparer.Ordinal);
+                if (InheritWhileOff(drop.m_itemData, inheritedRemainingTicks, inheritedSpoiled,
+                        ResolveWorldDropPausedState(drop)))
+                {
+                    SaveInheritedMetadata(drop, previousCustomData);
+                }
+            }
+
+            RegisterGroundDrop(drop);
             return;
         }
 
@@ -1075,14 +1124,25 @@ internal static class DecayRuntime
         ResolvedSpoilageRule rule = SpoilagePolicy.Resolve(drop.m_itemData);
         if (rule.State == SpoilageRuleState.NotReady)
         {
-            changed |= inheritedRemainingTicks >= 0L &&
-                       ApplyEarlierRemaining(
-                           drop.m_itemData,
-                           inheritedRemainingTicks,
-                           ResolveWorldDropPausedState(drop));
+            Dictionary<string, string>? previousCustomData = inheritedSpoiled
+                ? new(drop.m_itemData.m_customData, StringComparer.Ordinal)
+                : null;
+            changed |= inheritedSpoiled
+                ? CompleteKeepOriginalExpiry(drop.m_itemData)
+                : inheritedRemainingTicks >= 0L && ApplyEarlierRemaining(
+                    drop.m_itemData,
+                    inheritedRemainingTicks,
+                    ResolveWorldDropPausedState(drop));
             if (changed)
             {
-                drop.Save();
+                if (previousCustomData != null)
+                {
+                    SaveInheritedMetadata(drop, previousCustomData);
+                }
+                else
+                {
+                    drop.Save();
+                }
             }
 
             if (keepPendingWhenNotReady || inheritedRemainingTicks >= 0L)
@@ -1125,29 +1185,15 @@ internal static class DecayRuntime
             changed |= drop.m_itemData.m_customData.Remove(PlacedAnchorDataKey);
         }
 
-        if (effectiveRemainingTicks <= 0L &&
-            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal)
+        if (inheritedSpoiled || (effectiveRemainingTicks <= 0L &&
+            rule.ExpiryAction == SpoilageExpiryAction.KeepOriginal))
         {
             Dictionary<string, string> previousCustomData =
                 new(drop.m_itemData.m_customData, StringComparer.Ordinal);
             changed |= CompleteKeepOriginalExpiry(drop.m_itemData);
             if (changed)
             {
-                try
-                {
-                    drop.Save();
-                }
-                catch
-                {
-                    drop.m_itemData.m_customData.Clear();
-                    foreach (KeyValuePair<string, string> pair in previousCustomData)
-                    {
-                        drop.m_itemData.m_customData[pair.Key] = pair.Value;
-                    }
-
-                    RegisterGroundDrop(drop);
-                    throw;
-                }
+                SaveInheritedMetadata(drop, previousCustomData);
             }
         }
         else if (changed)
@@ -1163,6 +1209,35 @@ internal static class DecayRuntime
         {
             RegisterGroundDrop(drop);
         }
+    }
+
+    private static void SaveInheritedMetadata(ItemDrop drop, Dictionary<string, string> previousCustomData)
+    {
+        try
+        {
+            drop.Save();
+        }
+        catch
+        {
+            drop.m_itemData.m_customData.Clear();
+            foreach (KeyValuePair<string, string> pair in previousCustomData)
+            {
+                drop.m_itemData.m_customData[pair.Key] = pair.Value;
+            }
+
+            RegisterGroundDrop(drop);
+            throw;
+        }
+    }
+
+    private static bool InheritWhileOff(
+        ItemDrop.ItemData item, long remainingTicks, bool spoiled, bool paused)
+    {
+        // A zero clock is due for later YAML expiry; only an existing marker
+        // is terminal. Conflating the two would turn Off into permanent keep.
+        return spoiled
+            ? CompleteKeepOriginalExpiry(item)
+            : remainingTicks >= 0L && ApplyEarlierRemaining(item, remainingTicks, paused);
     }
 
     private static bool HasValidGroundView(ItemDrop drop)

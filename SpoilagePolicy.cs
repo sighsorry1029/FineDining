@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Configuration;
 using ServerSync;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
@@ -40,6 +41,7 @@ internal static class SpoilagePolicy
         .Build();
 
     private static ConfigSync? _configSync;
+    private static ConfigEntry<SpoilageMode>? _mode;
     private static CustomSyncedValue<string>? _syncedYaml;
     private static FileSystemWatcher? _watcher;
     private static System.Timers.Timer? _reloadTimer;
@@ -57,6 +59,8 @@ internal static class SpoilagePolicy
 
     internal static bool IsReady => _isReady && _policy != null;
 
+    internal static bool IsEnabled => _mode?.Value != SpoilageMode.Off;
+
     internal static bool IsChefChoiceBlacklisted(string? prefabName)
     {
         if (string.IsNullOrWhiteSpace(prefabName))
@@ -67,7 +71,7 @@ internal static class SpoilagePolicy
         return _policy?.ChefChoiceBlacklist.Contains(prefabName!.Trim()) == true;
     }
 
-    internal static void Initialize(ConfigSync sync)
+    internal static void Initialize(ConfigFile config, ConfigSync sync)
     {
         if (sync == null)
         {
@@ -75,6 +79,9 @@ internal static class SpoilagePolicy
         }
 
         Shutdown();
+        _mode = BindMode(config);
+        sync.AddConfigEntry(_mode).SynchronizedConfig = true;
+        _mode.SettingChanged += OnModeChanged;
         _configSync = sync;
         _configSync.SourceOfTruthChanged += OnSourceOfTruthChanged;
         _syncedYaml = new CustomSyncedValue<string>(sync, SyncedYamlIdentifier, "");
@@ -82,8 +89,31 @@ internal static class SpoilagePolicy
         RefreshAuthority(force: true);
     }
 
+    internal static ConfigEntry<SpoilageMode> BindMode(ConfigFile config) =>
+        config.Bind(
+            ConfigPresentation.Spoilage.Name,
+            "Spoilage Mode",
+            SpoilageMode.FollowYaml,
+            ConfigPresentation.Synced(
+                "FollowYaml uses Spoilage.yml. Off stops new timers, expiry processing, " +
+                "freshness penalties on newly eaten food, and spoilage UI, while preserving saved data. " +
+                "Existing running deadlines still pass in world time and may expire when re-enabled. " +
+                "StatDecreaseOnly follows YAML lifetimes and exclusions but keeps expired items " +
+                "at minimum freshness instead of replacing them. Already eaten food and permanent " +
+                "minimum-freshness markers are not reset by mode changes.",
+                ConfigPresentation.Spoilage,
+                700));
+
+    private static void OnModeChanged(object sender, EventArgs args) => DecayRuntime.InvalidateAll();
+
     internal static void Shutdown()
     {
+        if (_mode != null)
+        {
+            _mode.SettingChanged -= OnModeChanged;
+            _mode = null;
+        }
+
         DisposeWatcher();
 
         if (_syncedYaml != null)
@@ -144,7 +174,28 @@ internal static class SpoilagePolicy
         }
     }
 
-    internal static ResolvedSpoilageRule Resolve(ItemDrop.ItemData? item)
+    internal static ResolvedSpoilageRule Resolve(ItemDrop.ItemData? item) =>
+        ApplyMode(ResolveYaml(item));
+
+    private static ResolvedSpoilageRule ApplyMode(ResolvedSpoilageRule rule)
+    {
+        if (_mode?.Value == SpoilageMode.StatDecreaseOnly &&
+            rule.State == SpoilageRuleState.Enabled)
+        {
+            return new ResolvedSpoilageRule(
+                rule.State,
+                rule.LifetimeTicks,
+                group: rule.Group,
+                isOverride: rule.IsOverride,
+                expiryAction: SpoilageExpiryAction.KeepOriginal);
+        }
+
+        // Off is a runtime gate, not a disabled YAML rule: disabled rules can
+        // clear clocks, whereas switching Off must preserve existing metadata.
+        return rule;
+    }
+
+    internal static ResolvedSpoilageRule ResolveYaml(ItemDrop.ItemData? item)
     {
         NormalizedPolicy? policy = _policy;
         if (!_isReady || policy == null)

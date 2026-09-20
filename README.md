@@ -2,12 +2,57 @@
 
 FineDining is a server-synchronized Valheim food overhaul focused on food storage, diet variety, and the Cooking skill.
 
-The current source targets Valheim 1.0.7 and BepInExPack 5.4.2350. Jotunn is
-optional; FineDining registers its own content and can observe other mods'
-Jotunn content when available. See [the compatibility record](Docs/Valheim-1.0.7.md)
-for verification status and integration limits of the current development patch.
-
 ## Showcase
+
+Click a screenshot to open the full-resolution original.
+
+### Diet, Chef's Choice, and Full Course
+
+Recent meals influence Chef's Choice. Natural food expiry or a food removed by Puke advances the list.
+
+| Recent meals | Chef's Choice |
+| --- | --- |
+| [![Recent meals](https://i.ibb.co/PGzr6fcp/recenthistory-half.webp)](https://i.ibb.co/ksDTH1SS/recenthistory.png) | [![Chef's Choice](https://i.ibb.co/4RwTtXzB/chefchoice-half.webp)](https://i.ibb.co/yF5f6v6b/chefchoice.png) |
+
+![](https://i.ibb.co/rRx97QGV/chefchoicereroll.gif)
+
+Tooltips show Chef, diminishing, and stale multipliers. Filling every unlocked food slot activates Full Course.
+
+| Chef bonus and freshness penalty | Repetition and freshness penalties |
+| --- | --- |
+| [![Chef bonus and freshness penalty](https://i.ibb.co/Gf8RZf4W/chefchoiceandstailinitemtooltip-half.webp)](https://i.ibb.co/qLG1Dz2r/chefchoiceandstailinitemtooltip.png) | [![Repetition and freshness penalties](https://i.ibb.co/yFCVP5V6/dminishandstale-half.webp)](https://i.ibb.co/ZRvgVVrw/dminishandstale.png) |
+
+[![Full Course with all food slots filled](https://i.ibb.co/xtTVqpQY/fullcourse-half.webp)](https://i.ibb.co/LDwvdf4m/fullcourse.png)
+
+### Cooking and station hints
+
+Cooking skill can auto-eject finished food, while hover hints expose valid inputs and processing state for vanilla and modded stations.
+
+![](https://i.ibb.co/HLhn4dBv/autoeject.gif)
+
+| Vanilla cooking station | Modded cooking station |
+| --- | --- |
+| [![Vanilla cooking station](https://i.ibb.co/9mynkvfx/cookingstationhover-half.webp)](https://i.ibb.co/60D56PXj/cookingstationhover.png) | [![Modded cooking station](https://i.ibb.co/5h8tVWXz/moddedcookingstationhover-half.webp)](https://i.ibb.co/67vCs4tN/moddedcookingstationhover.png) |
+
+Cover and depth speed fermentation. Compatible custom Fermenters receive the same clear hover information.
+
+| Vanilla Fermenter | Modded Fermenter |
+| --- | --- |
+| [![Vanilla Fermenter](https://i.ibb.co/gZh2C9ZH/fermenterhover-half.webp)](https://i.ibb.co/KxyHz6HD/fermenterhover.png) | [![Modded Fermenter](https://i.ibb.co/NBcYzYg/moddedfermenterhover-half.webp)](https://i.ibb.co/KcQGq5Cp/moddedfermenterhover.png) |
+
+[![Fermentation bonuses from cover and depth](https://i.ibb.co/FbKMX3Yk/fermentingdeeperandclosed-half.webp)](https://i.ibb.co/pryCYT85/fermentingdeeperandclosed.png)
+
+Production buildings and supported ValheimCuisine stations expose compact hover information.
+
+[![Windmill inputs and processing hints](https://i.ibb.co/v7QGG7N/windmillhover-half.webp)](https://i.ibb.co/ycrv35Zt/windmillhover.png)
+
+| Charcoal Kiln input hints | Smelter processing hints |
+| --- | --- |
+| [![Charcoal Kiln input hints](https://i.ibb.co/HL887p9y/smelterhover-half.webp)](https://i.ibb.co/PssKNRwh/smelterhover.png) | [![Smelter processing hints](https://i.ibb.co/rGzqJ3qb/smelterhover2-half.webp)](https://i.ibb.co/hRhPr8vX/smelterhover2.png) |
+
+| Freydi Collector | Grimpy Box |
+| --- | --- |
+| [![Freydi Collector](https://i.ibb.co/cSwJwbTg/freydicollectorhover-half.webp)](https://i.ibb.co/rfm7KMxB/freydicollectorhover.png) | [![Grimpy Box](https://i.ibb.co/gLKfSw6C/grimphyboxhover-half.webp)](https://i.ibb.co/4H314Dq/grimphyboxhover.png) |
 
 ### Spoilage and preservation
 
@@ -21,67 +66,15 @@ Food can spoil in containers, as loose drops, and when placed for display. Remai
 
 Expired food normally becomes its configured rotten result. A group rule or exact override can instead keep the original prefab at minimum freshness. Cold biomes and the Icebox pause active spoilage timers.
 
-![](https://i.ibb.co/fzY9VG7S/rottenfood.png)
+[![Configured rotten food results](https://i.ibb.co/B2XnmBsp/rottenfood-half.webp)](https://i.ibb.co/fzY9VG7S/rottenfood.png)
 
-![](https://i.ibb.co/kVKHbGV3/feastcanspoil.png)
+| Placed food with an active timer | Placed food preserved in the Mountain |
+| --- | --- |
+| [![Placed food with an active timer](https://i.ibb.co/93TX2cKS/feastcanspoil-half.webp)](https://i.ibb.co/kVKHbGV3/feastcanspoil.png) | [![Placed food preserved in the Mountain](https://i.ibb.co/mVNx2cTL/feastnospoilatmountain-half.webp)](https://i.ibb.co/YTh1R93Z/feastnospoilatmountain.png) |
 
-![](https://i.ibb.co/YTh1R93Z/feastnospoilatmountain.png)
-
-![](https://i.ibb.co/C34FSch2/foodinmountains.png)
-
-![](https://i.ibb.co/rR4g5J1D/foodinicebox.png)
-
-### Diet, Chef's Choice, and Full Course
-
-Recent meals influence Chef's Choice. Natural food expiry or a food removed by Puke advances the list.
-
-![](https://i.ibb.co/ksDTH1SS/recenthistory.png)
-
-![](https://i.ibb.co/yF5f6v6b/chefchoice.png)
-
-![](https://i.ibb.co/rRx97QGV/chefchoicereroll.gif)
-
-Tooltips show Chef, diminishing, and stale multipliers. Filling every unlocked food slot activates Full Course.
-
-![](https://i.ibb.co/qLG1Dz2r/chefchoiceandstailinitemtooltip.png)
-
-![](https://i.ibb.co/ZRvgVVrw/dminishandstale.png)
-
-![](https://i.ibb.co/LDwvdf4m/fullcourse.png)
-
-At higher Cooking levels, the most likely Chef multiplier moves toward the configured peak.
-
-![](https://i.ibb.co/wFPLCLs5/chefmultiplierpeak.png)
-
-### Cooking and station hints
-
-Cooking skill can auto-eject finished food, while hover hints expose valid inputs and processing state for vanilla and modded stations.
-
-![](https://i.ibb.co/HLhn4dBv/autoeject.gif)
-
-![](https://i.ibb.co/60D56PXj/cookingstationhover.png)
-
-![](https://i.ibb.co/67vCs4tN/moddedcookingstationhover.png)
-
-Cover and depth speed fermentation. Compatible custom Fermenters receive the same clear hover information.
-
-![](https://i.ibb.co/KxyHz6HD/fermenterhover.png)
-
-![](https://i.ibb.co/pryCYT85/fermentingdeeperandclosed.png)
-
-![](https://i.ibb.co/KcQGq5Cp/moddedfermenterhover.png)
-
-Production buildings and supported ValheimCuisine stations expose compact hover information.
-
-![](https://i.ibb.co/ycrv35Zt/windmillhover.png)
-
-![](https://i.ibb.co/PssKNRwh/smelterhover.png)
-
-![](https://i.ibb.co/hRhPr8vX/smelterhover2.png)
-
-![](https://i.ibb.co/rfm7KMxB/freydicollectorhover.png)
-
-![](https://i.ibb.co/4H314Dq/grimphyboxhover.png)
+| Cold-biome preservation | Icebox preservation |
+| --- | --- |
+| [![Cold-biome preservation](https://i.ibb.co/GQWtHwY8/foodinmountains-half.webp)](https://i.ibb.co/C34FSch2/foodinmountains.png) | [![Icebox preservation](https://i.ibb.co/5XrZCNVK/foodinicebox-half.webp)](https://i.ibb.co/rR4g5J1D/foodinicebox.png) |
 
 ## Features
 
@@ -90,6 +83,18 @@ Production buildings and supported ValheimCuisine stations expose compact hover 
 - Cooking experience, production bonuses, auto-eject, faster fermentation, and station hints.
 
 ## Spoilage
+
+`[5 - Spoilage] Spoilage Mode` is synchronized by the server and can be changed live:
+
+| Mode | Behavior |
+| --- | --- |
+| `FollowYaml` (default) | Uses `Spoilage.yml` lifetimes, exclusions, and expiry results. Preserves the existing behavior. |
+| `Off` | Stops new timers and expiry processing, hides spoilage UI, and removes the freshness penalty from food eaten while Off. Existing item metadata is retained. |
+| `StatDecreaseOnly` | Uses the same YAML targets and lifetimes, including zero-hour exclusions, but keeps expired items at minimum freshness instead of replacing them. |
+
+`Off` does not freeze world time: saved running deadlines can pass and expire when spoilage is re-enabled. Saved paused clocks retain their existing preservation/save behavior. Merging, placing, and recovering tracked items still transfer spoilage state. Items created while Off receive no new timer or placement anchor; normal activation rules apply after re-enabling.
+
+Mode changes do not rewrite already-eaten food effects, reverse rotten replacements, or clear permanent minimum-freshness markers. Switching from `StatDecreaseOnly` back to `FollowYaml` therefore leaves already-expired kept items at minimum freshness. While Off, their marker is retained but causes no new consumption penalty. In `StatDecreaseOnly`, health, stamina, eitr, and regeneration use the stale-food minimum (default 0.75); food duration is unchanged. Non-edible ingredients are retained without a food-stat effect. `Spoilage.yml` and the generated reference continue to describe the underlying YAML policy.
 
 Ordinary food starts its spoilage clock when it first enters a player inventory. Untouched food in location loot and ordinary containers remains fresh until that first pickup. Placed food starts from its placement time.
 
@@ -230,7 +235,7 @@ Server configuration locking is enabled by default. Config descriptions identify
 | `2 - Client` | Client-only | Station icon scale and row counts |
 | `3 - Diet` | Server-synchronized | Food slots, stat scales, history, and diminishing returns |
 | `4 - Chef Choice` | Server-synchronized | Choice count, multipliers, tier weighting, and food-type preference |
-| `5 - Spoilage` | Mixed | Preservation, stale-food minimum, Icebox default limit, recipe, size, and local pins |
+| `5 - Spoilage` | Mixed | Global mode, preservation, stale-food minimum, Icebox default limit, recipe, size, and local pins |
 
 Additional files are created under `BepInEx/config/FineDining/`:
 

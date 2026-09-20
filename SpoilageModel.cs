@@ -1,5 +1,12 @@
 namespace FineDining;
 
+internal enum SpoilageMode
+{
+    FollowYaml,
+    Off,
+    StatDecreaseOnly
+}
+
 internal enum SpoilageGroup
 {
     FarmingHarvest,

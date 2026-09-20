@@ -2,9 +2,12 @@
 
 Run these commands from the repository root on Windows. Use the .NET SDK,
 the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
-The project resolves original Valheim 1.0.7 and BepInEx references from the local game install;
+The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
+The 1.1.0 release checks on 2026-09-20 use Valheim 1.0.15 client build 25390630
+and the matching dedicated-server build 25390671. These are build and automated
+check inputs, not a claim of actual game or multiplayer execution.
 
 ```powershell
 dotnet build FineDining.sln -c Debug -p:DeployToGame=true
@@ -13,8 +16,11 @@ pwsh -NoProfile -File Tests/CookingProductionTranspilerSmoke.ps1
 pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuget/packages/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll" -PluginDll bin/Debug/FineDining.dll -ManagedPath "C:/Program Files (x86)/Steam/steamapps/common/Valheim/valheim_Data/Managed" -BepInExCore "C:/Program Files (x86)/Steam/steamapps/common/Valheim/BepInEx/core"
 ```
 
-Repeat Check-GameApi with the dedicated-server original Managed path. The
-reviewed snapshot is `C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25185644-windows-x64-20260909T131109Z/original/valheim_server_Data/Managed`.
+Repeat Check-GameApi with the dedicated-server original Managed path matching
+the client build. The 1.1.0 release check uses
+`C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25390671-windows-x64-20260918T185703Z-depot-restored/original/valheim_server_Data/Managed`.
+The old 1.0.7 snapshot does not match these binaries: its
+`PlayerProfile.s_bypassCheatChecks` field predates the getter used by 1.0.15.
 This checks direct access, explicit Harmony contracts and selected cached
 private/reflection bindings; it does not execute patches or Unity.
 
@@ -60,7 +66,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.0.10.zip -NexusZipPath Nexus/FineDining_v1.0.10.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.0.zip -NexusZipPath Nexus/FineDining_v1.1.0.zip
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```
 
@@ -100,6 +106,22 @@ For UI or state changes, also check in Valheim:
 - Icebox recipe changes, hammer requirements, storage shrinking from 20 to 4
   rows with items in the lower rows, and save/reconnect.
 - Client, host, and dedicated-server sessions, including ownership changes.
+
+For `Spoilage Mode`, IntegrationSmoke executes the mode overlay for every YAML
+rule state/action, binds the default config without writing a file, and verifies
+Off freshness/UI suppression, raw metadata retention, and the distinction between
+an overdue clock and a permanent spoiled marker during inheritance. These managed
+tests do not instantiate Unity inventories or run network synchronization.
+
+In Valheim, test live server changes between all three modes with new, running,
+paused, overdue, and permanently marked items. Check inventory/container slots,
+tooltips, ground and Feast hover text, placement/recovery, ordinary/AzuEPI/
+InventorySlots merges, and save/reconnect. Off must create no new timer or anchor;
+existing running deadlines can be due on re-enable. StatDecreaseOnly must retain
+YAML zero-hour exclusions and keep expired items at minimum freshness. Already
+eaten effects and permanently marked items must survive mode changes. Repeat on
+client/host/dedicated-server setups, including ownership changes and reconnect
+while policy synchronization is still pending.
 
 For the Cooking skill tooltip, check in Valheim with Korean and English:
 

@@ -11,6 +11,7 @@ internal sealed class PlacementSpoilageState
     internal string TargetPrefabName = "";
     internal long PlacementTicks;
     internal long InheritedRemainingTicks = -1L;
+    internal bool InheritedSpoiled;
     internal bool Consumed;
 }
 
@@ -31,7 +32,8 @@ internal static class PlacementSpoilageTracker
                 SpoilageClock.TryGetWorldTicks(out state.PlacementTicks);
                 if (!IsNoCostPlacement(player, piece))
                 {
-                    state.InheritedRemainingTicks = CaptureConsumedRemaining(player.GetInventory(), piece);
+                    state.InheritedRemainingTicks = CaptureConsumedRemaining(
+                        player.GetInventory(), piece, out state.InheritedSpoiled);
                 }
             }
         }
@@ -73,10 +75,12 @@ internal static class PlacementSpoilageTracker
         ItemDrop placedDrop,
         bool sendRpc,
         out long inheritedRemainingTicks,
-        out long placementTicks)
+        out long placementTicks,
+        out bool inheritedSpoiled)
     {
         inheritedRemainingTicks = -1L;
         placementTicks = 0L;
+        inheritedSpoiled = false;
         if (!sendRpc || placedDrop == null || _scopes == null || _scopes.Count == 0)
         {
             return false;
@@ -93,11 +97,14 @@ internal static class PlacementSpoilageTracker
         state.Consumed = true;
         inheritedRemainingTicks = state.InheritedRemainingTicks;
         placementTicks = state.PlacementTicks;
+        inheritedSpoiled = state.InheritedSpoiled;
         return true;
     }
 
-    private static long CaptureConsumedRemaining(Inventory? inventory, Piece piece)
+    private static long CaptureConsumedRemaining(
+        Inventory? inventory, Piece piece, out bool inheritedSpoiled)
     {
+        inheritedSpoiled = false;
         if (inventory == null || piece.m_resources == null)
         {
             return -1L;
@@ -157,6 +164,7 @@ internal static class PlacementSpoilageTracker
                 if (SpoilageClock.IsSpoiled(item))
                 {
                     earliestRemainingTicks = 0L;
+                    inheritedSpoiled = true;
                     continue;
                 }
 
@@ -203,6 +211,7 @@ internal static class PlacementSpoilageTracker
 internal sealed class PieceRecoverySpoilageState
 {
     internal long RemainingTicks = -1L;
+    internal bool Spoiled;
     internal readonly HashSet<string> RecoverySourcePrefabs =
         new(StringComparer.OrdinalIgnoreCase);
     internal readonly HashSet<string> RecoverablePrefabs =
@@ -237,6 +246,7 @@ internal static class PieceRecoverySpoilageTracker
                     if (SpoilageClock.IsSpoiled(placedDrop.m_itemData))
                     {
                         state.RemainingTicks = 0L;
+                        state.Spoiled = true;
                     }
                     else if (SpoilageClock.TryGetWorldTicks(out long nowTicks) &&
                              DecayRuntime.TryGetSpoilageClock(
@@ -307,7 +317,7 @@ internal static class PieceRecoverySpoilageTracker
             return;
         }
 
-        DecayRuntime.InitializeRecoveredDrop(recoveredDrop, state.RemainingTicks);
+        DecayRuntime.InitializeRecoveredDrop(recoveredDrop, state.RemainingTicks, state.Spoiled);
     }
 
     internal static bool ApplyToInventoryItem(Inventory inventory, ItemDrop.ItemData? item)
@@ -316,7 +326,7 @@ internal static class PieceRecoverySpoilageTracker
         {
             PieceRecoverySpoilageState? state = Current;
             return state != null && item != null && Matches(state, item) &&
-                   DecayRuntime.PrepareInheritedItemForAdd(inventory, item, state.RemainingTicks);
+                   DecayRuntime.PrepareInheritedItemForAdd(inventory, item, state.RemainingTicks, state.Spoiled);
         }
         catch (Exception exception)
         {
@@ -436,8 +446,10 @@ internal static class ItemDropMakePieceSpoilagePatch
                 __instance,
                 sendRPC,
                 out long inheritedRemainingTicks,
-                out long placementTicks);
-            DecayRuntime.InitializePlacedDrop(__instance, inheritedRemainingTicks, placementTicks);
+                out long placementTicks,
+                out bool inheritedSpoiled);
+            DecayRuntime.InitializePlacedDrop(
+                __instance, inheritedRemainingTicks, placementTicks, inheritedSpoiled);
         }
         catch (Exception exception)
         {
