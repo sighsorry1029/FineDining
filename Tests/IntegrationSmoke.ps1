@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.0.0') 'Assembly version must be 1.1.0.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.1.0') 'Assembly version must be 1.1.1.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.0') 'Plugin version must be 1.1.0.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.1') 'Plugin version must be 1.1.1.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -706,6 +706,7 @@ Assert-True ([int]$getIceboxLimit.Invoke($iceboxLimitSnapshot, [object[]] @('Ste
 Assert-True ([int]$getIceboxLimit.Invoke($iceboxLimitSnapshot, [object[]] @('76561198000000001', 2)) -eq 2) 'An unlisted Steam64 account must use the synchronized config default.'
 $iceboxQuotaSource = Get-Content -LiteralPath (Join-Path $projectRoot 'IceboxQuotaService.cs') -Raw
 Assert-True ($iceboxQuotaSource.Contains('IceboxLimitPolicy.Current.GetLimit(') -and $iceboxQuotaSource.Contains('IceboxSubsystem.PlacementLimit')) 'Authoritative Icebox placement checks must combine YAML overrides with the live synchronized config default.'
+Assert-HarmonyPatchTarget $assembly 'FineDining.ZNetServerLoadWorldIceboxSubsystemPatch' 'ZNet' 'ServerLoadWorld'
 $legacyIceboxArguments = [object[]] @("defaultLimit: 7`noverrides: {}`n", $null, '')
 Assert-True (-not [bool]$tryParseIceboxLimits.Invoke($null, $legacyIceboxArguments)) 'The removed Icebox.yml defaultLimit field must not be accepted or migrated.'
 Assert-True (-not [string]::IsNullOrWhiteSpace([string]$legacyIceboxArguments[2])) 'Rejected legacy Icebox.yml must explain its invalid schema.'

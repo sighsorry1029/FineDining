@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Fixed Icebox placement limits remaining inactive on dedicated servers and hosts when loading chunked saves or creating a new world. Quota initialization now runs after the common server world-loading step, covering old saves, chunked saves, and worlds without a save file.
+- Prevented failed loads and repeated initialization from replacing the accepted Icebox baseline. Existing boxes remain intact and count toward the limit; new placements retain the existing rejection and refund behavior.
+- Added regression checks for the Icebox initialization hook and the original client/server world-loading paths.
+
 ## 1.1.0
 
 - Added the server-synchronized, live `Spoilage Mode` setting. `FollowYaml` is the default and preserves existing rules; `Off` stops new timers and expiry processing, hides spoilage UI, and removes freshness penalties from food eaten while Off; `StatDecreaseOnly` follows YAML lifetimes and exclusions but keeps expired items at minimum freshness instead of replacing them.

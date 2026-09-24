@@ -20,7 +20,7 @@ internal readonly struct IceboxPinSnapshotEntry
 /// <summary>
 /// Server-authoritative Icebox account ownership and placement quota.
 ///
-/// Existing boxes discovered during ZDOMan.Load are grandfathered: lowering a
+/// Existing boxes discovered after the server loads its world are grandfathered: lowering a
 /// limit never deletes world data.  Only boxes first observed after the initial
 /// world scan are validated against the current count.  Placement notices carry
 /// only a ZDOID; identity is resolved from the RPC sender and the server's peer
@@ -191,9 +191,17 @@ internal static class IceboxQuotaService
         ProcessPendingPlacements(nowUtc);
     }
 
-    internal static void OnAuthoritativeWorldLoaded(ZDOMan zdoMan)
+    internal static void OnAuthoritativeWorldLoaded(ZDOMan? zdoMan)
     {
-        if (zdoMan == null || ZNet.instance == null || !ZNet.instance.IsServer())
+        if (!_initialized || zdoMan == null || ZNet.instance == null ||
+            !ZNet.instance.IsServer() || ZNet.m_loadError)
+        {
+            return;
+        }
+
+        // Re-entering the completion hook must not grandfather new placements
+        // or discard pending rejections. ZNet.Awake resets this for each session.
+        if (_worldScanComplete && ReferenceEquals(_trackedZdoMan, zdoMan))
         {
             return;
         }

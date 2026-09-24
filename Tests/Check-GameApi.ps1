@@ -133,6 +133,42 @@ try {
     }
     $game = [Mono.Cecil.AssemblyDefinition]::ReadAssembly((Join-Path $ManagedPath 'assembly_valheim.dll'), $reader)
     try {
+        # A valid patch target is not enough: the quota hook must enclose both
+        # native save loaders and the no-save-file return used by a new world.
+        $quotaLoadHook = $plugin.MainModule.GetType('FineDining.ZNetServerLoadWorldIceboxSubsystemPatch')
+        $quotaLoadTargets = @($quotaLoadHook.CustomAttributes | Where-Object {
+            $_.AttributeType.FullName -eq 'HarmonyLib.HarmonyPatch' -and
+            $_.ConstructorArguments.Count -ge 2 -and
+            $_.ConstructorArguments[0].Value.FullName -eq 'ZNet' -and
+            $_.ConstructorArguments[1].Value -eq 'ServerLoadWorld'
+        })
+        if ($quotaLoadTargets.Count -ne 1) {
+            throw 'Icebox quota initialization must cover the common server world-load completion, including chunked and new worlds.'
+        }
+        $znet = $game.MainModule.GetType('ZNet')
+        foreach ($edge in @(
+            @('Start', 'ZNet', 'ServerLoadWorld'),
+            @('ServerLoadWorld', 'ZNet', 'LoadWorld'),
+            @('ServerLoadWorld', 'ZNet', 'LoadOldWorld'),
+            @('LoadWorld', 'ZDOMan', 'LoadChunks'),
+            @('LoadOldWorld', 'ZDOMan', 'Load'),
+            @('LoadWorld', 'ZNet', 'WorldSetup'),
+            @('LoadOldWorld', 'ZNet', 'WorldSetup')
+        )) {
+            $caller = @($znet.Methods | Where-Object Name -eq $edge[0])
+            $calls = @($caller.Body.Instructions | Where-Object {
+                $_.OpCode.Code -in @('Call', 'Callvirt') -and
+                $_.Operand.DeclaringType.FullName -eq $edge[1] -and
+                $_.Operand.Name -eq $edge[2]
+            })
+            if ($caller.Count -ne 1 -or $calls.Count -eq 0) {
+                throw "World loading changed; recheck Icebox initialization coverage: $($edge -join ' -> ')"
+            }
+        }
+        $loadError = Get-Field $znet 'm_loadError'
+        if (-not $loadError.IsPublic -or -not $loadError.IsStatic -or $loadError.FieldType.FullName -ne 'System.Boolean') {
+            throw 'Icebox world-load failure guard no longer matches the original game field.'
+        }
         foreach ($spec in @(
             'StatusEffect|GetTooltipString||System.String', 'SE_Stats|GetTooltipString||System.String',
             'Fermenter|RPC_Tap|System.Int64|System.Void',
@@ -181,6 +217,6 @@ try {
         })
         if ($loadImage.Count -ne 1) { throw 'Image decoder delegate mismatch.' }
     } finally { $gui.Dispose(); $image.Dispose() }
-    Write-Output "PASS: $references direct game references, $targets explicit Harmony targets/arguments, $bindings private bindings, selected dynamic/reflection contracts."
+    Write-Output "PASS: $references direct game references, $targets explicit Harmony targets/arguments, $bindings private bindings, Icebox server loading paths, selected dynamic/reflection contracts."
     Write-Output 'Metadata/IL validation only; this does not execute Harmony detours, Unity, Mono, RPC transport, or optional mods.'
 } finally { $plugin.Dispose(); $resolver.Dispose() }

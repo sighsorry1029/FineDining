@@ -568,12 +568,14 @@ internal static class ZNetSceneAwakeIceboxSubsystemPatch
     }
 }
 
-[HarmonyPatch(typeof(ZDOMan), nameof(ZDOMan.Load))]
-internal static class ZdoManLoadIceboxSubsystemPatch
+[HarmonyPatch(typeof(ZNet), "ServerLoadWorld")]
+internal static class ZNetServerLoadWorldIceboxSubsystemPatch
 {
-    private static void Postfix(ZDOMan __instance)
+    private static void Postfix()
     {
-        IceboxQuotaService.OnAuthoritativeWorldLoaded(__instance);
+        // This common completion point covers Load, LoadChunks, and new worlds
+        // without a save file. Failed loads must not become an accepted baseline.
+        IceboxQuotaService.OnAuthoritativeWorldLoaded(ZDOMan.instance);
     }
 }
 

@@ -5,7 +5,7 @@ the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
-The 1.1.0 release checks on 2026-09-20 use Valheim 1.0.15 client build 25390630
+The 1.1.1 release checks on 2026-09-24 use Valheim 1.0.15 client build 25390630
 and the matching dedicated-server build 25390671. These are build and automated
 check inputs, not a claim of actual game or multiplayer execution.
 
@@ -17,12 +17,16 @@ pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuge
 ```
 
 Repeat Check-GameApi with the dedicated-server original Managed path matching
-the client build. The 1.1.0 release check uses
+the client build. The 1.1.1 release check uses
 `C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25390671-windows-x64-20260918T185703Z-depot-restored/original/valheim_server_Data/Managed`.
 The old 1.0.7 snapshot does not match these binaries: its
 `PlayerProfile.s_bypassCheatChecks` field predates the getter used by 1.0.15.
 This checks direct access, explicit Harmony contracts and selected cached
 private/reflection bindings; it does not execute patches or Unity.
+For Icebox quotas it also verifies the original Start/ServerLoadWorld call paths
+to both save loaders and WorldSetup, and requires FineDining's hook at their
+common completion point. This catches a Load-only hook that misses chunked saves
+and new worlds; it does not simulate reading save files or running a server.
 
 CookingProductionTranspilerSmoke reads the unmodified original DoCrafting IL
 with Cecil and invokes the built FineDining TryInject method. It verifies one
@@ -66,7 +70,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.0.zip -NexusZipPath Nexus/FineDining_v1.1.0.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.1.zip -NexusZipPath Nexus/FineDining_v1.1.1.zip
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```
 
@@ -106,6 +110,16 @@ For UI or state changes, also check in Valheim:
 - Icebox recipe changes, hammer requirements, storage shrinking from 20 to 4
   rows with items in the lower rows, and save/reconnect.
 - Client, host, and dedicated-server sessions, including ownership changes.
+
+For Icebox placement limits, start an existing chunked world, an old-format world,
+and a new world without a save file. With the default limit of two and empty
+overrides, allow the first two placements and reject/refund the third once.
+Restart with existing boxes (including an over-limit baseline): count them but
+never delete or refund them on load. Also check removal/replacement, reconnect,
+duplicate placement notices, and the owner map pins. A repeated completion hook
+must not reclassify a pending placement as an existing box; a failed world load
+must not initialize the quota index. The game/transport and refund checks still
+require actual client/host/dedicated-server execution.
 
 For `Spoilage Mode`, IntegrationSmoke executes the mode overlay for every YAML
 rule state/action, binds the default config without writing a file, and verifies
