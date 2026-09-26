@@ -17,7 +17,7 @@ internal static class ChefCollectionService
         PlayerFoodStateData state,
         string? excludedRefillKey)
     {
-        if (player == null || ObjectDB.instance == null)
+        if (!DietConfig.IsChefChoiceEnabled() || player == null || ObjectDB.instance == null)
         {
             return false;
         }
@@ -109,6 +109,12 @@ internal static class ChefCollectionService
         string key,
         out float multiplier)
     {
+        multiplier = 1f;
+        if (!DietConfig.IsChefChoiceEnabled())
+        {
+            return false;
+        }
+
         EnsureChefCollection(player, state);
         for (int index = 0; index < state.Chef.Count; index++)
         {
@@ -123,7 +129,6 @@ internal static class ChefCollectionService
             return true;
         }
 
-        multiplier = 1f;
         return false;
     }
 
@@ -135,7 +140,7 @@ internal static class ChefCollectionService
 
     internal static ChefEntryData? GetEntry(PlayerFoodStateData state, string key)
     {
-        if (SpoilagePolicy.IsChefChoiceBlacklisted(key))
+        if (!DietConfig.IsChefChoiceEnabled() || SpoilagePolicy.IsChefChoiceBlacklisted(key))
         {
             return null;
         }
@@ -153,7 +158,7 @@ internal static class ChefCollectionService
 
     internal static void RerollAll(Player? player)
     {
-        if (player == null || ObjectDB.instance == null)
+        if (!DietConfig.IsChefChoiceEnabled() || player == null || ObjectDB.instance == null)
         {
             return;
         }
@@ -166,7 +171,7 @@ internal static class ChefCollectionService
 
     internal static void RotateOldest(Player? player, int count)
     {
-        if (player == null || ObjectDB.instance == null || count <= 0)
+        if (!DietConfig.IsChefChoiceEnabled() || player == null || ObjectDB.instance == null || count <= 0)
         {
             return;
         }

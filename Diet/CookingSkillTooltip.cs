@@ -44,7 +44,7 @@ internal static class CookingSkillTooltipPanel
         }
     }
 
-    internal static void Bind(SkillsDialog dialog, UITooltip tooltip)
+    internal static void Bind(SkillsDialog dialog, UITooltip tooltip, string originalText)
     {
         Canvas? canvas = tooltip.GetComponentInParent<Canvas>();
         RectTransform? panel = FindSkillPanel(dialog);
@@ -68,7 +68,7 @@ internal static class CookingSkillTooltipPanel
             return; // A replacement UI with an unknown hierarchy keeps its existing placement.
         }
 
-        _binding = new Binding(dialog, panel, row, canvas, canvasRect, tooltip);
+        _binding = new Binding(dialog, panel, row, canvas, canvasRect, tooltip, originalText);
         // Gamepad tooltips must also stay outside the scroll viewport's mask.
         tooltip.Anchor() = canvasRect;
         tooltip.FixedPosition() = Vector2.zero;
@@ -111,6 +111,17 @@ internal static class CookingSkillTooltipPanel
             {
                 Clear();
                 return;
+            }
+
+            bool chefEnabled = DietConfig.IsChefChoiceEnabled();
+            if (binding.ChefChoiceEnabled != chefEnabled)
+            {
+                tooltip.Set(
+                    tooltip.m_topic,
+                    CookingSkillTooltipText.AppendConfigured(binding.OriginalText),
+                    tooltip.Anchor(),
+                    tooltip.FixedPosition());
+                binding.ChefChoiceEnabled = chefEnabled;
             }
 
             GameObject root = GameAccess.TooltipObject;
@@ -186,9 +197,11 @@ internal static class CookingSkillTooltipPanel
         internal readonly UITooltip Tooltip;
         internal readonly RectTransform? OriginalAnchor;
         internal readonly Vector2 OriginalFixedPosition;
+        internal readonly string OriginalText;
+        internal bool ChefChoiceEnabled;
         internal View? View;
 
-        internal Binding(SkillsDialog dialog, RectTransform panel, RectTransform row, Canvas canvas, RectTransform canvasRect, UITooltip tooltip)
+        internal Binding(SkillsDialog dialog, RectTransform panel, RectTransform row, Canvas canvas, RectTransform canvasRect, UITooltip tooltip, string originalText)
         {
             Dialog = dialog;
             Panel = panel;
@@ -198,6 +211,8 @@ internal static class CookingSkillTooltipPanel
             Tooltip = tooltip;
             OriginalAnchor = tooltip.Anchor();
             OriginalFixedPosition = tooltip.FixedPosition();
+            OriginalText = originalText;
+            ChefChoiceEnabled = DietConfig.IsChefChoiceEnabled();
         }
     }
 
@@ -370,6 +385,15 @@ internal static class CookingSkillTooltipText
     internal const string ChefMultiplierToken = "$finedining_skill_cooking_chef_multiplier";
     internal const string ChefBothToken = "$finedining_skill_cooking_chef_both";
 
+    internal static string AppendConfigured(string? original) =>
+        Append(
+            original,
+            DietConfig.GetCookingBonusChanceAtMaxCookingPercent() > 0f
+            || DietConfig.GetFermenterOutputBonusChanceAtMaxCookingPercent() > 0f,
+            DietConfig.IsChefChoiceEnabled() && DietConfig.GetChefHighTierSelectionStrength() > 0f,
+            DietConfig.IsChefChoiceEnabled() &&
+            DietConfig.GetChefMultiplierModeAtMaxCooking() > DietConfig.GetChefMultiplierMin());
+
     internal static string Append(
         string? original,
         bool bonusOutputEnabled,
@@ -472,13 +496,8 @@ internal static class CookingSkillTooltipPatch
                 return;
             }
 
-            string text = CookingSkillTooltipText.Append(
-                tooltip.m_text,
-                DietConfig.GetCookingBonusChanceAtMaxCookingPercent() > 0f
-                || DietConfig.GetFermenterOutputBonusChanceAtMaxCookingPercent() > 0f,
-                DietConfig.GetChefHighTierSelectionStrength() > 0f,
-                DietConfig.GetChefMultiplierModeAtMaxCooking() >
-                DietConfig.GetChefMultiplierMin());
+            string originalText = tooltip.m_text;
+            string text = CookingSkillTooltipText.AppendConfigured(originalText);
             if (!string.Equals(text, tooltip.m_text, StringComparison.Ordinal))
             {
                 tooltip.Set(
@@ -488,7 +507,7 @@ internal static class CookingSkillTooltipPatch
                     tooltip.FixedPosition());
             }
 
-            CookingSkillTooltipPanel.Bind(__instance, tooltip);
+            CookingSkillTooltipPanel.Bind(__instance, tooltip, originalText);
         }
         catch (Exception exception)
         {

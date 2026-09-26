@@ -36,6 +36,12 @@ internal static class DietTerminalCommands
 
     private static void RerollChef(Terminal.ConsoleEventArgs args)
     {
+        if (!DietConfig.IsChefChoiceEnabled())
+        {
+            args.Context?.AddString("FineDining: Chef's Choice is disabled.");
+            return;
+        }
+
         if (!TryGetLocalPlayer(args, out Player player))
         {
             return;

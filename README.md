@@ -180,6 +180,26 @@ Newly earned slots take effect when an active food is removed or replaced, or wh
 - A naturally expired food or a food actually removed by Puke advances Chef's Choice once from the oldest entry.
 - Full Course works at every stage from three through nine unlocked slots and defaults to `x1.20` while every unlocked slot is filled with directly edible food. With the default Food Stat Scale, this gives `0.9 * 1.2 = 1.08` of three equivalent vanilla foods before other effects. Even with a nine-slot maximum, filling the first three unlocked slots activates Full Course.
 
+These features can be switched independently with server-synchronized settings, all enabled by default:
+
+| Section | Setting | When `false` |
+| --- | --- | --- |
+| `3 - Diet` | `Full Course Enabled` | Disables the bonus, indicator, and messages, including for currently active foods on the next food-stat update. |
+| `3 - Diet` | `Diminishing Returns Enabled` | Newly eaten foods receive no repetition penalty. Recent history continues to update for Chef's Choice and later re-enabling. |
+| `4 - Chef Choice` | `Chef Choice Enabled` | Newly eaten foods receive no Chef bonus or repetition-penalty exemption. Hides Chef UI and pauses selection, consumption, expiry/Puke rotation, and admin rerolls of the saved list. |
+
+Chef and diminishing settings apply to the next consumption; already eaten foods retain their saved effects and matching hover details until replaced or removed. Toggling these features does not clear saved history or reroll an existing valid Chef list. Re-enabling resumes from that state, including consumption history recorded while disabled. The recent-food row is available while either Chef's Choice or diminishing returns is enabled; both rows are hidden when both are disabled. Food-slot progression, base stat scaling, freshness, and Cooking experience/production bonuses keep their own settings.
+
+To hide only the HUD rows, use the client-only settings below. Both default to `true` and can be changed independently, including on a server with locked gameplay settings.
+
+```ini
+[2 - Client]
+Show Recent Food Row = true
+Show Chef Choice Row = true
+```
+
+Setting either to `false` hides that icon row and its hover descriptions. History, Chef list updates, food bonuses/penalties, item tooltips, eaten-food hover details, and the Full Course indicator continue to work. Showing a row does not re-enable a disabled gameplay feature. When only the Chef row is visible, it moves into the first row's space.
+
 Hover an eaten food to see its name and **Net effect ×N** above the recent-food row, connected by a white arrow. This replaces the cursor-following name tooltip. The total excludes the base slot scale and vanilla time-based stat decay. The second line lists non-neutral Full Course, Chef, freshness, and diminishing multipliers; when none apply, only **Net effect ×1.00** is shown beside the food name. Chef, freshness, and diminishing values are saved when eating, while Full Course reflects the current diet. Foods already active without a saved breakdown show only the combined multiplier until eaten again.
 
 Chef's Choice only uses consumables with positive health, stamina, or eitr. Exact exclusions belong in `chefChoiceBlacklist` in `Spoilage.yml`.
@@ -232,7 +252,7 @@ Server configuration locking is enabled by default. Config descriptions identify
 | Section | Scope | Contents |
 |---|---|---|
 | `1 - General` | Server-synchronized | Configuration lock, Cooking bonuses, and fermentation |
-| `2 - Client` | Client-only | Station icon scale and row counts |
+| `2 - Client` | Client-only | Diet HUD visibility, station icon scale, and row counts |
 | `3 - Diet` | Server-synchronized | Food slots, stat scales, history, and diminishing returns |
 | `4 - Chef Choice` | Server-synchronized | Choice count, multipliers, tier weighting, and food-type preference |
 | `5 - Spoilage` | Mixed | Global mode, preservation, stale-food minimum, Icebox default limit, recipe, size, and local pins |

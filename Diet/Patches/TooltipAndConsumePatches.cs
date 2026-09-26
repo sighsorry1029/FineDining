@@ -147,7 +147,8 @@ internal static class DietPukeTooltipPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(ItemDrop.ItemData __0, ref string __result)
     {
-        if (__0?.m_shared?.m_consumeStatusEffect is not SE_Puke ||
+        if (!DietConfig.IsChefChoiceEnabled() ||
+            __0?.m_shared?.m_consumeStatusEffect is not SE_Puke ||
             Localization.instance == null)
         {
             return;

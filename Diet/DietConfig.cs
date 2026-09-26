@@ -13,13 +13,18 @@ internal enum PukeFoodRemovalOrder
 
 internal static class DietConfig
 {
+    internal static ConfigEntry<bool> ShowRecentFoodRow = null!;
+    internal static ConfigEntry<bool> ShowChefChoiceRow = null!;
     internal static ConfigEntry<int> MaxFoodSlots = null!;
     internal static ConfigEntry<float> FoodStatScale = null!;
+    internal static ConfigEntry<bool> FullCourseEnabled = null!;
     internal static ConfigEntry<float> FullCourseMultiplier = null!;
     internal static ConfigEntry<int> RecentHistorySize = null!;
+    internal static ConfigEntry<bool> DiminishingReturnsEnabled = null!;
     internal static ConfigEntry<int> DiminishingThreshold = null!;
     internal static ConfigEntry<float> DiminishingFactor = null!;
     internal static ConfigEntry<PukeFoodRemovalOrder> PukeRemovalOrder = null!;
+    internal static ConfigEntry<bool> ChefChoiceEnabled = null!;
     internal static ConfigEntry<int> ChefCollectionSize = null!;
     internal static ConfigEntry<float> ChefMultiplierMin = null!;
     internal static ConfigEntry<float> ChefMultiplierMax = null!;
@@ -33,6 +38,24 @@ internal static class DietConfig
 
     internal static void Initialize(ConfigFile config, ConfigSync configSync)
     {
+        ShowRecentFoodRow = config.Bind(
+            ConfigPresentation.ClientSection.Name,
+            "Show Recent Food Row",
+            true,
+            ConfigPresentation.Client(
+                "Shows the recent-food icon row and its hover descriptions while Chef's Choice or diminishing returns is enabled. Hiding the row does not stop history tracking or change food effects.",
+                ConfigPresentation.ClientSection,
+                700));
+
+        ShowChefChoiceRow = config.Bind(
+            ConfigPresentation.ClientSection.Name,
+            "Show Chef Choice Row",
+            true,
+            ConfigPresentation.Client(
+                "Shows the Chef's Choice icon row and its hover descriptions while Chef's Choice is enabled. Hiding the row does not stop list updates or change food bonuses and tooltips.",
+                ConfigPresentation.ClientSection,
+                650));
+
         MaxFoodSlots = BindSynced(
             config,
             configSync,
@@ -57,6 +80,17 @@ internal static class DietConfig
                 450,
                 new AcceptableValueRange<float>(0.1f, 3f)));
 
+        FullCourseEnabled = BindSynced(
+            config,
+            configSync,
+            ConfigPresentation.Diet,
+            "Full Course Enabled",
+            true,
+            ConfigPresentation.Synced(
+                "Enables the Full Course bonus, indicator, and messages. Changes apply to the current diet on the next food-stat update without changing saved food effects.",
+                ConfigPresentation.Diet,
+                400));
+
         FullCourseMultiplier = BindSynced(
             config,
             configSync,
@@ -80,6 +114,17 @@ internal static class DietConfig
                 ConfigPresentation.Diet,
                 300,
                 new AcceptableValueRange<int>(1, 12)));
+
+        DiminishingReturnsEnabled = BindSynced(
+            config,
+            configSync,
+            ConfigPresentation.Diet,
+            "Diminishing Returns Enabled",
+            true,
+            ConfigPresentation.Synced(
+                "Enables the repeat-consumption penalty for newly eaten foods. Already eaten foods keep their saved effects until replaced or removed. Recent history continues to update for Chef's Choice and later re-enabling; its HUD row is hidden when both features are disabled.",
+                ConfigPresentation.Diet,
+                250));
 
         DiminishingThreshold = BindSynced(
             config,
@@ -115,6 +160,17 @@ internal static class DietConfig
                 "Controls which active food each SE_Puke removal tick removes. Vanilla uses Random. OldestFirst and NewestFirst compare the time elapsed since each food was last eaten.",
                 ConfigPresentation.Diet,
                 50));
+
+        ChefChoiceEnabled = BindSynced(
+            config,
+            configSync,
+            ConfigPresentation.ChefChoice,
+            "Chef Choice Enabled",
+            true,
+            ConfigPresentation.Synced(
+                "Enables Chef's Choice bonuses, repeat-penalty exemption, list refreshes, and related UI. While disabled, the saved list is retained and new meals are treated as regular foods. Already eaten foods keep their saved effects until replaced or removed.",
+                ConfigPresentation.ChefChoice,
+                650));
 
         ChefCollectionSize = BindSynced(
             config,
@@ -244,13 +300,18 @@ internal static class DietConfig
 
     internal static void Shutdown()
     {
+        ShowRecentFoodRow = null!;
+        ShowChefChoiceRow = null!;
         MaxFoodSlots = null!;
         FoodStatScale = null!;
+        FullCourseEnabled = null!;
         FullCourseMultiplier = null!;
         RecentHistorySize = null!;
+        DiminishingReturnsEnabled = null!;
         DiminishingThreshold = null!;
         DiminishingFactor = null!;
         PukeRemovalOrder = null!;
+        ChefChoiceEnabled = null!;
         ChefCollectionSize = null!;
         ChefMultiplierMin = null!;
         ChefMultiplierMax = null!;
@@ -263,6 +324,8 @@ internal static class DietConfig
         CookingBonusExcludedOutputPrefabs = null!;
     }
 
+    internal static bool GetShowRecentFoodRow() => ShowRecentFoodRow?.Value ?? true;
+    internal static bool GetShowChefChoiceRow() => ShowChefChoiceRow?.Value ?? true;
     internal static int GetMaxFoodSlots() => MaxFoodSlots.Value;
     internal static float GetBaseSlotScale(int unlockedFoodSlots) =>
         CalculateBaseSlotScale(
@@ -282,6 +345,9 @@ internal static class DietConfig
             Math.Min(maximum, unlockedFoodSlots));
         return FoodSlotProgression.MinimumFoodSlots * foodStatScale / unlocked;
     }
+    internal static bool IsFullCourseEnabled() => FullCourseEnabled?.Value ?? true;
+    internal static bool IsDiminishingReturnsEnabled() => DiminishingReturnsEnabled?.Value ?? true;
+    internal static bool IsChefChoiceEnabled() => ChefChoiceEnabled?.Value ?? true;
     internal static float GetFullCourseMultiplier() => FullCourseMultiplier.Value;
     internal static int GetRecentHistorySize() => RecentHistorySize.Value;
     internal static int GetDiminishingThreshold() => DiminishingThreshold.Value;

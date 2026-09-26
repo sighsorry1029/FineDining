@@ -5,7 +5,7 @@ the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
-The 1.1.1 release checks on 2026-09-24 use Valheim 1.0.15 client build 25390630
+The 1.1.2 release checks on 2026-09-27 use Valheim 1.0.15 client build 25390630
 and the matching dedicated-server build 25390671. These are build and automated
 check inputs, not a claim of actual game or multiplayer execution.
 
@@ -17,7 +17,7 @@ pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuge
 ```
 
 Repeat Check-GameApi with the dedicated-server original Managed path matching
-the client build. The 1.1.1 release check uses
+the client build. The 1.1.2 release check uses
 `C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25390671-windows-x64-20260918T185703Z-depot-restored/original/valheim_server_Data/Managed`.
 The old 1.0.7 snapshot does not match these binaries: its
 `PlayerProfile.s_bypassCheatChecks` field predates the getter used by 1.0.15.
@@ -70,7 +70,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.1.zip -NexusZipPath Nexus/FineDining_v1.1.1.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.2.zip -NexusZipPath Nexus/FineDining_v1.1.2.zip
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```
 
@@ -103,6 +103,25 @@ inside Unity.
 
 For UI or state changes, also check in Valheim:
 
+- Change all three diet feature toggles live on the server. Full Course must
+  disappear and stop scaling the current diet on the next food-stat update;
+  Chef/diminishing changes apply to new meals, preserving already eaten effects
+  and their hover details. Chef Off hides its row, item/Puke/Cooking guidance,
+  disables its penalty exemption, and pauses the saved list (including expiry,
+  Puke, and admin rerolls). Re-enabling resumes that list. Shared history keeps
+  updating; both recent/Chef rows disappear when both features are off. Check
+  toggles while a hover is open, save/reconnect while off, and re-enable after
+  recipe discovery or a blacklist change. The integration test runs all eight
+  combinations against the built food rules with both local rows hidden and
+  checks retained snapshots/list, history, and Cooking text without Unity or
+  ServerSync transport execution.
+- Toggle `Show Recent Food Row` and `Show Chef Choice Row` independently while
+  hovering a row. Hidden rows must immediately dismiss their hover; showing
+  them again must display the current state without clearing history or
+  rerolling the Chef list. With only Chef shown, it occupies the first row.
+  Check item/eaten-food tooltips, Full Course, and Chef refreshes while both
+  rows are hidden. Verify that clients can choose different visibility settings
+  with server configuration locked, and that the choices survive restart.
 - Station inputs, fuel/full gates, progress rows, automatic ejection hints,
   language/scale changes, HUD recreation, and AzuCraftyBoxes present/absent.
 - Chef lists after loading, recipe/material discovery, policy changes, language

@@ -56,13 +56,14 @@ internal static class FoodRules
         CalculateDiminishingScale(historyStack);
 
     internal static float CalculateDiminishingScale(int historyStack) =>
+        DietConfig.IsDiminishingReturnsEnabled() &&
         historyStack >= DietConfig.GetDiminishingThreshold()
             ? DietConfig.GetDiminishingFactor()
             : 1f;
 
     internal static bool IsFullCourseActive(Player? player)
     {
-        if (player == null)
+        if (!DietConfig.IsFullCourseEnabled() || player == null)
         {
             return false;
         }
@@ -79,6 +80,11 @@ internal static class FoodRules
         PlayerFoodStateData state,
         int activeFoodCount)
     {
+        if (!DietConfig.IsFullCourseEnabled())
+        {
+            return false;
+        }
+
         int unlockedFoodSlots = FoodSlotProgression.GetCurrentSlots(player, state);
         return IsFullCourseEligible(unlockedFoodSlots, activeFoodCount);
     }
@@ -86,6 +92,7 @@ internal static class FoodRules
     internal static bool IsFullCourseEligible(
         int unlockedFoodSlots,
         int activeFoodCount) =>
+        DietConfig.IsFullCourseEnabled() &&
         unlockedFoodSlots >= MinimumFullCourseSlots &&
         activeFoodCount >= unlockedFoodSlots;
 
@@ -104,6 +111,11 @@ internal static class FoodRules
         bool replacesExistingFood = false,
         bool replacesDietFood = false)
     {
+        if (!DietConfig.IsFullCourseEnabled())
+        {
+            return false;
+        }
+
         int appliedSlotsAfterEating = replacesExistingFood
             ? FoodSlotProgression.GetSlotsAfterFoodRemoval(player, state)
             : FoodSlotProgression.GetCurrentSlots(player, state);
@@ -174,6 +186,9 @@ internal static class FoodRules
         bool fullCourseActive,
         int unlockedFoodSlots)
     {
+        isChef &= DietConfig.IsChefChoiceEnabled();
+        chefMultiplier = isChef ? chefMultiplier : 1f;
+        fullCourseActive &= DietConfig.IsFullCourseEnabled();
         float diminishingScale = isChef ? 1f : CalculateDiminishingScale(stack);
         float baseScale = DietConfig.GetBaseSlotScale(unlockedFoodSlots) *
                           (isChef ? chefMultiplier : diminishingScale);

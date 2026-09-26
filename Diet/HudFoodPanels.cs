@@ -59,11 +59,20 @@ internal static class HudFoodPanels
         PanelContext context = GetOrCreateContext(hud);
         Vector2 iconSize = GetFoodIconSize(hud, context.Root);
         Vector2 slotSize = iconSize;
-        LayoutRoot(context, hud, slotSize);
-        EnsureSlots(context.RecentSlots, context.RecentRow, DietConfig.GetRecentHistorySize(), hud, slotSize, iconSize);
-        EnsureSlots(context.ChefSlots, context.ChefRow, DietConfig.GetChefCollectionSize(), hud, slotSize, iconSize);
+        bool chefEnabled = DietConfig.IsChefChoiceEnabled();
+        int recentCount = DietConfig.GetShowRecentFoodRow() &&
+                          (chefEnabled || DietConfig.IsDiminishingReturnsEnabled())
+            ? DietConfig.GetRecentHistorySize()
+            : 0;
+        int chefCount = DietConfig.GetShowChefChoiceRow() && chefEnabled
+            ? DietConfig.GetChefCollectionSize()
+            : 0;
+        LayoutRoot(context, hud, slotSize, recentCount, chefCount);
+        EnsureSlots(context.RecentSlots, context.RecentRow, recentCount, hud, slotSize, iconSize);
+        EnsureSlots(context.ChefSlots, context.ChefRow, chefCount, hud, slotSize, iconSize);
         UpdateFullCourseIndicator(context, hud, player);
 
+        // Row visibility must not pause Chef updates or the eaten-food hover.
         PlayerFoodStateData state = DietModule.ReconcileChefCollectionForHud(player);
 
         UpdateHoverGuidance(context);
@@ -577,7 +586,12 @@ internal static class HudFoodPanels
         return context;
     }
 
-    private static void LayoutRoot(PanelContext context, Hud hud, Vector2 slotSize)
+    private static void LayoutRoot(
+        PanelContext context,
+        Hud hud,
+        Vector2 slotSize,
+        int recentCount,
+        int chefCount)
     {
         RectTransform gpRoot = hud.m_gpRoot;
         RectTransform parent = (RectTransform)context.Root.parent;
@@ -585,7 +599,7 @@ internal static class HudFoodPanels
         context.Root.anchorMax = Vector2.zero;
         context.Root.pivot = new Vector2(0f, 1f);
 
-        int maxSlots = Mathf.Max(DietConfig.GetRecentHistorySize(), DietConfig.GetChefCollectionSize());
+        int maxSlots = Mathf.Max(recentCount, chefCount);
         float panelWidth = maxSlots * slotSize.x + Mathf.Max(0, maxSlots - 1) * SlotSpacing;
 
         Rect gpBounds = GetRectInParent(gpRoot, parent);
@@ -615,7 +629,14 @@ internal static class HudFoodPanels
             chefRowOffset = Mathf.Min(foodZeroTopY, foodOneTopY) - recentTopY;
         }
 
-        context.Root.sizeDelta = new Vector2(panelWidth, Mathf.Abs(chefRowOffset) + slotSize.y);
+        if (recentCount == 0)
+        {
+            chefRowOffset = 0f;
+        }
+
+        context.Root.sizeDelta = new Vector2(
+            panelWidth,
+            chefCount > 0 ? Mathf.Abs(chefRowOffset) + slotSize.y : slotSize.y);
         context.Root.localPosition = new Vector3(gpIconBounds.xMax + panelGap, recentTopY, gpRoot.localPosition.z);
 
         context.RecentRow.anchorMin = new Vector2(0f, 1f);
@@ -814,8 +835,9 @@ internal static class HudFoodPanels
     {
         Localization localization = Localization.instance;
         string language = localization.GetSelectedLanguage();
+        bool chefEnabled = DietConfig.IsChefChoiceEnabled();
         bool recentPreferenceEnabled =
-            DietConfig.GetChefRecentFoodPreferencePercent() > 0f;
+            chefEnabled && DietConfig.GetChefRecentFoodPreferencePercent() > 0f;
         bool chefTierEnabled =
             DietConfig.GetChefHighTierSelectionStrength() > 0f;
         float chefMultiplierMinimum = DietConfig.GetChefMultiplierMin();
@@ -830,6 +852,7 @@ internal static class HudFoodPanels
                 context.GuidanceLanguage,
                 language,
                 System.StringComparison.OrdinalIgnoreCase)
+            && context.ChefEnabled == chefEnabled
             && context.RecentPreferenceEnabled == recentPreferenceEnabled
             && context.ChefTierEnabled == chefTierEnabled
             && context.ChefMultiplierEnabled == chefMultiplierEnabled)
@@ -839,13 +862,16 @@ internal static class HudFoodPanels
 
         context.GuidanceLanguage = language;
         context.GuidanceInitialized = true;
+        context.ChefEnabled = chefEnabled;
         context.RecentPreferenceEnabled = recentPreferenceEnabled;
         context.ChefTierEnabled = chefTierEnabled;
         context.ChefMultiplierEnabled = chefMultiplierEnabled;
-        context.RecentGuidance = localization.Localize(
-            recentPreferenceEnabled
-                ? "$finedining_diet_recent_chef_guidance"
-                : "$finedining_diet_recent_chef_guidance_disabled");
+        context.RecentGuidance = chefEnabled
+            ? localization.Localize(
+                recentPreferenceEnabled
+                    ? "$finedining_diet_recent_chef_guidance"
+                    : "$finedining_diet_recent_chef_guidance_disabled")
+            : string.Empty;
         context.ChefGuidance = localization.Localize(
             chefTierEnabled && chefMultiplierEnabled
                 ? "$finedining_diet_chef_cooking_guidance_both"
@@ -1079,9 +1105,11 @@ internal static class HudFoodPanels
                 stack.ToString(CultureInfo.InvariantCulture));
         }
 
-        slot.HoverText = isChef
-            ? description + "\n" + guidance
-            : guidance + "\n" + description;
+        slot.HoverText = string.IsNullOrEmpty(guidance)
+            ? description
+            : isChef
+                ? description + "\n" + guidance
+                : guidance + "\n" + description;
         slot.HoverTextDirty = false;
         slot.HoverIsChef = isChef;
         slot.HoverChefExemptsDiminishing = chefExemptsDiminishing;
@@ -1379,6 +1407,7 @@ internal static class HudFoodPanels
         public string ChefGuidance = string.Empty;
         public string GuidanceLanguage = string.Empty;
         public bool GuidanceInitialized;
+        public bool ChefEnabled;
         public bool RecentPreferenceEnabled;
         public bool ChefTierEnabled;
         public bool ChefMultiplierEnabled;

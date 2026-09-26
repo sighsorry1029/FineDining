@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.1.0') 'Assembly version must be 1.1.1.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.2.0') 'Assembly version must be 1.1.2.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.1') 'Plugin version must be 1.1.1.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.2') 'Plugin version must be 1.1.2.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -295,6 +295,8 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'General'; Key = 'Fermenter Bonus Excluded Prefabs'; Order = 250; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'General'; Key = 'Fermenter Cover Maximum Multiplier'; Order = 200; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'General'; Key = 'Fermenter Depth Maximum Multiplier'; Order = 100; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ClientSection'; Key = 'Show Recent Food Row'; Order = 700; Scope = 'Client' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ClientSection'; Key = 'Show Chef Choice Row'; Order = 650; Scope = 'Client' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Scale'; Order = 600; Scope = 'Client' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Rows - Cooking Station'; Order = 500; Scope = 'Client' },
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Rows - Smelter'; Order = 400; Scope = 'Client' },
@@ -303,11 +305,14 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Stations\StationModule.cs'; Section = 'ClientSection'; Key = 'Station Icon Rows - Grimpy Box'; Order = 100; Scope = 'Client' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Maximum Food Slots'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Food Stat Scale'; Order = 450; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Full Course Enabled'; Order = 400; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Full Course Multiplier'; Order = 350; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Recent Food History Size'; Order = 300; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Diminishing Returns Enabled'; Order = 250; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Diminishing Returns Start Count'; Order = 200; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Diminishing Returns Multiplier'; Order = 100; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'Diet'; Key = 'Puke Food Removal Order'; Order = 50; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Chef Choice Enabled'; Order = 650; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'List Size'; Order = 600; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Minimum Multiplier'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Most Likely Multiplier at Max Cooking Level'; Order = 450; Scope = 'Synced' },
@@ -3964,17 +3969,12 @@ Assert-True ([regex]::IsMatch(
 Assert-True ([regex]::IsMatch(
     $cookingPatchSource,
     '(?s)\[HarmonyPostfix\]\s*\[HarmonyPriority\(Priority\.Last\)\]\s*\[HarmonyAfter\("randyknapp\.mods\.epicloot"\)\]\s*private static void Postfix')) 'Cooking skill tooltip must run at last priority after EpicLoot.'
-Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipText.Append(') -and
-             $cookingPatchSource.Contains('DietConfig.GetCookingBonusChanceAtMaxCookingPercent() > 0f') -and
-             $cookingPatchSource.Contains('DietConfig.GetFermenterOutputBonusChanceAtMaxCookingPercent() > 0f')) 'Cooking skill tooltip must advertise bonus output while either direct production-bonus chance is enabled.'
-Assert-True ([regex]::IsMatch(
-    $cookingPatchSource,
-    '(?s)DietConfig\.GetChefHighTierSelectionStrength\(\) > 0f,\s*DietConfig\.GetChefMultiplierModeAtMaxCooking\(\) >\s*DietConfig\.GetChefMultiplierMin\(\)\)')) 'Cooking tooltip settings must expose multiplier-mode progression only when Cooking can move the mode above the minimum.'
+Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipText.AppendConfigured(originalText)')) 'Cooking setup must use the same configured text as live feature changes.'
 Assert-True ($cookingPatchSource.Contains('GetComponentsInChildren<UITooltip>(true)')) 'Cooking skill tooltip must retain a replacement-UI row fallback.'
 Assert-True ($cookingPatchSource.Contains('tooltip.m_topic,') -and $cookingPatchSource.Contains('tooltip.Anchor(),') -and $cookingPatchSource.Contains('tooltip.FixedPosition()')) 'Cooking skill tooltip update must preserve the existing tooltip layout and topic.'
 Assert-True (-not $cookingTooltipSource.Contains('m_info.m_description =') -and
              -not $dietTooltipSource.Contains('m_info.m_description =')) 'FineDining must not mutate shared skill descriptions.'
-Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipPanel.Bind(__instance, tooltip);')) 'Cooking tooltip positioning must bind the resolved Cooking row after extending its text.'
+Assert-True ($cookingPatchSource.Contains('CookingSkillTooltipPanel.Bind(__instance, tooltip, originalText);')) 'Cooking tooltip positioning must bind the resolved Cooking row and retain the original text for live feature changes.'
 
 Assert-HarmonyPatchTarget $assembly 'FineDining.CookingSkillTooltipAlignmentPatch' 'UITooltip' 'UpdateTextElements'
 Assert-HarmonyPatchMethodAttribute $assembly 'FineDining.CookingSkillTooltipAlignmentPatch' 'HarmonyPostfix'
@@ -4373,6 +4373,131 @@ finally
     $modeField.SetValue($null, $previousModeEntry)
 }
 Assert-True ((Get-Content -LiteralPath (Join-Path $projectRoot 'SpoilageReferenceGenerator.cs') -Raw).Contains('SpoilagePolicy.ResolveYaml(pair.Value.m_itemData)')) 'Generated reference rows must preserve YAML results when the global mode forces keep.'
+
+# Run the built diet rules with all eight feature combinations. Only config
+# storage is supplied by the harness; no Unity world, file writes, or RPCs.
+$featureConfig = @{}
+$featureDefaults = @{
+    FullCourseEnabled = $true; DiminishingReturnsEnabled = $true; ChefChoiceEnabled = $true
+    # Hidden rows must not alter any of the gameplay expectations below.
+    ShowRecentFoodRow = $false; ShowChefChoiceRow = $false
+    FullCourseMultiplier = [float]1.2; DiminishingThreshold = 4; DiminishingFactor = [float]0.75
+    MaxFoodSlots = 4; FoodStatScale = [float]0.9; RecentHistorySize = 7
+    ChefMultiplierMin = [float]1.1; ChefMultiplierMax = [float]1.5
+    ChefMultiplierModeAtMaxCooking = [float]1.5; ChefHighTierSelectionStrength = [float]5
+    CookingBonusChanceAtMaxCookingPercent = [float]25; FermenterOutputBonusChanceAtMaxCookingPercent = [float]20
+}
+try
+{
+    foreach ($name in $featureDefaults.Keys)
+    {
+        $field = $dietConfigType.GetField($name, $modeStaticFlags)
+        Assert-True ($null -ne $field) "Diet feature configuration is missing: $name"
+        $entry = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($field.FieldType)
+        $valueField = $field.FieldType.GetField('_typedValue', $modeInstanceFlags)
+        $featureConfig[$name] = @{ Field = $field; Original = $field.GetValue($null); Entry = $entry; Value = $valueField }
+        $valueField.SetValue($entry, $featureDefaults[$name])
+        $field.SetValue($null, $entry)
+    }
+    foreach ($name in @('FullCourseEnabled', 'DiminishingReturnsEnabled', 'ChefChoiceEnabled'))
+    {
+        $defaultBinding = '(?s)\b' + $name + '\s*=\s*BindSynced\(\s*config,\s*configSync,\s*ConfigPresentation\.\w+,\s*"[^"]+",\s*true,'
+        Assert-True ([regex]::IsMatch($dietConfigSource, $defaultBinding)) "$name must default on and use the server-synchronized binding."
+    }
+    $modeField.SetValue($null, $modeEntry)
+    $modeValueField.SetValue($modeEntry, [Enum]::Parse($spoilageModeType, 'Off'))
+    $featureItem = [Activator]::CreateInstance($itemDataType)
+    $featureShared = [Activator]::CreateInstance($sharedDataType)
+    $itemSharedField.SetValue($featureItem, $featureShared)
+    $itemTypeField = $sharedDataType.GetField('m_itemType')
+    $itemTypeField.SetValue($featureShared, [Enum]::Parse($itemTypeField.FieldType, 'Consumable'))
+    foreach ($stat in @{ m_food = [float]50; m_foodStamina = [float]30; m_foodEitr = [float]10; m_foodRegen = [float]2 }.GetEnumerator())
+    {
+        $sharedDataType.GetField($stat.Key).SetValue($featureShared, $stat.Value)
+    }
+    $featureState = [Activator]::CreateInstance($stateType, $true)
+    $featureChefList = $stateType.GetField('Chef').GetValue($featureState)
+    $featureChefType = Get-TypeRequired $assembly 'FineDining.ChefEntryData'
+    $featureChef = [Activator]::CreateInstance($featureChefType, $true)
+    $featureChefType.GetField('Key').SetValue($featureChef, 'ToggleMeal')
+    $featureChefType.GetField('Multiplier').SetValue($featureChef, [float]1.3)
+    $featureChefList.Add($featureChef)
+    $getChefEntry = Get-MethodRequired $chefCollectionType 'GetEntry'
+    $calculateFeatureEffect = Get-MethodRequired $foodRulesType 'CalculateFoodEffect'
+    $calculateDiminishing = Get-MethodRequired $foodRulesType 'CalculateDiminishingScale'
+    $appendConfiguredCooking = Get-MethodRequired $cookingSkillTooltipType 'AppendConfigured'
+    $getAppliedScale = Get-MethodRequired $foodRulesType 'GetAppliedScale'
+    $savedFeatureEffect = New-SmokeFoodEffect ([float]0.72) ([float]0.8) ([float]0.75) $false ([float]1)
+    $setActiveFoodEffect.Invoke($null, [object[]] @($featureState, 'PreviousMeal', $savedFeatureEffect))
+    $previousFood = [Activator]::CreateInstance($foodItemField.DeclaringType)
+    $foodItemField.SetValue($previousFood, $featureItem)
+    $previousFood.GetType().GetField('m_name').SetValue($previousFood, 'PreviousMeal')
+    foreach ($fullCourseOn in @($true, $false))
+    {
+        $featureConfig.FullCourseEnabled.Value.SetValue($featureConfig.FullCourseEnabled.Entry, $fullCourseOn)
+        Assert-True ([bool]$isFullCourseEligible.Invoke($null, [object[]] @(4, 4)) -eq $fullCourseOn) 'Full Course must stop qualifying while off and resume while on.'
+        Assert-True (-not [bool]$isFullCourseEligible.Invoke($null, [object[]] @(4, 3))) 'A toggle must not enable Full Course for an incomplete diet.'
+        foreach ($diminishingOn in @($true, $false))
+        {
+            $featureConfig.DiminishingReturnsEnabled.Value.SetValue($featureConfig.DiminishingReturnsEnabled.Entry, $diminishingOn)
+            foreach ($chefOn in @($true, $false))
+            {
+                $featureConfig.ChefChoiceEnabled.Value.SetValue($featureConfig.ChefChoiceEnabled.Entry, $chefOn)
+                Assert-True (($null -ne $getChefEntry.Invoke($null, [object[]] @($featureState, 'ToggleMeal'))) -eq $chefOn) 'Chef preview must ignore the retained list while off and recover it while on.'
+                foreach ($stack in @(3, 4, 7))
+                {
+                    $penalty = if ($diminishingOn -and $stack -ge 4) { [float]0.75 } else { [float]1 }
+                    Assert-True ([float]$calculateDiminishing.Invoke($null, [object[]] @($stack)) -eq $penalty) 'Diminishing toggle must honor the threshold only while enabled.'
+                    foreach ($listedChef in @($true, $false))
+                    {
+                        $result = $calculateFeatureEffect.Invoke($null, [object[]] @($featureItem, $stack, $listedChef, [float]1.3, $true, 3))
+                        $effect = @{}
+                        foreach ($property in $foodEffectType.GetProperties($foodEffectFlags))
+                        {
+                            $effect[$property.Name] = $property.GetValue($result)
+                        }
+                        $effectiveChef = $chefOn -and $listedChef
+                        $expectedFactor = if ($effectiveChef) { [float]1.3 } else { $penalty }
+                        $expectedApplied = [float]0.9 * $expectedFactor
+                        $expectedEffective = $expectedApplied * $(if ($fullCourseOn) { [float]1.2 } else { [float]1 })
+                        Assert-True ([Math]::Abs($effect.AppliedScale - $expectedApplied) -lt 0.0001 -and
+                                     [Math]::Abs($effect.EffectiveScale - $expectedEffective) -lt 0.0001 -and
+                                     $effect.IsChef -eq $effectiveChef -and $effect.FullCourseActive -eq $fullCourseOn) 'Food preview/consumption must independently honor all feature toggles and preserve base scaling.'
+                        Assert-True ([Math]::Abs($effect.Health - 50 * $expectedEffective) -lt 0.0001 -and
+                                     [Math]::Abs($effect.Stamina - 30 * $expectedEffective) -lt 0.0001 -and
+                                     [Math]::Abs($effect.Eitr - 10 * $expectedEffective) -lt 0.0001 -and
+                                     [Math]::Abs($effect.Regen - 2 * $expectedEffective) -lt 0.0001) 'All four food stats must follow the same configured effect.'
+                    }
+                }
+                $cookingText = [string]$appendConfiguredCooking.Invoke($null, [object[]] @('Original description'))
+                Assert-True ($cookingText.Contains($cookingChefBothToken) -eq $chefOn -and
+                             $cookingText.Contains($cookingBonusOutputToken) -and $cookingText.Contains($cookingAutoEjectToken)) 'Chef toggle must remove only Chef Cooking guidance and preserve other Cooking perks.'
+                Assert-True ([Math]::Abs([float]$getAppliedScale.Invoke($null, [object[]] @($null, $featureState, $previousFood)) - 0.72) -lt 0.0001) 'Feature toggles must not rewrite previously consumed food effects.'
+            }
+        }
+    }
+    $featureConfig.ChefChoiceEnabled.Value.SetValue($featureConfig.ChefChoiceEnabled.Entry, $false)
+    $consumeArguments = [object[]] @($null, $featureState, 'ToggleMeal', [float]9)
+    Assert-True (-not [bool](Get-MethodRequired $chefCollectionType 'TryConsumeChefEntry').Invoke($null, $consumeArguments) -and
+                 [float]$consumeArguments[3] -eq 1 -and $featureChefList.Count -eq 1) 'Off must not consume a saved Chef entry or grant its exemption.'
+    Assert-True (-not [bool](Get-MethodRequired $chefCollectionType 'RefillAfterConsumption').Invoke($null, [object[]] @($null, $featureState, 'ToggleMeal'))) 'Off must skip refill before looking up a Unity player or food catalog.'
+    (Get-MethodRequired $chefCollectionType 'RotateOldest').Invoke($null, [object[]] @($null, 2))
+    (Get-MethodRequired $chefCollectionType 'RerollAll').Invoke($null, [object[]] @(,$null))
+    foreach ($expectedStack in 1..5)
+    {
+        Assert-True ([int]$registerConsumption.Invoke($null, [object[]] @($featureState, 'ToggleMeal', $false)) -eq $expectedStack) 'Shared history must continue recording while both features are off.'
+    }
+    $featureConfig.DiminishingReturnsEnabled.Value.SetValue($featureConfig.DiminishingReturnsEnabled.Entry, $true)
+    Assert-True ([float]$calculateDiminishing.Invoke($null, [object[]] @(6)) -eq [float]0.75) 'Re-enabling diminishing returns must use the retained consumption history.'
+    $featureConfig.ChefChoiceEnabled.Value.SetValue($featureConfig.ChefChoiceEnabled.Entry, $true)
+    Assert-True ([object]::ReferenceEquals($getChefEntry.Invoke($null, [object[]] @($featureState, 'ToggleMeal')), $featureChef) -and
+                 [float]$featureChef.Multiplier -eq [float]1.3) 'Off/on must retain the existing Chef selection and multiplier without a reroll.'
+}
+finally
+{
+    foreach ($config in $featureConfig.Values) { $config.Field.SetValue($null, $config.Original) }
+    $modeField.SetValue($null, $previousModeEntry)
+}
 
 foreach ($removedClockMethod in @('EncodeClockValue', 'TryDecodeClockValue', 'ComposeClockValues'))
 {

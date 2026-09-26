@@ -29,6 +29,7 @@ internal static class DietModule
         DietConfig.ChefCollectionSize.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefMultiplierMin.SettingChanged += FoodStateShapeChanged;
         DietConfig.ChefMultiplierMax.SettingChanged += FoodStateShapeChanged;
+        DietConfig.ChefChoiceEnabled.SettingChanged += ChefChoiceChanged;
         FineDiningLocalization.OnLocalizationComplete += HudFoodPanels.ResetAll;
         CookingStationAutoPopSystem.Reset();
         FermenterCookingBonusSystem.ResetRuntime();
@@ -90,6 +91,7 @@ internal static class DietModule
             DietConfig.ChefCollectionSize.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefMultiplierMin.SettingChanged -= FoodStateShapeChanged;
             DietConfig.ChefMultiplierMax.SettingChanged -= FoodStateShapeChanged;
+            DietConfig.ChefChoiceEnabled.SettingChanged -= ChefChoiceChanged;
             FineDiningLocalization.OnLocalizationComplete -= HudFoodPanels.ResetAll;
         }
 
@@ -109,7 +111,8 @@ internal static class DietModule
     {
         // Keep this reconciliation at the existing HUD call site. Moving it to
         // Tick would change when a hidden or rebuilt HUD consumes Chef rolls.
-        bool refreshChefCollection = ShouldRefreshChefCollection(player);
+        bool refreshChefCollection = DietConfig.IsChefChoiceEnabled() &&
+                                     ShouldRefreshChefCollection(player);
         PlayerFoodStateData state = FoodStateStore.GetState(player);
         if (refreshChefCollection)
         {
@@ -161,6 +164,12 @@ internal static class DietModule
         _chefKnownRecipeCount = PlayerPrivateAccess.KnownRecipes(player).Count;
         _chefKnownMaterialCount = PlayerPrivateAccess.KnownMaterials(player).Count;
         _chefObjectDbItemCount = objectDb.m_items.Count;
+    }
+
+    private static void ChefChoiceChanged(object sender, EventArgs e)
+    {
+        ResetChefCollectionInputs();
+        RequestChefCollectionReconcile();
     }
 
     private static void FoodStateShapeChanged(object sender, EventArgs e)

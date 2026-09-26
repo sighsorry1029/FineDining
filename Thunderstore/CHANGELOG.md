@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2
+
+- Added independent, server-synchronized `Full Course Enabled`, `Diminishing Returns Enabled`, and `Chef Choice Enabled` settings, all enabled by default. Full Course changes apply to the current diet on the next food-stat update; Chef and diminishing changes apply to newly eaten foods while preserving already-eaten effects.
+- Disabling Chef's Choice hides its guidance and pauses list consumption, refills, expiry/Puke rotation, and admin rerolls. Saved selections and shared consumption history are retained for re-enabling.
+- Added client-only `Show Recent Food Row` and `Show Chef Choice Row` settings, both enabled by default. Hiding a row dismisses its hover without stopping food effects, history, Chef updates, or item/eaten-food tooltips. The Chef row moves up when the recent-food row is hidden.
+- Added regression checks for all eight gameplay-toggle combinations with both HUD rows hidden, retained food effects and Chef state, and conditional Cooking guidance.
+- Updated the packaged BepInEx dependency to `5.4.2351`.
+
 ## 1.1.1
 
 - Fixed Icebox placement limits remaining inactive on dedicated servers and hosts when loading chunked saves or creating a new world. Quota initialization now runs after the common server world-loading step, covering old saves, chunked saves, and worlds without a save file.
