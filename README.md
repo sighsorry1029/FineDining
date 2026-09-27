@@ -132,6 +132,8 @@ The default prefab overrides preserve Raspberry, Mushroom, and Blueberries at mi
 
 Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. Both `0` and `0, keep` disable spoilage; the latter retains the action for when you enable it again. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
 
+Automatic CookingStation groups include inputs and outputs only when the conversion's output can reach directly edible food through CookingStation/Fermenter steps. Raw food, dough, and intermediate food-processing steps remain included; Frost Foundry equipment and unfinished casts are excluded. Exact prefab overrides remain authoritative.
+
 Existing `Spoilage.yml` files are not overwritten. Changed lifetimes apply to newly assigned timers; existing timers keep their saved lifetime and expiry.
 
 Exact prefab rules use this compact format:

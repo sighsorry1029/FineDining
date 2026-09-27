@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3
+
+- Fixed non-food CookingStation conversions, including Frost Foundry armor, weapons, shields, and unfinished casts, being automatically assigned spoilage timers and RottenMeat replacements.
+- Cooking inputs and outputs now require a conversion path to directly edible food. Raw food, dough, and intermediate ingredients across CookingStation/Fermenter chains remain supported, and exact prefab overrides remain authoritative.
+- Added regression checks for Deep North equipment exclusions, food-processing chains, unrelated branches, conversion cycles, case-insensitive matching, and rebuilding classification after food endpoints change.
+
 ## 1.1.2
 
 - Added independent, server-synchronized `Full Course Enabled`, `Diminishing Returns Enabled`, and `Chef Choice Enabled` settings, all enabled by default. Full Course changes apply to the current diet on the next food-stat update; Chef and diminishing changes apply to newly eaten foods while preserving already-eaten effects.

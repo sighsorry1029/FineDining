@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.2.0') 'Assembly version must be 1.1.2.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.3.0') 'Assembly version must be 1.1.3.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.2') 'Plugin version must be 1.1.2.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.3') 'Plugin version must be 1.1.3.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -2884,10 +2884,10 @@ Assert-Classification $false $false $false $false $true $false $false $false $tr
 Assert-Classification $false $false $false $false $false $false $false $false $true $true 'OtherEdible'
 Assert-Classification $false $false $false $false $false $false $false $false $false $false 'OtherEdible'
 
-$findFoodReachableFermenterInputs = Get-MethodRequired $classifierType 'FindFoodReachableFermenterInputs'
+$buildFoodConversionPrefabSets = Get-MethodRequired $classifierType 'BuildFoodConversionPrefabSets'
 $prefabPairType = [Collections.Generic.KeyValuePair[string,string]]
-$fermenterConversionListType = [Collections.Generic.List``1].MakeGenericType($prefabPairType)
-$fermenterConversions = [Activator]::CreateInstance($fermenterConversionListType)
+$foodConversionListType = [Collections.Generic.List``1].MakeGenericType($prefabPairType)
+$fermenterConversions = [Activator]::CreateInstance($foodConversionListType)
 foreach ($conversion in @(
     @('DirectBase', 'Food'),
     @('ChainBase', 'Intermediate'),
@@ -2897,6 +2897,37 @@ foreach ($conversion in @(
     @('CycleB', 'CycleA')))
 {
     $fermenterConversions.Add(
+        [Collections.Generic.KeyValuePair[string,string]]::new(
+            [string]$conversion[0],
+            [string]$conversion[1]))
+}
+
+$cookingConversions = [Activator]::CreateInstance($foodConversionListType)
+$equipmentConversions = @(
+    @('ArmorGoldHeavyChestUncooked', 'ArmorDeepNorthHeavyChest'),
+    @('ArmorGoldHeavyLegsUncooked', 'ArmorDeepNorthHeavylegs'),
+    @('ArmorGoldMageChestUncooked', 'ArmorDeepNorthMageChest'),
+    @('ArmorGoldMageLegsUncooked', 'ArmorDeepNorthMagelegs'),
+    @('ArmorGoldMediumChestUncooked', 'ArmorDeepNorthMediumChest'),
+    @('ArmorGoldMediumLegsUncooked', 'ArmorDeepNorthMediumlegs'),
+    @('SwordGoldUncooked', 'SwordGold'),
+    @('ShieldGoldUncooked', 'ShieldGold'))
+foreach ($conversion in ($equipmentConversions + @(
+    @('BreadDough', 'Bread'),
+    @('RawMeat', 'CookedMeat'),
+    @('Intermediate', 'Food'),
+    @('CookingBeforeFermenter', 'ChainBase'),
+    @('Food', 'EquipmentWaste'),
+    @('SharedRaw', 'Intermediate'),
+    @('SharedRaw', 'EquipmentWaste'),
+    @('CookCycleA', 'CookCycleB'),
+    @('CookCycleB', 'CookCycleA'),
+    @('LeavenA', 'LeavenB'),
+    @('LeavenB', 'LeavenA'),
+    @('LeavenB', 'Bread'),
+    @('CaseBase', 'fOoD'))))
+{
+    $cookingConversions.Add(
         [Collections.Generic.KeyValuePair[string,string]]::new(
             [string]$conversion[0],
             [string]$conversion[1]))
@@ -2923,31 +2954,60 @@ function Add-ReverseConversionEdge(
     $Graph[$OutputPrefab].Add($InputPrefab) | Out-Null
 }
 
-Add-ReverseConversionEdge $reverseConversionEdges 'DirectBase' 'Food'
-Add-ReverseConversionEdge $reverseConversionEdges 'ChainBase' 'Intermediate'
-# This edge represents a CookingStation continuation. It intentionally is not
-# a Fermenter candidate, but it must still make ChainBase food-reachable.
-Add-ReverseConversionEdge $reverseConversionEdges 'Intermediate' 'Food'
-Add-ReverseConversionEdge $reverseConversionEdges 'UnrelatedBase' 'UnrelatedOutput'
-Add-ReverseConversionEdge $reverseConversionEdges 'EdibleDeadEnd' 'UnrelatedOutput'
-Add-ReverseConversionEdge $reverseConversionEdges 'CycleA' 'CycleB'
-Add-ReverseConversionEdge $reverseConversionEdges 'CycleB' 'CycleA'
+foreach ($conversion in @($fermenterConversions.ToArray()) + @($cookingConversions.ToArray()))
+{
+    Add-ReverseConversionEdge $reverseConversionEdges $conversion.Key $conversion.Value
+}
 $directlyEdiblePrefabs = [Collections.Generic.HashSet[string]]::new(
     [StringComparer]::OrdinalIgnoreCase)
 $directlyEdiblePrefabs.Add('Food') | Out-Null
+$directlyEdiblePrefabs.Add('Bread') | Out-Null
+$directlyEdiblePrefabs.Add('CookedMeat') | Out-Null
 # A directly edible source must not qualify when its own Fermenter target has
 # no route to edible food. This guards target reachability rather than a wrong
 # intersection between candidate sources and the reachable-node set.
 $directlyEdiblePrefabs.Add('EdibleDeadEnd') | Out-Null
-$reachableFermenterInputs = $findFoodReachableFermenterInputs.Invoke(
-    $null,
-    [object[]] @($fermenterConversions, $reverseConversionEdges, $directlyEdiblePrefabs))
+$foodConversionArguments = [object[]] @(
+    $cookingConversions, $fermenterConversions, $reverseConversionEdges,
+    $directlyEdiblePrefabs, $null, $null, $null)
+$buildFoodConversionPrefabSets.Invoke($null, $foodConversionArguments)
+$reachableCookingInputs = $foodConversionArguments[4]
+$reachableCookingOutputs = $foodConversionArguments[5]
+$reachableFermenterInputs = $foodConversionArguments[6]
 Assert-True ($reachableFermenterInputs.Contains('DirectBase')) 'A Fermenter input whose direct output is edible must be food-reachable.'
 Assert-True ($reachableFermenterInputs.Contains('ChainBase')) 'A Fermenter input followed by a CookingStation chain to edible food must be food-reachable.'
 Assert-True (-not $reachableFermenterInputs.Contains('UnrelatedBase')) 'A Fermenter input on an unrelated dead branch must not be food-reachable.'
 Assert-True (-not $reachableFermenterInputs.Contains('EdibleDeadEnd')) 'A directly edible Fermenter input must not qualify when its own output is a dead end.'
 Assert-True (-not $reachableFermenterInputs.Contains('CycleA') -and
              -not $reachableFermenterInputs.Contains('CycleB')) 'An unreachable conversion cycle must terminate without qualifying its Fermenter inputs.'
+Assert-True ($reachableFermenterInputs.Count -eq 2) 'Cooking-only inputs must not leak into the unfermented-food group.'
+Assert-True ($reachableCookingInputs.SetEquals([string[]] @(
+    'BreadDough', 'RawMeat', 'Intermediate', 'CookingBeforeFermenter',
+    'SharedRaw', 'LeavenA', 'LeavenB', 'CaseBase'))) 'Cooking inputs must retain raw food, dough, mixed Cooking/Fermenter chains and food-reaching cycles, without unrelated branches.'
+Assert-True ($reachableCookingOutputs.SetEquals([string[]] @(
+    'Bread', 'CookedMeat', 'Food', 'ChainBase', 'Intermediate', 'LeavenA', 'LeavenB'))) 'Cooking outputs must reach edible food, including intermediate steps, with case-insensitive matching.'
+Assert-True (-not $reachableCookingInputs.Contains('Food') -and
+             -not $reachableCookingOutputs.Contains('EquipmentWaste')) 'An edible source must not qualify a conversion to a non-food dead end.'
+Assert-True (-not $reachableCookingInputs.Contains('CookCycleA') -and
+             -not $reachableCookingOutputs.Contains('CookCycleB')) 'A CookingStation cycle without a food exit must terminate without tracking its endpoints.'
+foreach ($conversion in $equipmentConversions)
+{
+    foreach ($prefab in $conversion)
+    {
+        Assert-True (-not $reachableCookingInputs.Contains($prefab) -and
+                     -not $reachableCookingOutputs.Contains($prefab)) "Frost Foundry equipment and casts must not be classified as cooking food: $prefab"
+        Assert-Classification $false $reachableCookingInputs.Contains($prefab) $reachableCookingOutputs.Contains($prefab) $false $reachableFermenterInputs.Contains($prefab) $false $false $false $false $false 'OtherEdible'
+    }
+}
+Assert-Classification $false $reachableCookingInputs.Contains('BreadDough') $reachableCookingOutputs.Contains('BreadDough') $false $false $false $false $false $false $true 'CookingStationInput'
+Assert-Classification $false $reachableCookingInputs.Contains('Intermediate') $reachableCookingOutputs.Contains('Intermediate') $false $false $false $false $false $false $true 'CookingStationOutput'
+# Rebuilding with no edible endpoints must not retain any prior food membership.
+$foodConversionArguments[3] = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$buildFoodConversionPrefabSets.Invoke($null, $foodConversionArguments)
+foreach ($set in $foodConversionArguments[4..6])
+{
+    Assert-True ($set.Count -eq 0) 'Removing all food endpoints must remove all automatic conversion groups, even when cycles remain.'
+}
 
 $spoilageGroupType = Get-TypeRequired $assembly 'FineDining.SpoilageGroup'
 $spoilageDefaultsType = Get-TypeRequired $assembly 'FineDining.SpoilageDefaults'

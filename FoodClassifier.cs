@@ -223,24 +223,30 @@ internal static class FoodClassifier
         HashSet<string> farmingHarvests = BuildFarmingHarvestPrefabSet(
             scenePrefabs,
             cultivatedRootNames);
-        HashSet<string> cookingInputs = new(PrefabComparer);
-        HashSet<string> cookingOutputs = new(PrefabComparer);
-        // A shared directed graph lets Fermenter inputs reach food through any
-        // mixture of Fermenter and CookingStation conversion stages.
+        List<KeyValuePair<string, string>> cookingConversions = new();
+        // Both components can process non-food items. Classify only conversions
+        // whose targets reach food through CookingStation/Fermenter stages.
         Dictionary<string, HashSet<string>> reverseConversionEdges = new(PrefabComparer);
         HashSet<string> directlyEdiblePrefabs = new(PrefabComparer);
         AddCookingStationConversions(
             scenePrefabs,
-            cookingInputs,
-            cookingOutputs,
+            cookingConversions,
             reverseConversionEdges,
             directlyEdiblePrefabs);
-        BuildFermenterFoodPrefabSets(
+        AddFermenterConversions(
             scenePrefabs,
             reverseConversionEdges,
             directlyEdiblePrefabs,
-            out HashSet<string> unfermentedFoods,
+            out List<KeyValuePair<string, string>> fermenterConversions,
             out HashSet<string> fermentedFoods);
+        BuildFoodConversionPrefabSets(
+            cookingConversions,
+            fermenterConversions,
+            reverseConversionEdges,
+            directlyEdiblePrefabs,
+            out HashSet<string> cookingInputs,
+            out HashSet<string> cookingOutputs,
+            out HashSet<string> unfermentedFoods);
         BuildFeastPrefabSets(objectDb, out HashSet<string> feastMaterials, out HashSet<string> feastResults);
         HashSet<string> fishPrefabs = BuildFishPrefabSet(scenePrefabs);
 
@@ -436,8 +442,7 @@ internal static class FoodClassifier
 
     private static void AddCookingStationConversions(
         IEnumerable<GameObject> scanRoots,
-        ISet<string> inputs,
-        ISet<string> outputs,
+        ICollection<KeyValuePair<string, string>> conversions,
         IDictionary<string, HashSet<string>> reverseConversionEdges,
         ISet<string> directlyEdiblePrefabs)
     {
@@ -481,13 +486,15 @@ internal static class FoodClassifier
 
                             ItemDrop? input = conversion.m_from;
                             ItemDrop? output = conversion.m_to;
-                            AddItemDropPrefab(inputs, input);
-                            AddItemDropPrefab(outputs, output);
-                            AddConversionEdge(
-                                input,
-                                output,
-                                reverseConversionEdges,
-                                directlyEdiblePrefabs);
+                            if (AddConversionEdge(
+                                    input,
+                                    output,
+                                    reverseConversionEdges,
+                                    directlyEdiblePrefabs,
+                                    out KeyValuePair<string, string> edge))
+                            {
+                                conversions.Add(edge);
+                            }
                         }
                         catch
                         {
@@ -503,15 +510,15 @@ internal static class FoodClassifier
         }
     }
 
-    private static void BuildFermenterFoodPrefabSets(
+    private static void AddFermenterConversions(
         IEnumerable<GameObject> scanRoots,
         IDictionary<string, HashSet<string>> reverseConversionEdges,
         ISet<string> directlyEdiblePrefabs,
-        out HashSet<string> unfermentedFoods,
+        out List<KeyValuePair<string, string>> fermenterConversions,
         out HashSet<string> fermentedFoods)
     {
         fermentedFoods = new HashSet<string>(PrefabComparer);
-        List<KeyValuePair<string, string>> fermenterConversions = new();
+        fermenterConversions = new List<KeyValuePair<string, string>>();
         HashSet<int> seenFermenterIds = new();
         foreach (GameObject root in scanRoots)
         {
@@ -574,25 +581,6 @@ internal static class FoodClassifier
                 }
             }
         }
-
-        unfermentedFoods = FindFoodReachableFermenterInputs(
-            fermenterConversions,
-            reverseConversionEdges,
-            directlyEdiblePrefabs);
-    }
-
-    private static bool AddConversionEdge(
-        ItemDrop? input,
-        ItemDrop? output,
-        IDictionary<string, HashSet<string>> reverseConversionEdges,
-        ISet<string> directlyEdiblePrefabs)
-    {
-        return AddConversionEdge(
-            input,
-            output,
-            reverseConversionEdges,
-            directlyEdiblePrefabs,
-            out _);
     }
 
     private static bool AddConversionEdge(
@@ -633,12 +621,16 @@ internal static class FoodClassifier
         return true;
     }
 
-    private static HashSet<string> FindFoodReachableFermenterInputs(
+    private static void BuildFoodConversionPrefabSets(
+        IEnumerable<KeyValuePair<string, string>> cookingConversions,
         IEnumerable<KeyValuePair<string, string>> fermenterConversions,
         IDictionary<string, HashSet<string>> reverseConversionEdges,
-        IEnumerable<string> directlyEdiblePrefabs)
+        IEnumerable<string> directlyEdiblePrefabs,
+        out HashSet<string> cookingInputs,
+        out HashSet<string> cookingOutputs,
+        out HashSet<string> unfermentedFoods)
     {
-        // Traverse the graph backwards once instead of walking every Fermenter
+        // Traverse the graph backwards once instead of walking every conversion
         // chain separately. Cycles terminate when a prefab has already been seen.
         HashSet<string> foodReachablePrefabs = new(directlyEdiblePrefabs, PrefabComparer);
         Queue<string> pending = new(foodReachablePrefabs);
@@ -659,18 +651,29 @@ internal static class FoodClassifier
             }
         }
 
-        HashSet<string> result = new(PrefabComparer);
+        cookingInputs = new HashSet<string>(PrefabComparer);
+        cookingOutputs = new HashSet<string>(PrefabComparer);
+        foreach (KeyValuePair<string, string> conversion in cookingConversions)
+        {
+            // Frost Foundry also uses CookingStation. Its casts/equipment must
+            // not become food just because this component processes them.
+            if (foodReachablePrefabs.Contains(conversion.Value))
+            {
+                cookingInputs.Add(conversion.Key);
+                cookingOutputs.Add(conversion.Value);
+            }
+        }
+
+        unfermentedFoods = new HashSet<string>(PrefabComparer);
         foreach (KeyValuePair<string, string> conversion in fermenterConversions)
         {
             // Test this conversion's target, not merely its source: an edible
             // input whose own output leads nowhere is not unfermented food.
             if (foodReachablePrefabs.Contains(conversion.Value))
             {
-                result.Add(conversion.Key);
+                unfermentedFoods.Add(conversion.Key);
             }
         }
-
-        return result;
     }
 
     private static void BuildFeastPrefabSets(

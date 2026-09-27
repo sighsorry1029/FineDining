@@ -5,8 +5,8 @@ the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
-The 1.1.2 release checks on 2026-09-27 use Valheim 1.0.15 client build 25390630
-and the matching dedicated-server build 25390671. These are build and automated
+The 1.1.3 release checks on 2026-09-27 use Valheim 1.0.16 client build 25527674
+and the matching dedicated-server build 25527701. These are build and automated
 check inputs, not a claim of actual game or multiplayer execution.
 
 ```powershell
@@ -17,10 +17,10 @@ pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuge
 ```
 
 Repeat Check-GameApi with the dedicated-server original Managed path matching
-the client build. The 1.1.2 release check uses
-`C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25390671-windows-x64-20260918T185703Z-depot-restored/original/valheim_server_Data/Managed`.
+the client build. The 1.1.3 release check uses
+`C:/Users/blizz/.codex/references/valheim/snapshots/dedicated-server-b25527701-windows-x64-20260925T211211Z-depot-restored/original/valheim_server_Data/Managed`.
 The old 1.0.7 snapshot does not match these binaries: its
-`PlayerProfile.s_bypassCheatChecks` field predates the getter used by 1.0.15.
+`PlayerProfile.s_bypassCheatChecks` field predates the getter used by 1.0.16.
 This checks direct access, explicit Harmony contracts and selected cached
 private/reflection bindings; it does not execute patches or Unity.
 For Icebox quotas it also verifies the original Start/ServerLoadWorld call paths
@@ -70,7 +70,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.2.zip -NexusZipPath Nexus/FineDining_v1.1.2.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.3.zip -NexusZipPath Nexus/FineDining_v1.1.3.zip
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```
 
@@ -145,6 +145,23 @@ rule state/action, binds the default config without writing a file, and verifies
 Off freshness/UI suppression, raw metadata retention, and the distinction between
 an overdue clock and a permanent spoiled marker during inheritance. These managed
 tests do not instantiate Unity inventories or run network synchronization.
+
+For automatic cooking classification, IntegrationSmoke calls the built conversion
+classifier with all six Deep North armor conversions plus weapon/shield cases,
+dough/raw food, mixed CookingStation/Fermenter chains, dead branches, reachable
+and unreachable cycles, case variants, and a rebuild without edible endpoints.
+Equipment and unfinished casts must stay outside automatic cooking groups while
+food ingredients keep their existing classification priority. This uses graph
+fixtures, not a running Unity prefab scan.
+
+In Valheim, check the regenerated `Spoilage.reference.yml` and inventory/ground
+tooltips after loading with the patched DLL. With `FollowYaml` and no exact
+equipment overrides, Frost Foundry equipment and casts must have no automatic
+timer or replacement; old running timers must be cleared on reconciliation.
+Verify ordinary cooking and modded multi-stage foods still
+spoil, and that explicit positive/zero-hour equipment overrides still work.
+Repeat with matching client/server DLLs and after save/reconnect. Already-replaced
+items are not restored by the classification fix.
 
 In Valheim, test live server changes between all three modes with new, running,
 paused, overdue, and permanently marked items. Check inventory/container slots,
