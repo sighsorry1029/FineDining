@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.3.0') 'Assembly version must be 1.1.3.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.4.0') 'Assembly version must be 1.1.4.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.3') 'Plugin version must be 1.1.3.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.4') 'Plugin version must be 1.1.4.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -638,12 +638,13 @@ Assert-True ([Math]::Abs(
     [float](Get-Constant $autoPopCoreType 'CookingExperienceOnCollect') - 1.0) -lt 0.0001) 'Accepted auto-pop experience must remain the sum of add and collect experience.'
 $requestPlanRpc = [string](Get-Constant $autoPopSystemType 'RequestPlanRpc')
 $autoPopBonusEffectRpc = [string](Get-Constant $autoPopSystemType 'AutoPopBonusEffectRpc')
-$slotStateKeyPrefix = [string](Get-Constant $autoPopSystemType 'SlotStateKeyPrefix')
+$planStoreType = Get-TypeRequired $assembly 'FineDining.CookingStationPlanStore'
+$planPayloadKey = [string](Get-Constant $planStoreType 'PayloadKey')
 Assert-True ($requestPlanRpc.StartsWith('FineDining_CookingStation_', [StringComparison]::Ordinal)) 'CookingStation plan RPC is not FineDining-owned.'
 Assert-True ($autoPopBonusEffectRpc -eq 'FineDining_CookingStation_AutoPopBonusEffect') 'CookingStation auto-eject bonus-effect RPC is incorrect.'
 Assert-True ($autoPopBonusEffectRpc -ne $requestPlanRpc) 'CookingStation planning and auto-eject bonus feedback must use distinct RPCs.'
-Assert-True ($slotStateKeyPrefix.StartsWith('sighsorry.FineDining.CookingStation.', [StringComparison]::Ordinal)) 'CookingStation slot state key is not FineDining-owned.'
-Assert-True ([int](Get-Constant $autoPopSystemType 'SlotPlanVersion') -eq 1) 'CookingStation slot plan version must be 1.'
+Assert-True ($planPayloadKey -eq 'sighsorry.FineDining.CookingStation.plans') 'CookingStation plans must use their single owned payload key.'
+Assert-True ([int](Get-Constant $planStoreType 'FormatVersion') -eq 2) 'CookingStation plan payload version must be 2.'
 $registerAutoPopRpcs = Get-MethodRequired $autoPopSystemType 'RegisterRpcs'
 $broadcastAutoPopBonusEffect = Get-MethodRequired $autoPopSystemType 'BroadcastBonusEffect'
 $receiveAutoPopBonusEffect = Get-MethodRequired $autoPopSystemType 'ReceiveBonusEffect'
@@ -1547,14 +1548,6 @@ Assert-True (-not [bool]$isMatchingAutoEjectPlan.Invoke($null, [object[]] @($aut
 Assert-True (-not [bool]$isMatchingAutoEjectPlan.Invoke($null, [object[]] @($autoEjectPlan, 'OtherFood', '', $true))) 'A mismatched completed output must not display auto-eject.'
 Assert-True (-not [bool]$isMatchingAutoEjectPlan.Invoke($null, [object[]] @($coalPlan, 'RawMeat', 'Coal', $false))) 'A Coal output must not display auto-eject.'
 
-$getPlanKey = Get-MethodRequired $autoPopSystemType 'GetPlanKey'
-$slotZeroAutoKey = [string]$getPlanKey.Invoke($null, [object[]] @(0, 'auto'))
-$slotOneAutoKey = [string]$getPlanKey.Invoke($null, [object[]] @(1, 'auto'))
-$slotZeroBonusKey = [string]$getPlanKey.Invoke($null, [object[]] @(0, 'bonus'))
-Assert-True ($slotZeroAutoKey.StartsWith($slotStateKeyPrefix, [StringComparison]::Ordinal)) 'Generated slot keys must use the owned prefix.'
-Assert-True ($slotZeroAutoKey -ne $slotOneAutoKey) 'Different CookingStation slots must have distinct plan keys.'
-Assert-True ($slotZeroAutoKey -ne $slotZeroBonusKey) 'Different CookingStation plan fields must have distinct keys.'
-
 foreach ($patchContract in @(
     @('FineDining.CookingStationAutoPopRpcPatch', 'Awake'),
     @('FineDining.CookingStationPlannedAddPatch', 'CookItem'),
@@ -1935,9 +1928,9 @@ $defaultOverrideBlock = $defaultOverrideBlocks[0]
 $defaultOverrideRows = @([regex]::Matches(
     $defaultOverrideBlock.Value,
     '(?m)^[ \t]*-[ \t]*(?<Entry>[^\r\n]+)\r?$') | ForEach-Object { $_.Groups['Entry'].Value.Trim() })
-$expectedDefaultOverrideRows = @('Raspberry, 96, keep', 'Mushroom, 96, keep', 'Honey, 0', 'Blueberries, 96, keep')
-Assert-True ($defaultOverrideRows.Count -eq 4 -and
-             ($defaultOverrideRows -join '|') -ceq ($expectedDefaultOverrideRows -join '|')) 'Default exact overrides must be Raspberry 96 keep, Mushroom 96 keep, Honey disabled, then Blueberries 96 keep, with no extra entries.'
+$expectedDefaultOverrideRows = @('Raspberry, 96, keep', 'Mushroom, 96, keep', 'DeerMeat, 48, keep', 'NeckTail, 48, keep', 'Honey, 0')
+Assert-True ($defaultOverrideRows.Count -eq 5 -and
+             ($defaultOverrideRows -join '|') -ceq ($expectedDefaultOverrideRows -join '|')) 'Default exact overrides must be Raspberry 96 keep, Mushroom 96 keep, DeerMeat 48 keep, NeckTail 48 keep, then Honey disabled, with no extra entries.'
 # Keep custom-rule fixtures independent of the shipped nonempty default list.
 $emptyOverridePolicyYaml = $defaultPolicyYaml.Remove($defaultOverrideBlock.Index, $defaultOverrideBlock.Length).Insert(
     $defaultOverrideBlock.Index, 'overrides: []')
@@ -1994,12 +1987,13 @@ Assert-True ($null -ne $defaultOverridesProperty) 'Parsed default policy must ex
 foreach ($defaultOverridePolicy in @($defaultNormalizedPolicy, $defaultPolicyRoundTripArguments[1]))
 {
     $defaultOverrides = $defaultOverridesProperty.GetValue($defaultOverridePolicy)
-    Assert-True ($defaultOverrides.Count -eq 4) 'Initial and round-tripped default policies must contain exactly four exact-prefab overrides.'
+    Assert-True ($defaultOverrides.Count -eq 5) 'Initial and round-tripped default policies must contain exactly five exact-prefab overrides.'
     foreach ($defaultOverrideSpec in @(
         @('Raspberry', [double]96, $true, 'KeepOriginal', ''),
         @('Mushroom', [double]96, $true, 'KeepOriginal', ''),
-        @('Honey', [double]0, $false, 'Replace', 'RottenMeat'),
-        @('Blueberries', [double]96, $true, 'KeepOriginal', '')))
+        @('DeerMeat', [double]48, $true, 'KeepOriginal', ''),
+        @('NeckTail', [double]48, $true, 'KeepOriginal', ''),
+        @('Honey', [double]0, $false, 'Replace', 'RottenMeat')))
     {
         $defaultOverrideName = [string]$defaultOverrideSpec[0]
         $defaultOverride = $defaultOverrides[$defaultOverrideName]
@@ -2021,7 +2015,7 @@ foreach ($defaultOverridePolicy in @($defaultNormalizedPolicy, $defaultPolicyRou
 }
 $emptyOverrideParseArguments = [object[]] @($emptyOverridePolicyYaml, $null, '', '')
 Assert-True ([bool]$tryParsePolicy.Invoke($null, $emptyOverrideParseArguments)) 'The isolated empty-override fixture baseline must parse.'
-Assert-True ($defaultOverridesProperty.GetValue($emptyOverrideParseArguments[1]).Count -eq 0) 'Custom-rule fixtures must not inherit the four shipped exact overrides.'
+Assert-True ($defaultOverridesProperty.GetValue($emptyOverrideParseArguments[1]).Count -eq 0) 'Custom-rule fixtures must not inherit the five shipped exact overrides.'
 $customUnfermentedPolicyYaml = $defaultPolicyYaml.Replace(
     'unfermentedFood: 72',
     'unfermentedFood: 12.5')

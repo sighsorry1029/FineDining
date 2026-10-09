@@ -5,6 +5,9 @@ the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
+The 1.1.4 build and automated checks on 2026-10-09 use the installed Valheim
+1.0.17 client build 25730771. A matching 1.0.17 dedicated-server DLL and actual
+game/multiplayer execution have not been checked for this release.
 The 1.1.3 release checks on 2026-09-27 use Valheim 1.0.16 client build 25527674
 and the matching dedicated-server build 25527701. These are build and automated
 check inputs, not a claim of actual game or multiplayer execution.
@@ -12,9 +15,30 @@ check inputs, not a claim of actual game or multiplayer execution.
 ```powershell
 dotnet build FineDining.sln -c Debug -p:DeployToGame=true
 pwsh -NoProfile -File Tests/IntegrationSmoke.ps1
+pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1
 pwsh -NoProfile -File Tests/CookingProductionTranspilerSmoke.ps1
 pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuget/packages/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll" -PluginDll bin/Debug/FineDining.dll -ManagedPath "C:/Program Files (x86)/Steam/steamapps/common/Valheim/valheim_Data/Managed" -BepInExCore "C:/Program Files (x86)/Steam/steamapps/common/Valheim/BepInEx/core"
 ```
+
+CookingStationPlanStoreSmoke exercises the built compact plan store against original
+game DLLs in an isolated PowerShell process. It covers all auto/prepaid/bonus flag
+combinations (including zero), exact prefab names, unchanged writes and revisions,
+received-array caching, ownership/pooled-object cache invalidation, slot reuse,
+explicit empty-state receipt, malformed/unsupported payloads and untouched v1 keys.
+The 28/23-slot repeated-fill cases use one byte-array key and return to a three-byte
+empty block. The bounded format uses 16-bit slot indices, record counts and UTF-8
+name byte lengths, a one-byte flag field, and a maximum payload of 1 MiB.
+
+This check uses actual ZDO.Set/Deserialize with nonpersistent ZDO fixtures and
+minimal in-process ZNet/ZDOMan globals. It does not initialize Unity, alter a live
+world, or execute the native full Serialize path, RPC transport, sector save
+dirtiness or item spawning. The native receive envelope is synthetic; its plan
+payload is produced by the mod. The new storage has no v1 reader or migration.
+In-game validation must include emptying every old station before updating all
+peers, cook/save/restart/collect, partial auto-eject failure, owner transfer,
+disconnect/reconnect, zone unload/reload and station slot-count changes. Check both
+host and dedicated-server roles. Existing v1 keys and their warnings are expected
+to remain; old format rollback is not a conversion of the new saved plans.
 
 Repeat Check-GameApi with the dedicated-server original Managed path matching
 the client build. The 1.1.3 release check uses
@@ -70,7 +94,8 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.3.zip -NexusZipPath Nexus/FineDining_v1.1.3.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.4.zip -NexusZipPath Nexus/FineDining_v1.1.4.zip
+pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```
 

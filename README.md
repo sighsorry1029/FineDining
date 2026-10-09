@@ -124,11 +124,12 @@ chefChoiceBlacklist: []
 overrides:
   - Raspberry, 96, keep
   - Mushroom, 96, keep
+  - DeerMeat, 48, keep
+  - NeckTail, 48, keep
   - Honey, 0
-  - Blueberries, 96, keep
 ```
 
-The default prefab overrides preserve Raspberry, Mushroom, and Blueberries at minimum freshness after 96 hours, and disable spoilage for Honey. These rules apply to the exact prefab names; other mushroom prefabs retain their own rules.
+The default prefab overrides preserve Raspberry and Mushroom at minimum freshness after 96 hours, preserve DeerMeat and NeckTail after 48 hours, and disable spoilage for Honey. These rules apply to the exact prefab names; Blueberries and other mushroom prefabs follow their automatic group rules unless overridden.
 
 Group lifetime values use `<hours>[, keep]`. Valid hours are `0..720`; a number alone uses the group's fixed rotten replacement, while `keep` preserves the original prefab and stack and permanently moves it to minimum freshness. Both `0` and `0, keep` disable spoilage; the latter retains the action for when you enable it again. Positive fractions are supported, with one second as the minimum internal lifetime. By default, `feastMaterial` and `feastResult` use `keep`. `unfermentedFood` covers Fermenter inputs whose conversion path eventually reaches directly edible food, including paths that continue through a CookingStation.
 
@@ -229,6 +230,8 @@ At Cooking level 100:
 `Production Bonus Excluded Output Prefabs` disables the bonus for matching output items across recipes, CookingStations, and Fermenters.
 
 CookingStation auto-eject is available only when the conversion has a separate burnt or coal stage. Its chance equals the inserting player's Cooking level, and the result is decided when the item is inserted.
+
+**Updating to 1.1.4:** before updating, finish and collect all food from existing CookingStations, including modded stations and stations in unloaded areas. Update the server and every client together to the same version. Existing per-slot plans are not read, converted, or deleted: food left inside loses its previous auto-eject decision, fixed bonus, and prepaid collection-experience record. Old stored keys and their save warnings can remain even after a station is emptied. New plans use one compact block per station; an explicit empty block prevents completed plans from remaining active on other peers. Before reverting to the old version, also empty the stations under the new version; do not treat a DLL rollback as a conversion of saved plans.
 
 Fermenters can run faster with cover and depth. Full cover and eight meters of depth each provide up to `x2` speed by default, and the two multipliers combine. Prefabs listed in `Fermenter Bonus Excluded Prefabs` keep native timing and output; FineDining acceleration, output bonuses, and insertion/collection Cooking experience are disabled for them.
 

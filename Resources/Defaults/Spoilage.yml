@@ -36,5 +36,6 @@ chefChoiceBlacklist: []
 overrides:
   - Raspberry, 96, keep
   - Mushroom, 96, keep
+  - DeerMeat, 48, keep
+  - NeckTail, 48, keep
   - Honey, 0
-  - Blueberries, 96, keep

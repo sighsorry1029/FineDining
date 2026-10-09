@@ -102,8 +102,6 @@ internal static class CookingStationAutoPopSystem
 {
     internal const string RequestPlanRpc = "FineDining_CookingStation_RequestPlan";
     internal const string AutoPopBonusEffectRpc = "FineDining_CookingStation_AutoPopBonusEffect";
-    internal const string SlotStateKeyPrefix = "sighsorry.FineDining.CookingStation.";
-    internal const int SlotPlanVersion = 1;
 
     private const float PendingPlanTimeoutSeconds = 5f;
     private const int StatusNotDone = 0;
@@ -135,6 +133,7 @@ internal static class CookingStationAutoPopSystem
     {
         _registeredStations = new ConditionalWeakTable<CookingStation, RegistrationMarker>();
         _ownerPendingPlans = new ConditionalWeakTable<CookingStation, OwnerPendingPlans>();
+        CookingStationPlanStore.Reset(FineDiningPlugin.Log);
         _requestPatchReady = false;
         _experiencePatchReady = false;
         _registrationWarningLogged = false;
@@ -388,28 +387,12 @@ internal static class CookingStationAutoPopSystem
     {
         plan = default;
         ZDO? zdo = GetZdo(station);
-        if (zdo == null
-            || slot < 0
-            || zdo.GetInt(GetPlanKey(slot, "version")) != SlotPlanVersion)
+        if (zdo == null || station.m_slots == null || slot < 0 || slot >= station.m_slots.Length)
         {
             return false;
         }
 
-        string expectedInput = zdo.GetString(GetPlanKey(slot, "input"));
-        string expectedOutput = zdo.GetString(GetPlanKey(slot, "output"));
-        if (string.IsNullOrEmpty(expectedInput)
-            || string.IsNullOrEmpty(expectedOutput))
-        {
-            return false;
-        }
-
-        plan = new CookingStationSlotPlan(
-            zdo.GetInt(GetPlanKey(slot, "auto")) != 0,
-            zdo.GetInt(GetPlanKey(slot, "prepaid")) != 0,
-            zdo.GetInt(GetPlanKey(slot, "bonus")),
-            expectedInput,
-            expectedOutput);
-        return true;
+        return CookingStationPlanStore.TryRead(zdo, slot, out plan);
     }
 
     internal static bool ShouldShowAutoEject(
@@ -461,18 +444,20 @@ internal static class CookingStationAutoPopSystem
 
     internal static void ClearPlan(CookingStation station, int slot)
     {
-        ZDO? zdo = GetZdo(station);
-        if (zdo == null || slot < 0)
+        ZDO? zdo = GetOwnedSlotZdo(station, slot);
+        if (zdo == null)
         {
             return;
         }
 
-        zdo.Set(GetPlanKey(slot, "input"), string.Empty);
-        zdo.Set(GetPlanKey(slot, "output"), string.Empty);
-        zdo.Set(GetPlanKey(slot, "auto"), 0);
-        zdo.Set(GetPlanKey(slot, "prepaid"), 0);
-        zdo.Set(GetPlanKey(slot, "bonus"), 0);
-        zdo.Set(GetPlanKey(slot, "version"), 0);
+        try
+        {
+            CookingStationPlanStore.Clear(zdo, slot);
+        }
+        catch (Exception exception)
+        {
+            LogRequestFailure(exception);
+        }
     }
 
     internal static bool IsSlotEmpty(CookingStation station, int slot)
@@ -481,16 +466,6 @@ internal static class CookingStationAutoPopSystem
         return zdo != null
                && slot >= 0
                && string.IsNullOrEmpty(zdo.GetString("slot" + slot));
-    }
-
-    internal static string GetPlanKey(int slot, string field)
-    {
-        if (slot < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(slot));
-        }
-
-        return SlotStateKeyPrefix + slot + "." + field;
     }
 
     internal static void ProcessCompletedSlots(CookingStation station)
@@ -688,9 +663,8 @@ internal static class CookingStationAutoPopSystem
         int slot,
         CookingStationSlotPlan plan)
     {
-        ZDO? zdo = GetZdo(station);
+        ZDO? zdo = GetOwnedSlotZdo(station, slot);
         if (zdo == null
-            || slot < 0
             || string.IsNullOrEmpty(plan.ExpectedInput)
             || string.IsNullOrEmpty(plan.ExpectedOutput))
         {
@@ -699,37 +673,11 @@ internal static class CookingStationAutoPopSystem
 
         try
         {
-            zdo.Set(GetPlanKey(slot, "input"), plan.ExpectedInput);
-            zdo.Set(GetPlanKey(slot, "output"), plan.ExpectedOutput);
-            zdo.Set(GetPlanKey(slot, "auto"), plan.AutoPop ? 1 : 0);
-            zdo.Set(
-                GetPlanKey(slot, "prepaid"),
-                plan.CollectionExperiencePrepaid ? 1 : 0);
-            zdo.Set(
-                GetPlanKey(slot, "bonus"),
-                CookingStationAutoPopCore.ClampBonusCount(plan.BonusCount));
-            zdo.Set(GetPlanKey(slot, "version"), SlotPlanVersion);
-            bool persisted =
-                zdo.GetInt(GetPlanKey(slot, "version")) == SlotPlanVersion
-                && string.Equals(
-                    zdo.GetString(GetPlanKey(slot, "input")),
-                    plan.ExpectedInput,
-                    StringComparison.Ordinal)
-                && string.Equals(
-                    zdo.GetString(GetPlanKey(slot, "output")),
-                    plan.ExpectedOutput,
-                    StringComparison.Ordinal);
-            if (!persisted)
-            {
-                ClearPlan(station, slot);
-            }
-
-            return persisted;
+            return CookingStationPlanStore.Write(zdo, slot, plan);
         }
         catch (Exception exception)
         {
             LogRequestFailure(exception);
-            ClearPlan(station, slot);
             return false;
         }
     }
@@ -996,6 +944,15 @@ internal static class CookingStationAutoPopSystem
         return station == null
             ? null
             : station.GetComponent<ZNetView>();
+    }
+
+    private static ZDO? GetOwnedSlotZdo(CookingStation station, int slot)
+    {
+        ZNetView? nview = GetNView(station);
+        return nview != null && nview.IsValid() && nview.IsOwner()
+               && station.m_slots != null && slot >= 0 && slot < station.m_slots.Length
+            ? nview.GetZDO()
+            : null;
     }
 
     private static ZDO? GetZdo(CookingStation station)

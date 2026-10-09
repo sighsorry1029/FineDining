@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.4
+
+- Changed new CookingStation plans to one compact saved block per station, preserving fixed bonuses, auto-eject decisions, and prepaid collection experience. Empty plans are explicitly synchronized, and unchanged plans avoid repeated writes and decoding.
+- Added bounded payload validation, ownership-aware writes, cache invalidation, and regression checks for slot reuse, empty-state receipt, malformed data, and repeated use of 28-slot and 23-slot stations.
+- Changed the default Spoilage.yml overrides to Raspberry and Mushroom at `96, keep`, DeerMeat and NeckTail at `48, keep`, and Honey at `0`. Removed the Blueberries override so it follows its automatic group rule in newly created policies. Existing YAML files and assigned spoilage timers are not rewritten.
+
+**Before updating:** finish and collect all food from every CookingStation under the old version, including modded stations and stations in unloaded areas, then update the server and all clients to 1.1.4 together. There is no reader or migration for old per-slot cooking plans: food left inside loses its previous auto-eject decision, fixed bonus, and prepaid collection-experience record. Old saved keys are left untouched, so existing save warnings can remain. Empty stations under the new version before reverting; replacing the DLL does not convert saved plans.
+
 ## 1.1.3
 
 - Fixed non-food CookingStation conversions, including Frost Foundry armor, weapons, shields, and unfinished casts, being automatically assigned spoilage timers and RottenMeat replacements.
