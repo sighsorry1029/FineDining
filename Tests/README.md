@@ -5,6 +5,13 @@ the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;
 the smoke scripts accept explicit paths when the install differs from their defaults.
 Do not publicize game inputs. Jotunn is not a compile or required runtime dependency.
+The FineDining 1.1.5 Valheim 1.0.20 compatibility patch on 2026-10-15 was checked against original
+client 25909357 and dedicated-server 25909431 DLLs. `FermenterCheatedSmoke.ps1` extracts
+the built bonus predicate IL, substitutes only Unity lookup and delayed/bypass inputs,
+and compares 24 combinations with original `CheatUtils.IsCheated(ZDO)`. Both roles
+passed; the previous release DLL failed for revision 1 with ordinary input and bypass off.
+The final DLL also passed Check-GameApi for both roles and IntegrationSmoke. These are
+isolated managed/metadata checks, not actual item spawning or multiplayer validation.
 The 1.1.4 build and automated checks on 2026-10-09 use the installed Valheim
 1.0.17 client build 25730771. A matching 1.0.17 dedicated-server DLL and actual
 game/multiplayer execution have not been checked for this release.
@@ -15,6 +22,7 @@ check inputs, not a claim of actual game or multiplayer execution.
 ```powershell
 dotnet build FineDining.sln -c Debug -p:DeployToGame=true
 pwsh -NoProfile -File Tests/IntegrationSmoke.ps1
+pwsh -NoProfile -File Tests/FermenterCheatedSmoke.ps1
 pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1
 pwsh -NoProfile -File Tests/CookingProductionTranspilerSmoke.ps1
 pwsh -NoProfile -File Tests/Check-GameApi.ps1 -CecilPath "$env:USERPROFILE/.nuget/packages/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll" -PluginDll bin/Debug/FineDining.dll -ManagedPath "C:/Program Files (x86)/Steam/steamapps/common/Valheim/valheim_Data/Managed" -BepInExCore "C:/Program Files (x86)/Steam/steamapps/common/Valheim/BepInEx/core"
@@ -94,7 +102,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.4.zip -NexusZipPath Nexus/FineDining_v1.1.4.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.5.zip -NexusZipPath Nexus/FineDining_v1.1.5.zip
 pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```

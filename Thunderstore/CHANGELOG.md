@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.5
+
+- Updated bonus fermenter output to use Valheim 1.0.20's current cheated-state revision, matching vanilla handling of the fermenter's saved state.
+- Preserved ingredient flags, bypass behavior, output quantities, and ownership checks. Added checks against the original client and dedicated-server game code for the changed flag calculation.
+
 ## 1.1.4
 
 - Changed new CookingStation plans to one compact saved block per station, preserving fixed bonuses, auto-eject decisions, and prepaid collection experience. Empty plans are explicitly synchronized, and unchanged plans avoid repeated writes and decoding.

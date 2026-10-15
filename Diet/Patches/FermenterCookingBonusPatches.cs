@@ -267,12 +267,14 @@ internal static class FermenterCookingBonusSystem
                 : fermenter.transform.position + Vector3.up;
             for (int item = 0; item < bonusToSpawn; item++)
             {
+                // Match 1.0.20 CheatUtils.IsCheated: only revision 2 marks the barrel;
+                // old revision 1 no longer does. The game helper itself is internal.
                 ItemDrop.OnCreateNew(
                     UnityObject.Instantiate<ItemDrop>(
                         conversion.m_to,
                         spawnPosition,
                         Quaternion.identity),
-                    ((DelayedTapCheatedField!.GetValue(fermenter) is true) || GetNView(fermenter).GetZDO().GetBool(ZDOVars.s_cheated))
+                    ((DelayedTapCheatedField!.GetValue(fermenter) is true) || GetNView(fermenter).GetZDO().GetInt(ZDOVars.s_cheated) == 2)
                     && !PlayerProfile.s_bypassCheatChecks);
                 spawnedBonusItems++;
             }
