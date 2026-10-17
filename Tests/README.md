@@ -103,7 +103,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.5.zip -NexusZipPath Nexus/FineDining_v1.1.5.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.6.zip -NexusZipPath Nexus/FineDining_v1.1.6.zip
 pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```

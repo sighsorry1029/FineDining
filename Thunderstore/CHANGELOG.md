@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.6
+
+- Added optional Path of Valheiman integration, checked against 5.0.4. FineDining's slot scale, Chef's Choice, diminishing returns, Full Course and freshness now compose with PoV's food values and food-derived masteries. Item previews include PoV nourishment and cooking stamps without rolling Hearty Meal.
+- Preserved PoV raw-food views after character loading and its separate snack handling. Snacks receive freshness scaling without consuming normal food slots, Chef choices or recent-food history, or awarding FineDining's normal-food experience.
+- Connected FineDining's food-regeneration loop to PoV's interval, remainder and healing-packet calculations so faster ticks do not multiply total recovery by themselves.
+- Routed PoV batch-cooking ingredients through the existing validated cooking-plan path while preserving item removal, RPC payloads and cheated flags. Fermenter completion now recognizes PoV's exact temporary extra bottle and runs before its queued-batch promotion, preserving existing bonus output and metadata.
+- Kept PoV's skill-progression freeze, global multiplier, No Decay, Hearty Meal rolls and extra-production stacking policies. Added no required dependency, config key or save migration. Added original-DLL/isolated regression checks; combined Unity gameplay and multiplayer still require in-game validation.
+
 ## 1.1.5
 
 - Updated bonus fermenter output to use Valheim 1.0.20's current cheated-state revision, matching vanilla handling of the fermenter's saved state.
