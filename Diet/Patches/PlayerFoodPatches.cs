@@ -9,12 +9,16 @@ internal static class DietPlayerFoodPatches
 {
     [HarmonyPatch(nameof(Player.CanEat))]
     [HarmonyPrefix]
+    [HarmonyAfter(PathOfValheimanCompatibility.PluginGuid)]
     private static bool CanEatPrefix(
         Player __instance,
         ItemDrop.ItemData item,
         bool showMessages,
-        ref bool __result)
+        ref bool __result,
+        bool __runOriginal)
     {
+        if (!__runOriginal)
+            return false;
         if (!FoodIdentity.IsDirectlyEdible(item))
         {
             return true;
@@ -26,13 +30,17 @@ internal static class DietPlayerFoodPatches
 
     [HarmonyPatch(nameof(Player.EatFood))]
     [HarmonyPrefix]
+    [HarmonyAfter(PathOfValheimanCompatibility.PluginGuid)]
     private static bool EatFoodPrefix(
         Player __instance,
         ItemDrop.ItemData item,
         ref bool __result,
-        out VanillaEatBoundaryState? __state)
+        out VanillaEatBoundaryState? __state,
+        bool __runOriginal)
     {
         __state = null;
+        if (!__runOriginal)
+            return false;
         if (!FoodIdentity.IsDirectlyEdible(item))
         {
             __state = new VanillaEatBoundaryState(__instance, item);
@@ -52,6 +60,11 @@ internal static class DietPlayerFoodPatches
         VanillaEatBoundaryState? __state)
     {
         if (!__result)
+        {
+            return;
+        }
+
+        if (PathOfValheimanCompatibility.IsSnack(__instance, item))
         {
             return;
         }
@@ -116,8 +129,11 @@ internal static class DietPlayerFoodPatches
 
     [HarmonyPatch("UpdateFood")]
     [HarmonyPrefix]
-    private static bool UpdateFoodPrefix(Player __instance, float dt, bool forceUpdate)
+    [HarmonyAfter(PathOfValheimanCompatibility.PluginGuid)]
+    private static bool UpdateFoodPrefix(Player __instance, float dt, bool forceUpdate, bool __runOriginal)
     {
+        if (!__runOriginal)
+            return false;
         PlayerFoodLogic.UpdateFood(__instance, dt, forceUpdate);
         return false;
     }
@@ -163,6 +179,7 @@ internal static class DietPlayerFoodPatches
     [HarmonyPostfix]
     private static void LoadPostfix(Player __instance)
     {
+        PathOfValheimanCompatibility.PrepareActiveFoods(__instance);
         FoodSlotProgression.Invalidate(__instance);
         FoodStateStore.Invalidate(__instance);
         DietModule.RequestDietReconcile();

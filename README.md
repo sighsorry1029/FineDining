@@ -290,5 +290,8 @@ Invalid YAML keeps the last valid policy. Files from older names are not read or
 - ValheimCuisine: Grimpy Box and Freydis hover information.
 - Expand World Data: custom biome names in `No-Spoil Biomes`.
 - Feaster-style placed food: spoilage metadata and hover information.
+- Path of Valheiman: optional integration checked against `5.0.4`. FineDining's food-slot scale, Chef's Choice, diminishing returns, Full Course and freshness compose with PoV food values and food-derived masteries. PoV raw food remains edible after character reload; its snacks keep their separate slots and apply freshness without consuming Chef choices or recent-food history. Food regeneration follows PoV's tick cadence without increasing total recovery from tick frequency alone.
+
+With PoV, batch cooking also submits FineDining's normal cooking plan for each extra ingredient. Fermenter bonuses preserve PoV's temporary extra bottle and output stamps. PoV's vanilla-skill freeze, Hearty Meal rolls, global food multiplier, nourishment, and existing extra-production stacking remain unchanged. PoV's **No Decay** applies to eaten-food stat decay; FineDining's **Spoilage Mode** controls inventory spoilage independently. No new required mod, setting, or save migration is introduced. Install the same FineDining version on the server and clients; actual combined game and multiplayer validation is still needed.
 
 FineDining performs spoilage work only for authoritative loaded inventories, containers, and world items. Unloaded progress is timestamp-based rather than continuously simulated, and dedicated servers do not require a local HUD.

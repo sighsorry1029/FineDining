@@ -229,9 +229,7 @@ internal static class FermenterCookingBonusSystem
         int spawnedBonusItems = 0;
         try
         {
-            Fermenter.ItemConversion? conversion = GetItemConversion(
-                fermenter,
-                GetDelayedTapItem(fermenter));
+            Fermenter.ItemConversion? conversion = GetDelayedTapConversion(fermenter);
             if (conversion == null
                 || (UnityObject)(object)conversion.m_to == null
                 || conversion.m_producedItems <= 0)
@@ -246,7 +244,8 @@ internal static class FermenterCookingBonusSystem
                 return;
             }
 
-            if (conversion.m_producedItems != context.BaseItemCount
+            if ((conversion.m_producedItems != context.BaseItemCount &&
+                 !PathOfValheimanCompatibility.IsBrewOutputCount(fermenter, conversion, context.BaseItemCount))
                 || conversion.m_to.gameObject.name != context.OutputPrefabName)
             {
                 SendTapResponse(
@@ -714,6 +713,9 @@ internal static class FermenterCookingBonusSystem
         return null;
     }
 
+    internal static Fermenter.ItemConversion? GetDelayedTapConversion(Fermenter fermenter) =>
+        GetItemConversion(fermenter, GetDelayedTapItem(fermenter));
+
     private static bool HasRuntimeContract()
     {
         if (GetStatusMethod != null
@@ -960,6 +962,7 @@ internal static class FermenterCookingBonusOutputPatch
     }
 
     [HarmonyPostfix]
+    [HarmonyBefore(PathOfValheimanCompatibility.PluginGuid)]
     private static void Postfix(
         Fermenter __instance,
         ref FermenterCookingBonusSystem.OwnerTapContext? __state,
@@ -983,6 +986,7 @@ internal static class FermenterCookingBonusOutputPatch
         FermenterCookingBonusSystem.OwnerTapContext? __state,
         Exception? __exception)
     {
+        PathOfValheimanCompatibility.EndBrewOutput(__instance);
         if (__exception != null && __state != null)
         {
             FermenterCookingBonusSystem.RejectDelayedTap(__instance, __state);

@@ -74,6 +74,7 @@ MonoMod.Core 1.3.3, MonoMod.Backports 1.1.2, MonoMod.ILHelpers 1.1.0 and
 Mono.Cecil 0.11.6 (`lib/netstandard2.0`). These must be restored to the local
 NuGet cache to run the script. They are not project runtime dependencies or
 game replacements: FineDining still builds with the installed Harmony 2.9.
+
 Desktop .NET Framework cannot read this game's DoCrafting method body because
 of default interface methods, and installed Harmony 2.9 does not initialize on
 the current desktop Core runtime. The isolated matcher/fragment test avoids
@@ -230,3 +231,37 @@ For the Cooking skill tooltip, check in Valheim with Korean and English:
 
 Compare GC allocations and UI rebuilds in the same scene before making a
 performance claim. Preserve per-frame hint visibility when reducing cached work.
+
+### Optional Path of Valheiman integration
+
+```powershell
+pwsh -NoProfile -File Tests/PathOfValheimanCompatibilitySmoke.ps1 -PathOfValheimanDll "<path to original PathOfValheiman.dll>"
+```
+
+The 2026-10-18 check uses PoV 5.0.4, SHA-256
+`36E45B65B44667AD596446CAC2AE989041669948C11710B05185E4FE16697DB4`,
+and original Valheim 1.0.20 client 25909357 / dedicated-server 25909431 inputs.
+The PoV DLL is a test input, not a project reference or distributed dependency.
+The script uses the same test-only desktop HarmonyX dependencies listed above.
+It binds the original private signatures, installs/removes all four adapter
+patches in isolation, reads original IL and runs the emitted food-return,
+snack-value and cooking-packet fragments. It covers both food return paths,
+zero/fractional/unit/bonus scales, unchanged ingredient and cheated payloads,
+six rejected IL drift cases, Harmony cancellation/results and patch-method
+wrapping, strict temporary fermenter counts, nested/failed-prefix cleanup,
+no-PoV defaults and PoV's original recovery cadence math.
+
+Only the fragments execute: diet/freshness inputs, native prefab/name lookup
+and RPC transport are substituted. Neither plugin startup nor a Unity world
+is run, and desktop HarmonyX success does not establish Mono/game execution.
+Before treating combined multiplayer behavior as verified, check:
+
+- FineDining alone and with PoV: normal/stale food, Chef/DR toggles, Full Course
+  activation/expiry, food-derived masteries, No Decay, Hearty Meal and item hover.
+- Raw food across save/reconnect; snacks at their cap without extra food slots,
+  Chef/history changes, duplicate experience or repeated inventory consumption.
+- Faster/slower recovery with status-effect modifiers and unchanged total recovery.
+- Batch cooking, auto-eject and combined bonus counts on host/dedicated owners,
+  including save/restart, owner transfer, disconnect and full/partly filled stations.
+- Fermenter extra output and PoV queue promotion: expected counts and output
+  metadata, including failed/cancelled taps and repeated requests.

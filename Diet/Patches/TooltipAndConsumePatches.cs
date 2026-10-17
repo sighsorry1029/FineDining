@@ -27,6 +27,7 @@ internal static class DietTooltipPatch
     private static bool _cloneFailureLogged;
 
     [HarmonyPrefix]
+    [HarmonyAfter(PathOfValheimanCompatibility.PluginGuid)]
     private static void Prefix(ref ItemDrop.ItemData __0, out FoodEffect? __state)
     {
         __state = null;
@@ -39,6 +40,16 @@ internal static class DietTooltipPatch
 
         try
         {
+            if (PathOfValheimanCompatibility.IsSnack(player, item))
+            {
+                ItemDrop.ItemData snackItem = item.Clone();
+                snackItem.m_shared =
+                    (ItemDrop.ItemData.SharedData)MemberwiseCloneMethod.Invoke(item.m_shared, null);
+                PathOfValheimanCompatibility.AdjustTooltip(player, item, snackItem.m_shared, snack: true);
+                __0 = snackItem;
+                return;
+            }
+
             PlayerFoodStateData state = FoodStateStore.GetState(player);
             FoodEffect effect = FoodRules.PreviewNextFoodEffect(player, state, item);
             if (effect.EffectiveScale < 0f ||
@@ -51,10 +62,15 @@ internal static class DietTooltipPatch
             ItemDrop.ItemData tooltipItem = item.Clone();
             tooltipItem.m_shared =
                 (ItemDrop.ItemData.SharedData)MemberwiseCloneMethod.Invoke(item.m_shared, null);
-            tooltipItem.m_shared.m_food = RoundTooltipStat(effect.Health);
-            tooltipItem.m_shared.m_foodStamina = RoundTooltipStat(effect.Stamina);
-            tooltipItem.m_shared.m_foodEitr = RoundTooltipStat(effect.Eitr);
-            tooltipItem.m_shared.m_foodRegen = RoundTooltipStat(effect.Regen);
+            tooltipItem.m_shared.m_food = effect.Health;
+            tooltipItem.m_shared.m_foodStamina = effect.Stamina;
+            tooltipItem.m_shared.m_foodEitr = effect.Eitr;
+            tooltipItem.m_shared.m_foodRegen = effect.Regen;
+            PathOfValheimanCompatibility.AdjustTooltip(player, item, tooltipItem.m_shared, snack: false);
+            tooltipItem.m_shared.m_food = RoundTooltipStat(tooltipItem.m_shared.m_food);
+            tooltipItem.m_shared.m_foodStamina = RoundTooltipStat(tooltipItem.m_shared.m_foodStamina);
+            tooltipItem.m_shared.m_foodEitr = RoundTooltipStat(tooltipItem.m_shared.m_foodEitr);
+            tooltipItem.m_shared.m_foodRegen = RoundTooltipStat(tooltipItem.m_shared.m_foodRegen);
             __0 = tooltipItem;
             __state = effect;
         }

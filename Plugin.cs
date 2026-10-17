@@ -23,6 +23,7 @@ namespace FineDining;
     ValheimCuisineCompatibility.PluginGuid,
     BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency("expand_world_data", BepInDependency.DependencyFlags.SoftDependency)]
+[BepInDependency(PathOfValheimanCompatibility.PluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInIncompatibility("sighsorry.BeingSpoiled")]
 [BepInIncompatibility("blizz.GourmetsDiet")]
 [BepInIncompatibility("sighsorry.InputHoverHints")]
@@ -70,6 +71,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         _harmony.PatchAll(Assembly.GetExecutingAssembly());
         AzuExtendedPlayerInventoryCompatibility.TryInstall(_harmony);
         InventorySlotsCompatibility.TryInstall();
+        PathOfValheimanCompatibility.TryInstall(_harmony);
     }
 
     internal static ConfigEntry<bool> BindConfigurationLock(ConfigFile config) =>
@@ -109,6 +111,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         AzuExtendedPlayerInventoryCompatibility.Shutdown();
         FineDiningLocalization.Shutdown();
         _harmony.UnpatchSelf();
+        PathOfValheimanCompatibility.Shutdown();
         DecayRuntime.Reset();
         FoodClassifier.Invalidate();
         SpoilageReferenceGenerator.Reset();

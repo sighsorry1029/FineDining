@@ -189,12 +189,12 @@ internal static class PlayerFoodLogic
 
         ref float foodRegenTimer = ref PlayerPrivateAccess.FoodRegenTimer(player);
         foodRegenTimer += dt;
-        if (foodRegenTimer < 10f)
+        if (foodRegenTimer < PathOfValheimanCompatibility.RegenInterval(player))
         {
             return;
         }
 
-        foodRegenTimer = 0f;
+        foodRegenTimer = PathOfValheimanCompatibility.AdvanceRegen(player);
         state ??= FoodStateStore.GetState(player);
         float regen = 0f;
         float fullCourseScale = FoodRules.GetFullCourseScale(
@@ -217,7 +217,7 @@ internal static class PlayerFoodLogic
 
         float regenMultiplier = 1f;
         player.GetSEMan().ModifyHealthRegen(ref regenMultiplier);
-        player.Heal(regen * regenMultiplier);
+        PathOfValheimanCompatibility.HealFood(player, regen * regenMultiplier);
     }
 
     internal static void RefreshFoodStats(Player? player)
@@ -230,6 +230,7 @@ internal static class PlayerFoodLogic
 
     private static void RecalculateFoodStats(Player player, PlayerFoodStateData state)
     {
+        PathOfValheimanCompatibility.PrepareActiveFoods(player);
         List<Player.Food> foods = player.GetFoods();
         float fullCourseScale = FoodRules.GetFullCourseScale(
             player,

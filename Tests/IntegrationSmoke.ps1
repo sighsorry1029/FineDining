@@ -3656,7 +3656,7 @@ Assert-True ([regex]::IsMatch(
     '(?s)float effectiveScale = isDietFood\s*\? FoodRules\.GetAppliedScale\(player, state, food\) \* fullCourseScale\s*: 1f;\s*food\.m_health = food\.m_item\.m_shared\.m_food \* effectiveScale \* normalizedTime;\s*food\.m_stamina = food\.m_item\.m_shared\.m_foodStamina \* effectiveScale \* normalizedTime;\s*food\.m_eitr = food\.m_item\.m_shared\.m_foodEitr \* effectiveScale \* normalizedTime;.*?PlayerPrivateAccess\.GetTotalFoodValue\(.*?player\.SetMaxHealth\(health, flashBar: true\);\s*player\.SetMaxStamina\(stamina, flashBar: true\);\s*PlayerPrivateAccess\.SetMaxEitr\(player, eitr, flashBar: true\);')) 'Dynamic slot and Full Course scales must affect only food contributions before untouched external Health/Stamina/Eitr totals are applied.'
 Assert-True ([regex]::IsMatch(
     $playerFoodLogicSource,
-    '(?s)regen \+= food\.m_item\.m_shared\.m_foodRegen \* scale;.*?float regenMultiplier = 1f;\s*player\.GetSEMan\(\)\.ModifyHealthRegen\(ref regenMultiplier\);\s*player\.Heal\(regen \* regenMultiplier\);')) 'Slot scaling must affect food health-regeneration contributions without scaling external status-effect regeneration multipliers.'
+    '(?s)regen \+= food\.m_item\.m_shared\.m_foodRegen \* scale;.*?float regenMultiplier = 1f;\s*player\.GetSEMan\(\)\.ModifyHealthRegen\(ref regenMultiplier\);\s*PathOfValheimanCompatibility\.HealFood\(player, regen \* regenMultiplier\);')) 'Slot scaling must affect food health-regeneration contributions before external status-effect modifiers and the optional PoV cadence adapter.'
 $consumeChefCallIndex = $playerFoodLogicSource.IndexOf(
     'ChefCollectionService.TryConsumeChefEntry(',
     [StringComparison]::Ordinal)
