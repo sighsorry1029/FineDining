@@ -30,12 +30,20 @@ internal static class DietTooltipPatch
     [HarmonyAfter(PathOfValheimanCompatibility.PluginGuid)]
     private static void Prefix(ref ItemDrop.ItemData __0, out FoodEffect? __state)
     {
-        __state = null;
+        ItemDrop.ItemData? preview = CreatePreview(__0, out __state);
+        if (preview != null)
+            __0 = preview;
+    }
+
+    // Input has already passed PoV's own food tooltip prefix when PoV is present.
+    // Both text and structured cards use this preview without consuming food.
+    internal static ItemDrop.ItemData? CreatePreview(ItemDrop.ItemData item, out FoodEffect? effectState)
+    {
+        effectState = null;
         Player player = Player.m_localPlayer;
-        ItemDrop.ItemData item = __0;
         if (player == null || !FoodIdentity.IsDirectlyEdible(item))
         {
-            return;
+            return null;
         }
 
         try
@@ -46,8 +54,7 @@ internal static class DietTooltipPatch
                 snackItem.m_shared =
                     (ItemDrop.ItemData.SharedData)MemberwiseCloneMethod.Invoke(item.m_shared, null);
                 PathOfValheimanCompatibility.AdjustTooltip(player, item, snackItem.m_shared, snack: true);
-                __0 = snackItem;
-                return;
+                return snackItem;
             }
 
             PlayerFoodStateData state = FoodStateStore.GetState(player);
@@ -56,7 +63,7 @@ internal static class DietTooltipPatch
                 float.IsNaN(effect.EffectiveScale) ||
                 float.IsInfinity(effect.EffectiveScale))
             {
-                return;
+                return null;
             }
 
             ItemDrop.ItemData tooltipItem = item.Clone();
@@ -71,8 +78,8 @@ internal static class DietTooltipPatch
             tooltipItem.m_shared.m_foodStamina = RoundTooltipStat(tooltipItem.m_shared.m_foodStamina);
             tooltipItem.m_shared.m_foodEitr = RoundTooltipStat(tooltipItem.m_shared.m_foodEitr);
             tooltipItem.m_shared.m_foodRegen = RoundTooltipStat(tooltipItem.m_shared.m_foodRegen);
-            __0 = tooltipItem;
-            __state = effect;
+            effectState = effect;
+            return tooltipItem;
         }
         catch (Exception exception)
         {
@@ -83,17 +90,21 @@ internal static class DietTooltipPatch
                     "Failed to build transformed diet tooltip: " + exception.Message);
             }
         }
+        return null;
     }
 
     [HarmonyPostfix]
     private static void Postfix(FoodEffect? __state, ref string __result)
+        => AppendModifiers(__state, ref __result);
+
+    internal static void AppendModifiers(FoodEffect? effectState, ref string text)
     {
-        if (!__state.HasValue)
+        if (!effectState.HasValue)
         {
             return;
         }
 
-        FoodEffect effect = __state.Value;
+        FoodEffect effect = effectState.Value;
         StringBuilder modifierBuilder = new();
         if (effect.IsChef)
         {
@@ -112,14 +123,14 @@ internal static class DietTooltipPatch
         if (FoodEffectUiText.TryBuildStalenessLine(
                 effect.FreshnessScale,
                 out string stalenessLine) &&
-            !FoodEffectUiText.ContainsLine(__result ?? string.Empty, stalenessLine))
+            !FoodEffectUiText.ContainsLine(text ?? string.Empty, stalenessLine))
         {
             AppendModifierLine(modifierBuilder, stalenessLine);
         }
 
         if (modifierBuilder.Length > 0)
         {
-            __result += "\n\n" + modifierBuilder;
+            text += "\n\n" + modifierBuilder;
         }
     }
 
@@ -133,7 +144,7 @@ internal static class DietTooltipPatch
         builder.Append(line);
     }
 
-    private static float RoundTooltipStat(float value)
+    internal static float RoundTooltipStat(float value)
     {
         if (float.IsNaN(value) || float.IsInfinity(value))
         {

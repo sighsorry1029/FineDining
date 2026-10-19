@@ -99,11 +99,59 @@ Debug deployment copies only the final merged FineDining.dll into the game's
 BepInEx/plugins folder. Use `DeployToGame=false` when explicitly skipping local
 deployment, and compare source and destination SHA-256 hashes after deployment.
 
+### PoV custom food cards (2026-10-19)
+
+Build the Debug plugin first, then run the new original-Mono model check:
+
+```powershell
+pwsh -NoProfile -File Tests/PoVTooltipSmoke/Run.ps1 -MonoHost <MonoHost.exe> -PathOfValheimanDll <original-5.0.10.dll> -OptionalDependencyDirectory <Jotunn-directory>
+```
+
+`MonoHost` is the existing audited host from InventorySlots' `build/PathOfValheimanSmoke`
+(built by its `Run-MonoSmoke.ps1`, using `InventoryActions/build/CompatibilitySmoke/MonoHost.cpp`).
+It loads the installed game's original Mono runtime and performs normal runtime cleanup.
+The script builds only the test executable, records input hashes, and neither publicizes
+nor rewrites original DLLs. PoV 5.0.10 input SHA-256:
+`252B60914EFC9F402A977A8C235E28BCB363D7BB7CEEBDF5F22A228518282E74`.
+
+The checks bind original private PoV model/Core fields and its food tooltip prefix,
+install/remove the actual model postfix, and exercise the built FineDining food preview.
+They cover decimals, missing/zero food rows, raw-food card classification, other-mod
+rows, unchanged duration, repeated previews, item/save-data preservation, minimum
+freshness wording, snack regeneration, no local player, and display-change comparison.
+The existing desktop PoV smoke also checks the four gameplay patches against 5.0.10.
+
+Fixtures substitute Unity object identity, animator hash, color parsing and localization,
+plus progression getters and managed player state. A supplied model replaces PoV's
+native-dependent BuildCore body only for the installed-postfix execution check. These
+are not card rendering, full consumption, BepInEx startup or multiplayer tests.
+In game, check inventory/chest hover and pinned cards, freshness countdown/paused
+storage/minimum freshness, raw food and snacks, live diet/progression changes, and
+Alt-held wiki links. Also check PoV layout Off, PoV absent and reconnect/scene teardown.
+
+Pre-release 1.1.6 Debug verification on 2026-10-19: build had zero warnings/errors; the original Mono
+runner passed 23 checks, exited 0 and completed Mono cleanup. IntegrationSmoke and
+the existing PoV compatibility smoke passed. Check-GameApi passed 1,991 direct
+references, 82 explicit Harmony targets and 37 selected private bindings. Final
+merged Debug DLL and Steam plugins copy both have SHA-256
+`523AA890E794C7822BB13B2946F5E396921B4FD885144872546F916D7C9CB109`.
+No Release package, version change or actual game/multiplayer run was performed.
+
+Release 1.1.7 verification on 2026-10-19: Debug and Release built with zero warnings/errors.
+The final Release DLL passed the same 23 original-Mono checks (exit 0, cleanup
+completed), IntegrationSmoke including both ZIPs, the existing PoV compatibility
+smoke and Check-GameApi with the counts above. Thunderstore/Nexus packaged files
+match their release sources. Release DLL SHA-256:
+`4B5DC2DDFBB9B2BEB38F6DDCD34F6B8F374819D3525A233C1BC2AFB9CBC5C818`.
+The Debug DLL and Steam plugins copy both have SHA-256
+`C986381C0A40102902800A8A961E2F3D8FCD1EF82920F238E40587FDC766E262`.
+Actual game and multiplayer checks remain outstanding.
+
 Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.6.zip -NexusZipPath Nexus/FineDining_v1.1.6.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.7.zip -NexusZipPath Nexus/FineDining_v1.1.7.zip
 pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```

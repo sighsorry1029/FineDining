@@ -30,7 +30,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.1.6";
+    internal const string ModVersion = "1.1.7";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -95,6 +95,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         DecayRuntime.Tick();
         IceboxSubsystem.Tick();
         DietModule.Tick();
+        PathOfValheimanTooltipCompatibility.Tick();
     }
 
     private void OnDestroy()

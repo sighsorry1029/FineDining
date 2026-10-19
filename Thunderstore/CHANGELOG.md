@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.7
+
+- Fixed Path of Valheiman 5.0.10's custom item cards showing unadjusted food stats and omitting FineDining's freshness information. Cards now reuse the ordinary tooltip's food preview and spoilage text while retaining PoV's artwork and interactions; InventorySlots is not required.
+- Preserved decimal food values, handled missing rows for PoV's edible raw foods, and removed regeneration rows for snacks with no healing. PoV's food multipliers and FineDining's effects are applied once without modifying the hovered item or consuming food.
+- Refresh visible cards only when displayed values or text change, checking at most once per second and deferring refresh while PoV's Alt-held card is in use. A tooltip compatibility failure leaves the existing food and cooking integration active.
+- Added original-Mono tooltip regression checks and rechecked the existing PoV integration against 5.0.10. Actual UI rendering and combined multiplayer still require in-game validation.
+
 ## 1.1.6
 
 - Added optional Path of Valheiman integration, checked against 5.0.4. FineDining's slot scale, Chef's Choice, diminishing returns, Full Course and freshness now compose with PoV's food values and food-derived masteries. Item previews include PoV nourishment and cooking stamps without rolling Hearty Meal.

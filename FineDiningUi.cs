@@ -700,41 +700,9 @@ internal static class ItemDataSpoilageTooltipPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(ItemData __instance, ref string __result)
     {
-        if (!SpoilagePolicy.IsEnabled || __instance == null || __instance.m_stack <= 0)
-        {
-            return;
-        }
-
         try
         {
-            if (SpoilageClock.IsSpoiled(__instance))
-            {
-                string minimumFreshnessLine = FoodEffectUiText.BuildMinimumFreshnessLine();
-                if (!FoodEffectUiText.ContainsLine(__result ?? "", minimumFreshnessLine))
-                {
-                    __result = string.IsNullOrEmpty(__result)
-                        ? minimumFreshnessLine
-                        : __result + "\n" + minimumFreshnessLine;
-                }
-
-                return;
-            }
-
-            if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
-                !DecayRuntime.TryGetSpoilageClock(
-                    __instance,
-                    nowTicks,
-                    out long remainingTicks,
-                    out bool paused))
-            {
-                return;
-            }
-
-            string line = FoodEffectUiText.BuildStatusLine(
-                remainingTicks,
-                paused,
-                FoodEffectUiText.ReachesMinimumFreshness(__instance));
-            if (!FoodEffectUiText.ContainsLine(__result ?? "", line))
+            if (TryBuildLine(__instance, out string line) && !FoodEffectUiText.ContainsLine(__result ?? "", line))
             {
                 __result = string.IsNullOrEmpty(__result) ? line : __result + "\n" + line;
             }
@@ -748,6 +716,23 @@ internal static class ItemDataSpoilageTooltipPatch
                     "Could not append spoilage state to an item tooltip: " + exception);
             }
         }
+    }
+
+    internal static bool TryBuildLine(ItemData item, out string line)
+    {
+        line = "";
+        if (!SpoilagePolicy.IsEnabled || item == null || item.m_stack <= 0)
+            return false;
+        if (SpoilageClock.IsSpoiled(item))
+        {
+            line = FoodEffectUiText.BuildMinimumFreshnessLine();
+            return true;
+        }
+        if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
+            !DecayRuntime.TryGetSpoilageClock(item, nowTicks, out long remainingTicks, out bool paused))
+            return false;
+        line = FoodEffectUiText.BuildStatusLine(remainingTicks, paused, FoodEffectUiText.ReachesMinimumFreshness(item));
+        return true;
     }
 }
 

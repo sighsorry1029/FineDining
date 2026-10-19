@@ -51,6 +51,7 @@ internal static class PathOfValheimanCompatibility
             FineDiningPlugin.Log.LogInfo(
                 "Enabled PathOfValheiman " + plugin.Metadata.Version +
                 " food, regeneration, snack and cooking compatibility. PoV skill progression and bonus rolls are unchanged.");
+            PathOfValheimanTooltipCompatibility.TryInstall(harmony, plugin.Instance.GetType().Assembly);
         }
         catch (Exception exception)
         {
@@ -87,6 +88,7 @@ internal static class PathOfValheimanCompatibility
 
     internal static void Shutdown()
     {
+        PathOfValheimanTooltipCompatibility.Shutdown();
         _bindings = null;
         PatchedMethods.Clear();
         _brewOutputs = new ConditionalWeakTable<Fermenter, BrewOutput>();

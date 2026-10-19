@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.6.0') 'Assembly version must be 1.1.6.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.7.0') 'Assembly version must be 1.1.7.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.6') 'Plugin version must be 1.1.6.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.7') 'Plugin version must be 1.1.7.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -813,7 +813,7 @@ Assert-True ([regex]::IsMatch(
     '(?s)ReachesMinimumFreshness\(ItemData\? item\).*?rule\.State == SpoilageRuleState\.Enabled\s*&&\s*rule\.ExpiryAction == SpoilageExpiryAction\.KeepOriginal')) 'Keep-specific wording must require an enabled KeepOriginal policy rule.'
 Assert-True ($fineDiningUiSource.Contains('? FoodEffectUiText.GetMinimumFreshnessSlotLabel()')) 'Completed Keep expiry must use the compact label in inventory and container slots.'
 Assert-True ($fineDiningUiSource.Contains('FoodEffectUiText.BuildMinimumFreshnessLine()')) 'Completed Keep expiry must use the shared detailed minimum-freshness line in tooltips and world hover.'
-Assert-True ($fineDiningUiSource.Contains('FoodEffectUiText.ReachesMinimumFreshness(__instance)')) 'Item tooltips must select Keep-specific minimum-freshness wording before expiry.'
+Assert-True ($fineDiningUiSource.Contains('FoodEffectUiText.ReachesMinimumFreshness(item)')) 'The shared item-tooltip helper must select Keep-specific minimum-freshness wording before expiry.'
 Assert-True (-not $fineDiningUiSource.Contains('WaterPausedLineKey') -and -not $fineDiningUiSource.Contains('EnglishWaterPausedLine')) 'Water preservation must not add a dedicated hover label.'
 $statusColorReturn = 'return $"<color={color}>{line}</color>";'
 Assert-True ($fineDiningUiSource.Contains($statusColorReturn)) 'Spoilage status text must colorize the complete localized line.'
@@ -4918,7 +4918,7 @@ foreach ($removedKey in @(
 }
 
 $sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Filter '*.cs' |
-    Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj|Tests|tools)[\\/]' }
 $fullStraightSourceMatches = @($sourceFiles | Select-String -Pattern 'FullStraight|full_straight')
 Assert-True ($fullStraightSourceMatches.Count -eq 0) 'Legacy FullStraight symbols or localization tokens remain in C# source.'
 $legacyMatches = @($sourceFiles | Select-String -Pattern 'BeingSpoiled|GourmetsDiet|InputHoverHints|IHH_' |
