@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Globalization;
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
+using YamlDotNet.Serialization;
 
 namespace FineDining;
 
@@ -9,6 +12,15 @@ internal static class FoodStateStore
     private const string CustomDataKey = "sighsorry.FineDining.DietState";
     private const string StatePrefix = "v3:";
     private static readonly Dictionary<Player, PlayerFoodStateData> Cache = new();
+    // Unity's serializer omitted the nested lists in actual character saves.
+    // Keep the v3 JSON contract, using the managed serializer already bundled here.
+    private static readonly ISerializer Serializer = new SerializerBuilder()
+        .JsonCompatible()
+        .WithTypeConverter(new RoundTripFloatConverter())
+        .Build();
+    private static readonly IDeserializer Deserializer = new DeserializerBuilder()
+        .IgnoreUnmatchedProperties()
+        .Build();
 
     internal static PlayerFoodStateData GetState(Player? player)
     {
@@ -73,7 +85,7 @@ internal static class FoodStateStore
 
     private static string SerializeState(PlayerFoodStateData state)
     {
-        return StatePrefix + JsonUtility.ToJson(state);
+        return StatePrefix + Serializer.Serialize(state);
     }
 
     private static PlayerFoodStateData DeserializeState(string data)
@@ -91,13 +103,31 @@ internal static class FoodStateStore
             throw new FormatException("The FineDining diet state JSON payload is empty.");
         }
 
-        PlayerFoodStateData? state = JsonUtility.FromJson<PlayerFoodStateData>(json);
+        PlayerFoodStateData? state = Deserializer.Deserialize<PlayerFoodStateData>(json);
         if (state == null)
         {
             throw new FormatException("The FineDining diet state JSON payload is invalid.");
         }
 
         return state;
+    }
+
+    private sealed class RoundTripFloatConverter : IYamlTypeConverter
+    {
+        public bool Accepts(Type type) => type == typeof(float);
+
+        public object ReadYaml(IParser parser, Type type, ObjectDeserializer rootDeserializer) =>
+            throw new NotSupportedException("This converter is used only for JSON writing.");
+
+        public void WriteYaml(IEmitter emitter, object? value, Type type, ObjectSerializer serializer)
+        {
+            float number = (float)value!;
+            // YamlDotNet's JSON writer uses G, which loses Single precision on Mono.
+            bool finite = !float.IsNaN(number) && !float.IsInfinity(number);
+            emitter.Emit(new Scalar(AnchorName.Empty, TagName.Empty,
+                number.ToString("R", CultureInfo.InvariantCulture),
+                finite ? ScalarStyle.Plain : ScalarStyle.DoubleQuoted, finite, !finite));
+        }
     }
 
     private static void NormalizeState(Player player, PlayerFoodStateData state)

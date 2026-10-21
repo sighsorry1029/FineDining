@@ -99,6 +99,44 @@ Debug deployment copies only the final merged FineDining.dll into the game's
 BepInEx/plugins folder. Use `DeployToGame=false` when explicitly skipping local
 deployment, and compare source and destination SHA-256 hashes after deployment.
 
+### Diet-state persistence (2026-10-21)
+
+After the Debug plugin build, run:
+
+```powershell
+pwsh -NoProfile -File Tests/FoodStateStoreSmoke/Run.ps1 -MonoHost <MonoHost.exe>
+```
+
+Use the same audited original-game Mono host described below for the PoV check.
+This runner builds only its test executable and loads the final merged plugin,
+original game assemblies and original Mono runtime. It leaves character files
+and game DLLs unchanged. Generated input hashes, `mono.log` and a synthetic
+`diet-state.json` stay in the ignored test build directory.
+
+The regression check executes FoodStateStore's actual serializer/deserializer
+and compares all populated Recent/Chef/Active fields and order, exact float bits,
+Unicode/escaping, empty lists, missing optional breakdown fields, unknown fields,
+invalid payloads and repeated roundtrips under three cultures. The scalar-only
+payload found in all five supplied server character files remains readable;
+already missing history cannot be reconstructed. A separate PowerShell JSON
+reader validates the emitted format independently of the YAML-based reader.
+
+The lifecycle fixture executes actual SaveState/GetState, cache invalidation,
+RecentHistoryService and the existing OnDeathPostfix. A fresh Player receives
+customData through original ZPackage string encoding. Reconnection preserves
+all lists and continues consumption counts; clearing vanilla active foods then
+calling the death postfix preserves Recent/Chef while removing Active effects.
+Unity object identity/animator hashing and minimal BepInEx initialization are
+test fixtures. No original DLL is publicized or rewritten.
+
+This is an isolated Mono/managed check, not a live game, complete Player.Save/Load,
+`.fch` file, transport or dedicated-server session. In game, apply the patched DLL
+to the actual client profile and server, restart, eat multiple foods (including
+a repeat), and compare `fd:printstate` before death, after respawn, and after
+logout/login. Recent keys/order/counts and Chef choices/multipliers must survive;
+Active effects disappear on death as usual. Also verify a newly saved character
+contains all three JSON lists. Keep a copy of the character before testing.
+
 ### PoV custom food cards (2026-10-19)
 
 Build the Debug plugin first, then run the new original-Mono model check:
@@ -151,7 +189,7 @@ Only after an explicit release request, build and check the release packages:
 
 ```powershell
 dotnet build FineDining.sln -c Release -p:DeployToGame=false
-pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.7.zip -NexusZipPath Nexus/FineDining_v1.1.7.zip
+pwsh -NoProfile -File Tests/IntegrationSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll -ThunderstoreZipPath Thunderstore/FineDining_v1.1.8.zip -NexusZipPath Nexus/FineDining_v1.1.8.zip
 pwsh -NoProfile -File Tests/CookingStationPlanStoreSmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 pwsh -NoProfile -File Tests/AzuEpiCompatibilitySmoke.ps1 -AssemblyPath bin/Release/FineDining.dll
 ```

@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.7.0') 'Assembly version must be 1.1.7.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.8.0') 'Assembly version must be 1.1.8.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.7') 'Plugin version must be 1.1.7.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.8') 'Plugin version must be 1.1.8.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -3671,7 +3671,7 @@ $refillChefIndex = $playerFoodLogicSource.IndexOf(
 Assert-True ($consumeChefCallIndex -ge 0 -and $registerRecentIndex -gt $consumeChefCallIndex -and $refillChefIndex -gt $registerRecentIndex) 'Chef consumption must register recent history before selecting its replacement.'
 
 Assert-True ((Get-Constant $stateStoreType 'StatePrefix') -eq 'v3:') 'Diet state must use the v3 JSON prefix after adding persisted slot-profile rebasing.'
-Assert-True ($stateType.IsSerializable -and $historyType.IsSerializable -and $activeFoodDataType.IsSerializable) 'Diet state models and ordered Active entries must remain compatible with Unity JsonUtility.'
+Assert-True ($stateType.IsSerializable -and $historyType.IsSerializable -and $activeFoodDataType.IsSerializable) 'Diet state models and ordered Active entries must retain their serializable data contract; actual persistence is checked by FoodStateStoreSmoke.'
 Assert-True ($null -eq $stateType.GetField('ChefQueue', [Reflection.BindingFlags] 'Instance,Public,NonPublic')) 'The uniform Chef shuffle queue must not remain in persisted state.'
 Assert-True ($null -eq $stateStoreType.GetMethod('NormalizeQueue', [Reflection.BindingFlags] 'Static,NonPublic')) 'Removed Chef queue normalization must not return.'
 Assert-True ($null -eq $chefCollectionType.GetMethod('Shuffle', [Reflection.BindingFlags] 'Static,NonPublic')) 'Uniform Chef shuffle must not return.'

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.8
+
+- Fixed diet-state serialization omitting recent food history, consumption counts, Chef's Choice selections, and active food modifiers from character saves, which could reset records after death or reconnecting.
+- Kept the existing saved-data key and v3 JSON format while preserving food order and exact float multipliers. Death still clears active food effects without clearing recent history or Chef's Choice. Records already missing from older saves cannot be recovered.
+- Added original-game Mono regression checks for populated lists, new-player restoration, continued consumption counts, the death save hook, numeric precision, and malformed data, plus independent JSON validation. These are isolated checks; live dedicated-server death and reconnect testing remains outstanding.
+
 ## 1.1.7
 
 - Fixed Path of Valheiman 5.0.10's custom item cards showing unadjusted food stats and omitting FineDining's freshness information. Cards now reuse the ordinary tooltip's food preview and spoilage text while retaining PoV's artwork and interactions; InventorySlots is not required.
