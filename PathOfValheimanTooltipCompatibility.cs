@@ -76,8 +76,9 @@ internal static class PathOfValheimanTooltipCompatibility
             _nextCheck = now + 1f;
             UITooltip owner = bindings.Current();
             GameObject sheet = bindings.Sheet();
-            if (owner == null || sheet == null || !sheet.activeInHierarchy ||
-                !bindings.Owners.TryGetValue(owner, out ItemData item) || item?.m_shared == null)
+            ItemData? item = owner != null && sheet != null && sheet.activeInHierarchy
+                ? bindings.OwnerOf(owner) : null;
+            if (item?.m_shared == null)
             {
                 _lastItem = null;
                 _lastPreview = default;
@@ -165,7 +166,7 @@ internal static class PathOfValheimanTooltipCompatibility
         internal readonly Func<bool> Wanted, Pinned;
         internal readonly Func<UITooltip> Current;
         internal readonly Func<GameObject> Sheet;
-        internal readonly ConditionalWeakTable<UITooltip, ItemData> Owners;
+        internal readonly Func<UITooltip, ItemData?> OwnerOf;
         internal readonly Action Refresh;
         private readonly Func<object, IList> _main, _facts;
         private readonly Func<object, List<string>> _unknown;
@@ -198,8 +199,19 @@ internal static class PathOfValheimanTooltipCompatibility
             Pinned = StaticField<bool>(tooltip, "pinned");
             Current = StaticField<UITooltip>(typeof(UITooltip), "m_current");
             Sheet = StaticField<GameObject>(tooltip, "sheetGo");
-            Owners = StaticField<ConditionalWeakTable<UITooltip, ItemData>>(tooltip, "owners")()
-                ?? throw new InvalidOperationException("PoV tooltip owners missing");
+            if (AccessTools.DeclaredMethod(tooltip, "OwnerOf", new[] { typeof(UITooltip) }) != null)
+            {
+                // Use PoV's renderer lookup; newer weak-table values wrap ItemData.
+                OwnerOf = (Func<UITooltip, ItemData?>)Delegate.CreateDelegate(typeof(Func<UITooltip, ItemData?>),
+                    Require(tooltip, "OwnerOf", typeof(ItemData), typeof(UITooltip)));
+            }
+            else
+            {
+                // Earlier PoV cards expose only the direct ItemData weak table.
+                var owners = StaticField<ConditionalWeakTable<UITooltip, ItemData>>(tooltip, "owners")()
+                    ?? throw new InvalidOperationException("PoV tooltip owners missing");
+                OwnerOf = owner => owner != null && owners.TryGetValue(owner, out ItemData item) ? item : null;
+            }
             Refresh = StaticMethod<Action>(tooltip, "RefreshCurrent");
         }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.9
+
+- Fixed Path of Valheiman 5.3.2 food card compatibility failing with an `ItemTooltip.owners` warning after PoV changed the table's value type. FineDining now uses PoV's own cached item lookup, retaining the earlier direct-table path when that lookup is unavailable.
+- Preserved adjusted food values, freshness text, tooltip reuse, the one-second refresh limit and Alt-held card interactions. No configuration keys, saved-data formats or required dependencies changed; a card compatibility failure still leaves food gameplay active.
+- Verified installation and item lookup with the original PoV DLL and Valheim Mono, including reused and unbound tooltips, and rechecked the existing food/cooking integration. Actual card rendering and combined multiplayer remain unverified.
+
 ## 1.1.8
 
 - Fixed diet-state serialization omitting recent food history, consumption counts, Chef's Choice selections, and active food modifiers from character saves, which could reset records after death or reconnecting.

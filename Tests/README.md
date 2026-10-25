@@ -185,6 +185,45 @@ The Debug DLL and Steam plugins copy both have SHA-256
 `C986381C0A40102902800A8A961E2F3D8FCD1EF82920F238E40587FDC766E262`.
 Actual game and multiplayer checks remain outstanding.
 
+PoV 5.3.2 card compatibility on 2026-10-25: the supplied original DLL has SHA-256
+`83BD50F23D9C301FE469B5FBE2C430FD35C928D7A2CCFD99AF5A1040558C9D72`.
+Its `owners` weak table now stores an internal Owner wrapper instead of ItemData,
+which reproduced the 1.1.8 missing-field warning in the original Mono test.
+FineDining now binds the renderer's private `OwnerOf(UITooltip)` method once and
+reads the current item through that cached delegate. The exact direct-ItemData
+table fallback remains for older PoV builds without that method; no version or
+whole-DLL hash gate was added. Older original DLLs were unavailable for this retest.
+
+The expanded original-Mono runner passes 30 checks, including actual card-patch
+installation and PoV's own registration hook with null/unbound owners, tooltip
+reuse, multiple owners, and null registration. Existing food/freshness model checks
+still pass. The gameplay compatibility smoke also passes against 5.3.2, including
+food/snack/cooking IL patterns and fermenter handling. Debug build, IntegrationSmoke
+and Check-GameApi pass; the final DLL is copied to Steam plugins with a matching
+SHA-256. These checks use the unchanged original Valheim 1.0.20 client DLL.
+No actual UI rendering, Alt-held interaction or multiplayer was run. The one-second
+refresh interval and pinned-card guard remain unchanged; verify them in the target
+Gale profile after replacing its DLL and restarting the game.
+
+Before the 1.1.9 release, the follow-up recheck found that the supplied `asdfasdf` Gale profile still had
+the unpatched 1.1.8 Release DLL (`4986C59D...D0D94E6B`), while the existing Debug
+build already used `OwnerOf`. No further gameplay or card logic change was needed.
+After the checks passed again, a Debug build updated both Steam plugins and that
+profile through `DeployToGame=true` / the existing second-copy MSBuild target.
+Both deployed files match the final DLL SHA-256
+`90F87D08DC5AC72F8E9E6DC566E104D007FBD6678A050C413E604174A5458513`.
+The previous profile DLL is backed up under ignored `obj/local-backups/pov-532`.
+Valheim was running during deployment; a full restart is required to load the
+replacement. That Debug-only step retained version 1.1.8 and generated no Release package.
+
+Release 1.1.9 on 2026-10-25 passed IntegrationSmoke (including both ZIPs),
+Check-GameApi, the PoV gameplay compatibility smoke and all 30 original-Mono card
+checks. Debug deployment to Steam matched its build output. The Release DLL has
+SHA-256 `897D0B165D150ADA9B9CF1C5A80DEEE9E5B929CD3CABEB40A4A03B855F7CF2D0`;
+Thunderstore and Nexus ZIPs contain that exact DLL. Plugin, assembly and manifest
+versions match, and the package has no external game or optional-mod DLLs.
+Actual game/UI/multiplayer validation remains outstanding.
+
 Only after an explicit release request, build and check the release packages:
 
 ```powershell
