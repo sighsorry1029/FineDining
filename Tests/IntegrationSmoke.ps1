@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.9.0') 'Assembly version must be 1.1.9.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.10.0') 'Assembly version must be 1.1.10.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.9') 'Plugin version must be 1.1.9.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.10') 'Plugin version must be 1.1.10.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -4932,7 +4932,12 @@ $startTimeWrites = @($sourceFiles | Select-String -Pattern '\.Set\s*\([^\r\n]*s_
 Assert-True ($startTimeWrites.Count -eq 0) 'FineDining must never write vanilla fermenter s_startTime.'
 
 $harmonyOwners = @($sourceFiles | Select-String -Pattern 'new\s+Harmony\s*\(|Harmony\s+_harmony\s*=')
-Assert-True ($harmonyOwners.Count -eq 1 -and $harmonyOwners[0].Path.EndsWith('Plugin.cs')) 'FineDining must own exactly one Harmony instance.'
+# The stack adapter has a separate owner so a failed optional contract can roll
+# back its scopes/composer together without removing gameplay or card patches.
+Assert-True ($harmonyOwners.Count -eq 2 -and
+    @($harmonyOwners | Where-Object { $_.Path.EndsWith('Plugin.cs') }).Count -eq 1 -and
+    @($harmonyOwners | Where-Object { $_.Path.EndsWith('PathOfValheimanStackCompatibility.cs') }).Count -eq 1
+) 'Harmony ownership must remain limited to the plugin and independently cleaned-up PoV stack adapter.'
 
 Assert-ZipPackage $ThunderstoreZipPath @{
     'FineDining.dll' = $assemblyPath

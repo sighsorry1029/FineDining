@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.10
+
+- Fixed foods with different spoilage timers being unable to stack with Path of Valheiman's metadata checks, verified against PoV 5.3.6. Supported paths include inventory transfers, full-inventory pickup checks, drag previews, and PoV's own sorting.
+- Preserved the shorter remaining lifetime, assigned freshness basis, and minimum-freshness state when merging. PoV sorting now composes food metadata alongside its direct quantity transfers, including partial stacks.
+- Preserved other item metadata and existing stack restrictions. Added isolated rollback for unsupported PoV contracts, tracked PoV's loose-food merges across world levels, and completed metadata after transfers interrupted by an exception. No new settings, required dependencies, or save migrations.
+- Added 46 original-Mono stack regression checks covering transfers, sorting, malformed data, nested cancellation, cleanup, and simulated InventorySlots/InventoryActions patch ordering. Actual gameplay, full mod combinations, and multiplayer save/reconnect still require in-game validation.
+
 ## 1.1.9
 
 - Fixed Path of Valheiman 5.3.2 food card compatibility failing with an `ItemTooltip.owners` warning after PoV changed the table's value type. FineDining now uses PoV's own cached item lookup, retaining the earlier direct-table path when that lookup is unavailable.

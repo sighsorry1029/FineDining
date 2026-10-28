@@ -359,6 +359,40 @@ performance claim. Preserve per-frame hint visibility when reducing cached work.
 
 ### Optional Path of Valheiman integration
 
+PoV stack regression (2026-10-28):
+
+```powershell
+pwsh -NoProfile -File Tests/PoVStackSmoke/Run.ps1 -MonoHost "<x64 MonoHost.exe>" -PathOfValheimanDll "<original PathOfValheiman.dll>" -OptionalDependencyDirectory "<Jotunn directory>"
+```
+
+Inputs: PoV 5.3.6 SHA-256
+`EA9CE4ACC6EB85C903EC415BAE66D23A1EA112F6C82B846FACD847BAB3E72416`,
+original installed Valheim 1.0.20 `assembly_valheim.dll` SHA-256
+`94998885B103D6E5F5480123EAEE0A093E82AF2DDEEEE37536C15BF555F24F3A`,
+and the game's Mono runtime/BepInEx HarmonyX. No input DLL is publicized or rewritten.
+The harness installs original PoV stack callbacks and production FineDining
+tracking/adapter patches. It executes original Inventory AddItem overloads,
+CanAddItem, drag preview and PoV Sort, with authority/loading/time/environment,
+native Unity identity, UI selection and change-notification boundaries replaced
+by fixtures. It covers partial transfers, clocks/keep markers, malformed and
+foreign metadata, world-level differences, scoped permissions, exceptions,
+atomic sort rejection and cleanup. InventorySlots/InventoryActions owner-order
+checks use synthetic rejecting prefixes under their real owner IDs; they are
+not a full execution of those plugins.
+
+The adapter checks relevant members, registered callbacks and sort/comparison
+IL structure, not a DLL hash/version allowlist. This bounded check is not proof
+of semantic equivalence for arbitrary future code. Bindings last until plugin
+shutdown; live DLL replacement or removing the owning tracking patches while
+playing is unsupported. There is no reflection discovery or UI rebuild added
+to the drag-preview path.
+
+Still required in-game: pickup with a full bag, partial drag/shift moves,
+player/chest/Icebox transfers, PoV sorting with mixed food ages and keep markers,
+all spoilage modes, real IS/IA together and separately, save/reconnect and
+client/host/dedicated ownership changes. Verify counts and earlier expiry after
+reloading. The isolated fixtures do not establish network or live UI behavior.
+
 ```powershell
 pwsh -NoProfile -File Tests/PathOfValheimanCompatibilitySmoke.ps1 -PathOfValheimanDll "<path to original PathOfValheiman.dll>"
 ```

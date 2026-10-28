@@ -30,7 +30,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.1.9";
+    internal const string ModVersion = "1.1.10";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -72,6 +72,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         AzuExtendedPlayerInventoryCompatibility.TryInstall(_harmony);
         InventorySlotsCompatibility.TryInstall();
         PathOfValheimanCompatibility.TryInstall(_harmony);
+        PathOfValheimanStackCompatibility.TryInstall();
     }
 
     internal static ConfigEntry<bool> BindConfigurationLock(ConfigFile config) =>
@@ -100,6 +101,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        PathOfValheimanStackCompatibility.Shutdown();
         JotunnCompatibility.Shutdown();
         StationModule.Shutdown();
         DietModule.Shutdown();

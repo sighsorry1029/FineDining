@@ -271,6 +271,7 @@ internal static class ZNetDestroySpoilagePatch
 
 internal sealed class InventoryAddMergeState
 {
+    internal bool Completed;
     internal readonly Dictionary<ItemDrop.ItemData, int> PreviousStacks = new();
     internal readonly Dictionary<ItemDrop.ItemData, AssignedLifetimeSnapshot> PreviousLifetimes = new();
     internal bool SourceHadValidClock;
@@ -328,10 +329,12 @@ internal static class InventoryAddMergeTracker
 
     internal static void Postfix(Inventory inventory, ItemDrop.ItemData? source, InventoryAddMergeState? state)
     {
-        if (state == null || source == null)
+        if (state == null || source == null || state.Completed)
         {
             return;
         }
+
+        state.Completed = true;
 
         bool changedAfterVanillaSave = false;
         try
@@ -363,6 +366,19 @@ internal static class InventoryAddMergeTracker
         if (changedAfterVanillaSave)
         {
             inventory.Changed();
+        }
+    }
+
+    internal static void CompleteFailedMerge(Inventory inventory, ItemDrop.ItemData source,
+        InventoryAddMergeState? state, Exception? exception)
+    {
+        if (exception == null) return;
+        // Another hook can throw after an actual partial transfer. Preserve its
+        // exception, but do not leave the transferred food with a later deadline.
+        try { Postfix(inventory, source, state); }
+        catch (Exception completionError)
+        {
+            FineDiningPlugin.Log.LogWarning("Could not finish spoilage metadata after a failed transfer: " + completionError);
         }
     }
 
@@ -462,9 +478,10 @@ internal static class InventoryAddMergeTracker
             return false;
         }
 
-        return existing.m_shared.m_name == source.m_shared.m_name &&
-               existing.m_worldLevel == source.m_worldLevel &&
-               (existing.m_shared.m_maxQuality <= 1 || existing.m_quality == source.m_quality);
+        // This is a snapshot filter, not permission to merge. PoV can merge
+        // loose food across world levels; track every same-name destination and
+        // compose only those whose quantity actually grew.
+        return existing.m_shared.m_name == source.m_shared.m_name;
     }
 }
 
@@ -493,6 +510,7 @@ internal static class InventoryAddItemSpoilagePatch
         InventoryAddMergeState? __state,
         Exception? __exception)
     {
+        InventoryAddMergeTracker.CompleteFailedMerge(__instance, item, __state, __exception);
         InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
         return __exception;
     }
@@ -523,6 +541,7 @@ internal static class InventoryAddItemAtPositionSpoilagePatch
         InventoryAddMergeState? __state,
         Exception? __exception)
     {
+        InventoryAddMergeTracker.CompleteFailedMerge(__instance, item, __state, __exception);
         InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
         return __exception;
     }
@@ -560,6 +579,7 @@ internal static class InventoryAddItemAmountAtPositionSpoilagePatch
         InventoryAddMergeState? __state,
         Exception? __exception)
     {
+        InventoryAddMergeTracker.CompleteFailedMerge(__instance, item, __state, __exception);
         InventoryAddMergeTracker.RestoreTemporarySourceMetadataSafe(__instance, item, __state);
         return __exception;
     }
