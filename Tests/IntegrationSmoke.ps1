@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.10.0') 'Assembly version must be 1.1.10.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.11.0') 'Assembly version must be 1.1.11.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.10') 'Plugin version must be 1.1.10.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.11') 'Plugin version must be 1.1.11.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -289,6 +289,7 @@ $configBindingSource = (@(
 $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Plugin.cs'; Section = 'General'; Key = 'Lock Server Configuration'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'General'; Key = 'Cooking Experience per Food Eaten'; Order = 450; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'General'; Key = 'Auto Eject Guaranteed Cooking Level'; Order = 425; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'General'; Key = 'Production Bonus Chance at Max Cooking (%)'; Order = 400; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'General'; Key = 'Fermenter Output Bonus Chance at Max Cooking (%)'; Order = 350; Scope = 'Synced' },
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'General'; Key = 'Production Bonus Excluded Output Prefabs'; Order = 300; Scope = 'Synced' },
@@ -1421,12 +1422,33 @@ $shouldAutoPop = Get-MethodRequired $autoPopCoreType 'ShouldAutoPop'
 $hasDistinctOvercookStage = Get-MethodRequired $autoPopCoreType 'HasDistinctOvercookStage'
 $clampSkillFactor = Get-MethodRequired $autoPopCoreType 'ClampSkillFactor'
 $clampBonusCount = Get-MethodRequired $autoPopCoreType 'ClampBonusCount'
-Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0, [float]0, $true))) 'Cooking level zero must never auto-pop.'
-Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0.5, [float]0.499999, $true))) 'Cooking level 50 must auto-pop below the 50% boundary.'
-Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0.5, [float]0.5, $true))) 'Cooking level 50 must not auto-pop at the exclusive 50% boundary.'
-Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @([float]1, [float]1, $true))) 'Cooking level 100 must guarantee auto-pop even when the random value is one.'
-Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]::NaN, [float]0, $true))) 'NaN Cooking skill must not auto-pop.'
-Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]1, [float]0, $false))) 'A no-overcook conversion must never auto-pop, even at Cooking level 100.'
+Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0, [float]0, $true, 100))) 'Cooking level zero must never auto-pop.'
+Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0.5, [float]0.499999, $true, 100))) 'Cooking level 50 must auto-pop below the default 50% boundary.'
+Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0.5, [float]0.5, $true, 100))) 'Cooking level 50 must not auto-pop at the exclusive default 50% boundary.'
+Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @([float]1, [float]1, $true, 100))) 'Cooking level 100 must guarantee auto-pop even when the random value is one.'
+foreach ($guaranteedLevel in @(0, 1, 25, 50, 100))
+{
+    Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]0, [float]0, $true, $guaranteedLevel))) 'Level zero must never eject, including when disabled.'
+    Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]::NaN, [float]0, $true, $guaranteedLevel))) 'NaN Cooking skill must not auto-pop.'
+    Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @([float]1, [float]0, $false, $guaranteedLevel))) 'No threshold may enable auto-pop without an overcook stage.'
+    Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @([float]1, [float]0, $true, $guaranteedLevel)) -eq ($guaranteedLevel -gt 0)) 'Zero must disable auto-pop even at level 100 and roll zero; positive thresholds must guarantee it.'
+}
+# Fixed examples exercise the requested curves and their exclusive roll boundary.
+foreach ($guaranteedLevel in 1..100)
+{
+    # Match the original RPC's permille quantization. Reciprocal multiplication
+    # can round below 1 at the guarantee point for levels such as 3 and 99.
+    $atGuarantee = [float](($guaranteedLevel * 10) / 1000)
+    $beforeGuarantee = [float](($guaranteedLevel * 10 - 1) / 1000)
+    Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @($atGuarantee, [float]1, $true, $guaranteedLevel))) "Level $guaranteedLevel must guarantee ejection at roll one."
+    Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @($beforeGuarantee, [float]1, $true, $guaranteedLevel))) "The preceding quantized skill step must not yet guarantee ejection at level $guaranteedLevel."
+}
+foreach ($curve in @(@(25, [float]0.125, [float]0.25), @(50, [float]0.25, [float]0.5)))
+{
+    Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @($curve[1], [float]0.499999, $true, $curve[0]))) 'Half the guarantee level must succeed below a 50% roll.'
+    Assert-True (-not [bool]$shouldAutoPop.Invoke($null, [object[]] @($curve[1], [float]0.5, $true, $curve[0]))) 'Half the guarantee level must reject a 50% roll.'
+    Assert-True ([bool]$shouldAutoPop.Invoke($null, [object[]] @($curve[2], [float]1, $true, $curve[0]))) 'The configured level must guarantee ejection even at roll one.'
+}
 Assert-True ([bool]$hasDistinctOvercookStage.Invoke($null, [object[]] @([float]30, 'CookedMeat', 'Coal'))) 'A finite cooked-to-burnt conversion must allow auto-pop.'
 Assert-True (-not [bool]$hasDistinctOvercookStage.Invoke($null, [object[]] @([float]30, 'CookedMeat', ''))) 'A station without an overcooked output must reject auto-pop.'
 Assert-True (-not [bool]$hasDistinctOvercookStage.Invoke($null, [object[]] @([float]30, 'CookedMeat', 'CookedMeat'))) 'A conversion without a distinct burnt stage must reject auto-pop.'
@@ -1475,6 +1497,10 @@ $receiveBonusEffectSource = $autoPopSource.Substring($receiveBonusEffectStart, $
 $logBonusEffectFailureSource = $autoPopSource.Substring($logBonusEffectFailureStart, $registrationMarkerStart - $logBonusEffectFailureStart)
 Assert-True ($requestAddSource.Contains('CanAutoPopConversion(')) 'The inserting client must gate auto-pop before prepaying collection experience.'
 Assert-True ($receivePlanSource.Contains('CanAutoPopConversion(station, conversion)')) 'The station owner must independently gate persisted auto-pop plans.'
+Assert-True ($requestAddSource.Contains('DietConfig.GetAutoEjectGuaranteedCookingLevel()') -and
+             $receivePlanSource.Contains('DietConfig.GetAutoEjectGuaranteedCookingLevel()')) 'Both insertion prepayment and owner plans must use the synchronized auto-eject threshold.'
+Assert-True (-not $processSlotsSource.Contains('GetAutoEjectGuaranteedCookingLevel') -and
+             -not $tryAutoPopSource.Contains('GetAutoEjectGuaranteedCookingLevel')) 'Changing the threshold must not recalculate saved plans at completion.'
 Assert-True ($processSlotsSource.Contains('!IsAutoPopPlanEligible(station, plan)') -and $processSlotsSource.Contains('plan = plan.DisableAutoPop();')) 'Persisted auto-pop plans must be disabled if their overcook stage is no longer valid.'
 Assert-True ($tryAutoPopSource.Contains('!IsAutoPopPlanEligible(station, plan)') -and $tryAutoPopSource.Contains('plan.DisableAutoPop()')) 'Auto-pop execution must revalidate the overcook stage immediately before spawning output.'
 Assert-True ($registerRpcsSource.Contains('nview.Unregister(AutoPopBonusEffectRpc);') -and
@@ -2452,6 +2478,11 @@ $cookingBonusConfigStart = $dietConfigSource.IndexOf(
     'CookingBonusChanceAtMaxCookingPercent = BindSynced(',
     $cookingExperienceConfigStart,
     [StringComparison]::Ordinal)
+$autoEjectConfigMatch = [regex]::Match($dietConfigSource,
+    '(?s)AutoEjectGuaranteedCookingLevel\s*=\s*BindSynced\(\s*config,\s*configSync,\s*ConfigPresentation\.General,\s*"Auto Eject Guaranteed Cooking Level",\s*100,.*?new AcceptableValueRange<int>\(0, 100\)\)\);')
+Assert-True ($autoEjectConfigMatch.Success) 'Auto-eject must default to level 100, accept 0-100, and be server-synchronized.'
+Assert-True ($autoEjectConfigMatch.Value.Contains('0 disables auto-eject for newly inserted food.') -and
+             $autoEjectConfigMatch.Value.Contains('existing stored plans and prepaid collection experience are preserved.')) 'The configuration must explain off and preservation of already stored plans.'
 $fermenterBonusConfigStart = $dietConfigSource.IndexOf(
     'FermenterOutputBonusChanceAtMaxCookingPercent = BindSynced(',
     $cookingBonusConfigStart,
@@ -3949,6 +3980,7 @@ $matchesSkillDescription = Get-MethodRequired $cookingSkillTooltipType 'MatchesS
 $hasFineDiningHeading = Get-MethodRequired $cookingSkillTooltipType 'HasFineDiningHeading'
 $cookingHeadingToken = [string](Get-Constant $cookingSkillTooltipType 'HeadingToken')
 $cookingAutoEjectToken = [string](Get-Constant $cookingSkillTooltipType 'AutoEjectToken')
+$cookingAutoEjectDisabledToken = [string](Get-Constant $cookingSkillTooltipType 'AutoEjectDisabledToken')
 $cookingBonusOutputToken = [string](Get-Constant $cookingSkillTooltipType 'BonusOutputToken')
 $cookingChefTierToken = [string](Get-Constant $cookingSkillTooltipType 'ChefTierToken')
 $cookingChefMultiplierToken = [string](Get-Constant $cookingSkillTooltipType 'ChefMultiplierToken')
@@ -3974,8 +4006,9 @@ foreach ($tooltipCase in @(
             $vanillaCookingDescription,
             $bonusEnabled,
             $tierEnabled,
-            $multiplierEnabled))
-    $expectedLines = @($cookingHeadingToken, $cookingAutoEjectToken) + $expectedOptionalTokens
+            $multiplierEnabled,
+            100))
+    $expectedLines = @($cookingHeadingToken, ($cookingAutoEjectToken + ' 100')) + $expectedOptionalTokens
     $expectedResult = $vanillaCookingDescription + "`n`n" + ($expectedLines -join "`n")
     Assert-True ($result -eq $expectedResult) 'Cooking skill tooltip must preserve prior text and emit enabled FineDining lines in their exact display order.'
     foreach ($optionalToken in @($cookingBonusOutputToken, $cookingChefTierToken, $cookingChefMultiplierToken, $cookingChefBothToken))
@@ -3986,15 +4019,15 @@ foreach ($tooltipCase in @(
 
     $secondPass = [string]$appendCookingSkillTooltip.Invoke(
         $null,
-        [object[]] @($result, -not $bonusEnabled, -not $tierEnabled, -not $multiplierEnabled))
+        [object[]] @($result, -not $bonusEnabled, -not $tierEnabled, -not $multiplierEnabled, 0))
     Assert-True ($secondPass -eq $result) 'Cooking skill tooltip append must remain idempotent even if settings change before a repeated postfix.'
     Assert-True ([regex]::Matches($result, [regex]::Escape($cookingHeadingToken)).Count -eq 1) 'Cooking skill tooltip heading must be appended exactly once.'
 }
 
 $emptyCookingTooltip = [string]$appendCookingSkillTooltip.Invoke(
     $null,
-    [object[]] @($null, $false, $false, $false))
-Assert-True ($emptyCookingTooltip -eq ($cookingHeadingToken + "`n" + $cookingAutoEjectToken)) 'An empty Cooking description must not receive leading blank lines.'
+    [object[]] @($null, $false, $false, $false, 100))
+Assert-True ($emptyCookingTooltip -eq ($cookingHeadingToken + "`n" + $cookingAutoEjectToken + ' 100')) 'An empty Cooking description must not receive leading blank lines.'
 Assert-True ([bool]$matchesSkillDescription.Invoke($null, [object[]] @('$skill_cooking_description', '$skill_cooking_description'))) 'Cooking tooltip matching must accept the exact vanilla token.'
 Assert-True ([bool]$matchesSkillDescription.Invoke($null, [object[]] @($vanillaCookingDescription, '$skill_cooking_description'))) 'Cooking tooltip matching must retain compatibility with third-party suffixes.'
 Assert-True (-not [bool]$matchesSkillDescription.Invoke($null, [object[]] @('$skill_run_description', '$skill_cooking_description'))) 'Cooking tooltip matching must reject another skill.'
@@ -4440,6 +4473,7 @@ $featureDefaults = @{
     ChefMultiplierMin = [float]1.1; ChefMultiplierMax = [float]1.5
     ChefMultiplierModeAtMaxCooking = [float]1.5; ChefHighTierSelectionStrength = [float]5
     CookingBonusChanceAtMaxCookingPercent = [float]25; FermenterOutputBonusChanceAtMaxCookingPercent = [float]20
+    AutoEjectGuaranteedCookingLevel = 100
 }
 try
 {
@@ -4480,6 +4514,16 @@ try
     $calculateFeatureEffect = Get-MethodRequired $foodRulesType 'CalculateFoodEffect'
     $calculateDiminishing = Get-MethodRequired $foodRulesType 'CalculateDiminishingScale'
     $appendConfiguredCooking = Get-MethodRequired $cookingSkillTooltipType 'AppendConfigured'
+    $getAutoEjectLevel = Get-MethodRequired $dietConfigType 'GetAutoEjectGuaranteedCookingLevel'
+    foreach ($level in @(0, 25, 50, 100))
+    {
+        $featureConfig.AutoEjectGuaranteedCookingLevel.Value.SetValue($featureConfig.AutoEjectGuaranteedCookingLevel.Entry, $level)
+        Assert-True ([int]$getAutoEjectLevel.Invoke($null, @()) -eq $level) 'Auto-eject must read live configuration values.'
+        $text = [string]$appendConfiguredCooking.Invoke($null, [object[]] @('Original description'))
+        $expectedLine = if ($level -eq 0) { $cookingAutoEjectDisabledToken } else { $cookingAutoEjectToken + ' ' + $level }
+        Assert-True (($text -split "`n") -contains $expectedLine) 'Cooking guidance must show the configured guarantee level or the disabled state.'
+        Assert-True ($text.Contains($cookingBonusOutputToken) -and $text.Contains($cookingChefBothToken)) 'Disabling auto-eject must preserve guidance for independent Cooking perks.'
+    }
     $getAppliedScale = Get-MethodRequired $foodRulesType 'GetAppliedScale'
     $savedFeatureEffect = New-SmokeFoodEffect ([float]0.72) ([float]0.8) ([float]0.75) $false ([float]1)
     $setActiveFoodEffect.Invoke($null, [object[]] @($featureState, 'PreviousMeal', $savedFeatureEffect))
@@ -4846,6 +4890,7 @@ foreach ($key in @(
     'finedining_diet_chef_cooking_guidance_disabled',
     'finedining_skill_cooking_heading',
     'finedining_skill_cooking_auto_eject',
+    'finedining_skill_cooking_auto_eject_disabled',
     'finedining_skill_cooking_bonus_output',
     'finedining_skill_cooking_chef_tier',
     'finedining_skill_cooking_chef_multiplier',

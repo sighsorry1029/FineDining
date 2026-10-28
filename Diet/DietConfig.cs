@@ -32,6 +32,7 @@ internal static class DietConfig
     internal static ConfigEntry<float> ChefMultiplierModeAtMaxCooking = null!;
     internal static ConfigEntry<float> ChefRecentFoodPreferencePercent = null!;
     internal static ConfigEntry<float> CookingExperiencePerFoodEaten = null!;
+    internal static ConfigEntry<int> AutoEjectGuaranteedCookingLevel = null!;
     internal static ConfigEntry<float> CookingBonusChanceAtMaxCookingPercent = null!;
     internal static ConfigEntry<float> FermenterOutputBonusChanceAtMaxCookingPercent = null!;
     internal static ConfigEntry<string> CookingBonusExcludedOutputPrefabs = null!;
@@ -258,6 +259,18 @@ internal static class DietConfig
                 450,
                 new AcceptableValueRange<float>(0f, 1f)));
 
+        AutoEjectGuaranteedCookingLevel = BindSynced(
+            config,
+            configSync,
+            ConfigPresentation.General,
+            "Auto Eject Guaranteed Cooking Level",
+            100,
+            ConfigPresentation.Synced(
+                "Cooking level at which CookingStation auto-eject reaches 100% chance. Lower levels scale linearly. 0 disables auto-eject for newly inserted food. Only conversions with a separate overcook stage qualify. Changes apply to new insertions; existing stored plans and prepaid collection experience are preserved.",
+                ConfigPresentation.General,
+                425,
+                new AcceptableValueRange<int>(0, 100)));
+
         CookingBonusChanceAtMaxCookingPercent = BindSynced(
             config,
             configSync,
@@ -319,6 +332,7 @@ internal static class DietConfig
         ChefMultiplierModeAtMaxCooking = null!;
         ChefRecentFoodPreferencePercent = null!;
         CookingExperiencePerFoodEaten = null!;
+        AutoEjectGuaranteedCookingLevel = null!;
         CookingBonusChanceAtMaxCookingPercent = null!;
         FermenterOutputBonusChanceAtMaxCookingPercent = null!;
         CookingBonusExcludedOutputPrefabs = null!;
@@ -372,6 +386,8 @@ internal static class DietConfig
         ChefRecentFoodPreferencePercent.Value;
     internal static float GetCookingExperiencePerFoodEaten() =>
         CookingExperiencePerFoodEaten.Value;
+    internal static int GetAutoEjectGuaranteedCookingLevel() =>
+        AutoEjectGuaranteedCookingLevel.Value;
     internal static float GetCookingBonusChanceAtMaxCookingPercent() =>
         CookingBonusChanceAtMaxCookingPercent.Value;
     internal static float GetFermenterOutputBonusChanceAtMaxCookingPercent() =>

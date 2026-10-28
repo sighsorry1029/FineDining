@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.11
+
+- Added the server-synchronized `Auto Eject Guaranteed Cooking Level` setting, accepting 0-100 with a default of 100. Auto-eject chance scales linearly up to the chosen level: 25 or 50 guarantees ejection at that level; 0 disables it for newly inserted food.
+- Preserved existing CookingStation plans, prepaid collection experience, production bonuses, and the requirement for a separate overcook stage. No saved-data format or required dependency changes.
+- Updated English and Korean Cooking guidance to show the configured level or disabled state, refreshing an open tooltip when the setting changes. Added regression checks for every guarantee level from 1 through 100, probability boundaries, disabled behavior, and configured tooltip text.
+- Known limitation: changing this setting while insertion RPCs are in flight can leave the inserting client and station owner using different values for the prepaid-experience decision. That transition is not atomic; live game and multiplayer validation remain outstanding.
+
 ## 1.1.10
 
 - Fixed foods with different spoilage timers being unable to stack with Path of Valheiman's metadata checks, verified against PoV 5.3.6. Supported paths include inventory transfers, full-inventory pickup checks, drag previews, and PoV's own sorting.

@@ -229,7 +229,9 @@ At Cooking level 100:
 
 `Production Bonus Excluded Output Prefabs` disables the bonus for matching output items across recipes, CookingStations, and Fermenters.
 
-CookingStation auto-eject is available only when the conversion has a separate burnt or coal stage. Its chance equals the inserting player's Cooking level, and the result is decided when the item is inserted.
+CookingStation auto-eject is available only when the conversion has a separate burnt or coal stage. The server-synchronized `Auto Eject Guaranteed Cooking Level` setting in `1 - General` accepts integers from `0` to `100` and defaults to `100`. For a positive setting, chance rises linearly with the inserting player's Cooking level, reaching 100% at the configured level and staying there above it. For example, `25` gives 50% chance at level 12.5 and guarantees auto-eject at level 25; `50` gives 50% at level 25 and guarantees it at level 50. `0` disables auto-eject for newly inserted food.
+
+The result is decided at insertion. Setting changes affect new insertions; already stored plans keep their auto-eject decisions, production bonuses, and prepaid collection experience. Production-bonus and other Cooking-experience settings remain independent.
 
 **Updating to 1.1.4:** before updating, finish and collect all food from existing CookingStations, including modded stations and stations in unloaded areas. Update the server and every client together to the same version. Existing per-slot plans are not read, converted, or deleted: food left inside loses its previous auto-eject decision, fixed bonus, and prepaid collection-experience record. Old stored keys and their save warnings can remain even after a station is emptied. New plans use one compact block per station; an explicit empty block prevents completed plans from remaining active on other peers. Before reverting to the old version, also empty the stations under the new version; do not treat a DLL rollback as a conversion of saved plans.
 

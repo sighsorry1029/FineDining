@@ -37,6 +37,18 @@ The 28/23-slot repeated-fill cases use one byte-array key and return to a three-
 empty block. The bounded format uses 16-bit slot indices, record counts and UTF-8
 name byte lengths, a one-byte flag field, and a maximum payload of 1 MiB.
 
+IntegrationSmoke also checks the auto-eject guarantee-level setting (0 disables,
+default 100), the 25/50 linear curves and roll boundaries, overcook eligibility,
+server-sync registration, and configured Cooking tooltip text. The plan-store
+format and completion path remain independent of later threshold changes.
+In-game checks should cover client/owner agreement at 0/25/50/100, manual versus
+auto collection experience, a live tooltip update, and cooking a stored plan
+after changing the setting. When configuration synchronization overlaps an insertion
+RPC, the client and owner can observe different thresholds: the existing protocol
+independently predicts prepaid experience on the client and decides the plan on
+the owner. This patch does not make that transition atomic; the experience outcome
+during such a transition still needs multiplayer validation.
+
 This check uses actual ZDO.Set/Deserialize with nonpersistent ZDO fixtures and
 minimal in-process ZNet/ZDOMan globals. It does not initialize Unity, alter a live
 world, or execute the native full Serialize path, RPC transport, sector save

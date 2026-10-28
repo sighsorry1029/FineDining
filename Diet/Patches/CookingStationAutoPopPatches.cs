@@ -26,14 +26,16 @@ internal static class CookingStationAutoPopCore
     internal static bool ShouldAutoPop(
         float skillFactor,
         float roll,
-        bool hasDistinctOvercookStage)
+        bool hasDistinctOvercookStage,
+        int guaranteedCookingLevel)
     {
-        if (!hasDistinctOvercookStage)
+        if (!hasDistinctOvercookStage || guaranteedCookingLevel <= 0)
         {
             return false;
         }
 
-        float chance = ClampSkillFactor(skillFactor);
+        float chance = ClampSkillFactor(
+            ClampSkillFactor(skillFactor) / (guaranteedCookingLevel / 100f));
         if (chance <= 0f)
         {
             return false;
@@ -243,7 +245,8 @@ internal static class CookingStationAutoPopSystem
                 autoRoll,
                 CanAutoPopConversion(
                     station,
-                    FindInputConversion(station, itemName)));
+                    FindInputConversion(station, itemName)),
+                DietConfig.GetAutoEjectGuaranteedCookingLevel());
 
             try
             {
@@ -595,7 +598,8 @@ internal static class CookingStationAutoPopSystem
         bool autoPop = CookingStationAutoPopCore.ShouldAutoPop(
             skillFactor,
             autoRoll,
-            CanAutoPopConversion(station, conversion));
+            CanAutoPopConversion(station, conversion),
+            DietConfig.GetAutoEjectGuaranteedCookingLevel());
         int bonusCount = CookingStationAutoPopCore.ClampBonusCount(
             CookingProductionBonusSystem.RollConfiguredBonusItems(
                 conversion.m_to.gameObject.name,

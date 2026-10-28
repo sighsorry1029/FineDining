@@ -114,7 +114,9 @@ internal static class CookingSkillTooltipPanel
             }
 
             bool chefEnabled = DietConfig.IsChefChoiceEnabled();
-            if (binding.ChefChoiceEnabled != chefEnabled)
+            int autoEjectLevel = DietConfig.GetAutoEjectGuaranteedCookingLevel();
+            if (binding.ChefChoiceEnabled != chefEnabled ||
+                binding.AutoEjectGuaranteedCookingLevel != autoEjectLevel)
             {
                 tooltip.Set(
                     tooltip.m_topic,
@@ -122,6 +124,7 @@ internal static class CookingSkillTooltipPanel
                     tooltip.Anchor(),
                     tooltip.FixedPosition());
                 binding.ChefChoiceEnabled = chefEnabled;
+                binding.AutoEjectGuaranteedCookingLevel = autoEjectLevel;
             }
 
             GameObject root = GameAccess.TooltipObject;
@@ -199,6 +202,7 @@ internal static class CookingSkillTooltipPanel
         internal readonly Vector2 OriginalFixedPosition;
         internal readonly string OriginalText;
         internal bool ChefChoiceEnabled;
+        internal int AutoEjectGuaranteedCookingLevel;
         internal View? View;
 
         internal Binding(SkillsDialog dialog, RectTransform panel, RectTransform row, Canvas canvas, RectTransform canvasRect, UITooltip tooltip, string originalText)
@@ -213,6 +217,7 @@ internal static class CookingSkillTooltipPanel
             OriginalFixedPosition = tooltip.FixedPosition();
             OriginalText = originalText;
             ChefChoiceEnabled = DietConfig.IsChefChoiceEnabled();
+            AutoEjectGuaranteedCookingLevel = DietConfig.GetAutoEjectGuaranteedCookingLevel();
         }
     }
 
@@ -380,6 +385,7 @@ internal static class CookingSkillTooltipText
 {
     internal const string HeadingToken = "$finedining_skill_cooking_heading";
     internal const string AutoEjectToken = "$finedining_skill_cooking_auto_eject";
+    internal const string AutoEjectDisabledToken = "$finedining_skill_cooking_auto_eject_disabled";
     internal const string BonusOutputToken = "$finedining_skill_cooking_bonus_output";
     internal const string ChefTierToken = "$finedining_skill_cooking_chef_tier";
     internal const string ChefMultiplierToken = "$finedining_skill_cooking_chef_multiplier";
@@ -392,13 +398,15 @@ internal static class CookingSkillTooltipText
             || DietConfig.GetFermenterOutputBonusChanceAtMaxCookingPercent() > 0f,
             DietConfig.IsChefChoiceEnabled() && DietConfig.GetChefHighTierSelectionStrength() > 0f,
             DietConfig.IsChefChoiceEnabled() &&
-            DietConfig.GetChefMultiplierModeAtMaxCooking() > DietConfig.GetChefMultiplierMin());
+            DietConfig.GetChefMultiplierModeAtMaxCooking() > DietConfig.GetChefMultiplierMin(),
+            DietConfig.GetAutoEjectGuaranteedCookingLevel());
 
     internal static string Append(
         string? original,
         bool bonusOutputEnabled,
         bool chefTierEnabled,
-        bool chefMultiplierEnabled)
+        bool chefMultiplierEnabled,
+        int autoEjectGuaranteedCookingLevel)
     {
         original ??= string.Empty;
         if (original.IndexOf(HeadingToken, StringComparison.Ordinal) >= 0)
@@ -407,7 +415,14 @@ internal static class CookingSkillTooltipText
         }
 
         StringBuilder extra = new(HeadingToken);
-        extra.Append('\n').Append(AutoEjectToken);
+        if (autoEjectGuaranteedCookingLevel > 0)
+        {
+            extra.Append('\n').Append(AutoEjectToken).Append(' ').Append(autoEjectGuaranteedCookingLevel);
+        }
+        else
+        {
+            extra.Append('\n').Append(AutoEjectDisabledToken);
+        }
         if (bonusOutputEnabled)
         {
             extra.Append('\n').Append(BonusOutputToken);
