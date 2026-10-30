@@ -110,6 +110,7 @@ internal static class InventoryGridSpoilageTimerPatch
                 continue;
             }
 
+            paused |= WorldSpoilageClock.Frozen;
             FineDiningTimerOverlayCache cache = EnsureOverlay(element);
             float unscaledTime = Time.unscaledTime;
             bool refreshText = !ReferenceEquals(cache.LastItem, item) ||
@@ -731,7 +732,7 @@ internal static class ItemDataSpoilageTooltipPatch
         if (!SpoilageClock.TryGetWorldTicks(out long nowTicks) ||
             !DecayRuntime.TryGetSpoilageClock(item, nowTicks, out long remainingTicks, out bool paused))
             return false;
-        line = FoodEffectUiText.BuildStatusLine(remainingTicks, paused, FoodEffectUiText.ReachesMinimumFreshness(item));
+        line = FoodEffectUiText.BuildStatusLine(remainingTicks, paused || WorldSpoilageClock.Frozen, FoodEffectUiText.ReachesMinimumFreshness(item));
         return true;
     }
 }
@@ -842,7 +843,7 @@ internal static class WorldItemSpoilageHover
 
         timerLine = FoodEffectUiText.BuildStatusLine(
             remainingTicks,
-            paused,
+            paused || WorldSpoilageClock.Frozen,
             FoodEffectUiText.ReachesMinimumFreshness(worldDrop?.m_itemData));
         return true;
     }

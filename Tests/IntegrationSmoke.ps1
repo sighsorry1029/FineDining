@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.11.0') 'Assembly version must be 1.1.11.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.12.0') 'Assembly version must be 1.1.12.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.11') 'Plugin version must be 1.1.11.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.12') 'Plugin version must be 1.1.12.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -282,6 +282,7 @@ $configBindingSource = (@(
     'SpoilagePolicy.cs',
     'FreshnessRuntime.cs',
     'PreservationConfig.cs',
+    'SeasonalPreservation.cs',
     'IceboxSubsystem.cs',
     'Diet\DietConfig.cs',
     'Stations\StationModule.cs') |
@@ -322,6 +323,7 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'Diet\DietConfig.cs'; Section = 'ChefChoice'; Key = 'Recent Food-Type Preference (%)'; Order = 100; Scope = 'Synced' },
     [pscustomobject]@{ File = 'SpoilagePolicy.cs'; Section = 'Spoilage'; Key = 'Spoilage Mode'; Order = 700; Scope = 'Synced' },
     [pscustomobject]@{ File = 'PreservationConfig.cs'; Section = 'Spoilage'; Key = 'No-Spoil Biomes'; Order = 600; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'SeasonalPreservation.cs'; Section = 'Spoilage'; Key = 'Pause Spoilage In Winter'; Order = 550; Scope = 'Synced' },
     [pscustomobject]@{ File = 'FreshnessRuntime.cs'; Section = 'Spoilage'; Key = 'Stale Food Minimum Multiplier'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Default Placement Limit'; Order = 450; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Storage Rows'; Order = 400; Scope = 'Synced' },
@@ -849,7 +851,7 @@ $shouldInitializePlacedStart = $decayRuntimeSource.IndexOf('internal static bool
 Assert-True ($registerGroundDropStart -ge 0 -and $refreshPlacedDropStart -gt $registerGroundDropStart -and $initializePlacedDropStart -gt $refreshPlacedDropStart -and $shouldInitializePlacedStart -gt $initializePlacedDropStart) 'Placed-world registration source boundaries are missing.'
 $registerGroundDropSource = $decayRuntimeSource.Substring($registerGroundDropStart, $refreshPlacedDropStart - $registerGroundDropStart)
 Assert-True ($registerGroundDropSource.IndexOf('ReconcileCreatorlessPlacedDrop(drop)', [StringComparison]::Ordinal) -ge 0 -and
-             $registerGroundDropSource.IndexOf('ReconcileCreatorlessPlacedDrop(drop)', [StringComparison]::Ordinal) -lt $registerGroundDropSource.IndexOf('TryGetExpiryTicks(', [StringComparison]::Ordinal)) 'Registration must clean a persisted NoCreator clock before deciding whether to track the world item.'
+             $registerGroundDropSource.IndexOf('ReconcileCreatorlessPlacedDrop(drop)', [StringComparison]::Ordinal) -lt $registerGroundDropSource.IndexOf('HasStoredClock(', [StringComparison]::Ordinal)) 'Registration must clean a persisted NoCreator clock before deciding whether to track the world item.'
 $initializePlacedDropSource = $decayRuntimeSource.Substring($initializePlacedDropStart, $shouldInitializePlacedStart - $initializePlacedDropStart)
 Assert-True ($initializePlacedDropSource.IndexOf('ReconcileCreatorlessPlacedDrop(drop)', [StringComparison]::Ordinal) -ge 0 -and
              $initializePlacedDropSource.IndexOf('ReconcileCreatorlessPlacedDrop(drop)', [StringComparison]::Ordinal) -lt $initializePlacedDropSource.IndexOf('InitializeOwnedWorldDrop(', [StringComparison]::Ordinal)) 'Fresh NoCreator placement must be rejected before FineDining creates a spoilage clock.'
@@ -4977,12 +4979,13 @@ $startTimeWrites = @($sourceFiles | Select-String -Pattern '\.Set\s*\([^\r\n]*s_
 Assert-True ($startTimeWrites.Count -eq 0) 'FineDining must never write vanilla fermenter s_startTime.'
 
 $harmonyOwners = @($sourceFiles | Select-String -Pattern 'new\s+Harmony\s*\(|Harmony\s+_harmony\s*=')
-# The stack adapter has a separate owner so a failed optional contract can roll
-# back its scopes/composer together without removing gameplay or card patches.
-Assert-True ($harmonyOwners.Count -eq 2 -and
+# Optional stack adapters own their hooks so cleanup cannot remove unrelated
+# gameplay patches. EpicLoot separately owns entry validation and expiry insertion.
+Assert-True ($harmonyOwners.Count -eq 4 -and
     @($harmonyOwners | Where-Object { $_.Path.EndsWith('Plugin.cs') }).Count -eq 1 -and
-    @($harmonyOwners | Where-Object { $_.Path.EndsWith('PathOfValheimanStackCompatibility.cs') }).Count -eq 1
-) 'Harmony ownership must remain limited to the plugin and independently cleaned-up PoV stack adapter.'
+    @($harmonyOwners | Where-Object { $_.Path.EndsWith('PathOfValheimanStackCompatibility.cs') }).Count -eq 1 -and
+    @($harmonyOwners | Where-Object { $_.Path.EndsWith('EpicLootStackCompatibility.cs') }).Count -eq 2
+) 'Harmony ownership must remain limited to the plugin and independently cleaned-up PoV/EpicLoot stack adapters.'
 
 Assert-ZipPackage $ThunderstoreZipPath @{
     'FineDining.dll' = $assemblyPath

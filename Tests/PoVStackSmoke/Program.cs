@@ -38,6 +38,8 @@ internal static class Program
     private static readonly HashSet<Inventory> Owned = new();
     private static Action? insideFind;
     private static ItemData? cancelled;
+    private static object? winterContext;
+    private static bool WinterContext(object[] __args, ref bool __result) { __args[0] = winterContext!; __result = true; return false; }
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NativeInt();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NativeHash(IntPtr value);
     private static readonly NativeInt Offset = () => 0;
@@ -200,6 +202,26 @@ internal static class Program
             try { bridge.GetMethod("RewriteSort",S)!.Invoke(null,new object[]{instructions}); throw new Exception("expected drift rejection"); }
             catch(TargetInvocationException e) { Check(e.InnerException is NotSupportedException,"incomplete sort contract rejected before partial rewrite"); }
             Check(!same(target,source),"sort scope does not leak");
+            var winterFixture = new Harmony("fd.stack.winter.fixture");
+            try {
+                Type timeline = mod.GetType("FineDining.SpoilageTimeline",true)!;
+                winterContext = timeline.GetConstructor(I,null,new[]{typeof(long),typeof(string),typeof(long)},null)!
+                    .Invoke(new object[]{7L,"11111111111111111111111111111111",Now});
+                timeline.GetField("ClockTicks",I)!.SetValue(winterContext,Now);
+                winterFixture.Patch(AccessTools.Method(mod.GetType("FineDining.WorldSpoilageClock",true),"TryGetContext"),
+                    prefix:new HarmonyMethod(typeof(Program),nameof(WinterContext)));
+                string Format(long value) => (string)AccessTools.Method(mod.GetType("FineDining.SpoilageClock",true),"FormatClockValue").Invoke(null,new object[]{value})!;
+                inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400);
+                target.m_customData[Expiry]=Format(Now+900); source.m_customData[Expiry]=Format(Now+400); AddDirect(inv,target);
+                Check(inv.AddItem(source) && target.m_stack==50 && target.m_customData[Expiry]==Format(Now+400),"PoV pickup merges atomic world-aware clocks");
+                inv=Inventory(4,4); target=Food(30,Now+900); source=Food(30,Now+400);
+                target.m_customData[Expiry]=Format(Now+900); source.m_customData[Expiry]=Format(Now+400);
+                AddDirect(inv,target,0,1); AddDirect(inv,source,1,1);
+                AccessTools.Field(typeof(Humanoid),"m_inventory").SetValue(player,inv);
+                sort.Invoke(null,new object[]{player});
+                Check(inv.GetAllItems().Sum(i=>i.m_stack)==60 && inv.GetAllItems().All(i=>i.m_customData[Expiry]==Format(Now+400)),
+                    "PoV sorting preserves quantities and shorter world-aware clocks");
+            } finally { winterFixture.UnpatchSelf(); winterContext=null; }
             foreach(string owner in new[]{"sighsorry.InventorySlots.pov.stack-metadata","sighsorry.InventoryActions.pov.stack-metadata"}) {
                 var other=new Harmony(owner);
                 try {

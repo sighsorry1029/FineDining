@@ -8,8 +8,8 @@ namespace FineDining;
 
 internal static class DecayRuntime
 {
-    // One atomic persisted clock: positive values are running absolute ZNet
-    // deadlines, negative values are preservation-frozen remaining durations.
+    // One atomic persisted record; calculation longs use the current spoilage
+    // timeline and negative environmental-pause remaining durations.
     // Compatibility surface used by the Harmony/UI integrations. SpoilageClock
     // owns the persisted key and all clock interpretation.
     private const string ExpiryDataKey = SpoilageClock.ExpiryDataKey;
@@ -55,6 +55,8 @@ internal static class DecayRuntime
     private static readonly Dictionary<Inventory, WeakReference<Container>> ContainersByInventory = new();
     private static readonly Dictionary<int, WeakReference<ItemDrop>> GroundDropsByInstanceId = new();
     private static readonly Dictionary<int, GroundEnvironmentSample> GroundEnvironmentSamples = new();
+    private static readonly Dictionary<int, string> UnresolvedGroundNames = new();
+    private static readonly Dictionary<string, int> UnresolvedGroundCounts = new(StringComparer.Ordinal);
     private static readonly List<KeyValuePair<int, WeakReference<ItemDrop>>> GroundDropSnapshot = new();
     private static readonly HashSet<string> LoggedReplacementWarnings = new(StringComparer.OrdinalIgnoreCase);
     private static float _nextTickAt;
@@ -169,6 +171,8 @@ internal static class DecayRuntime
         GroundDropsByInstanceId.Clear();
         GroundEnvironmentSamples.Clear();
         GroundDropSnapshot.Clear();
+        UnresolvedGroundNames.Clear();
+        UnresolvedGroundCounts.Clear();
         LoggedReplacementWarnings.Clear();
         _nextTickAt = 0f;
         _loggedFirstGroundLoadFailure = false;
@@ -229,14 +233,14 @@ internal static class DecayRuntime
             // future destination format remains exact identity and is left for
             // its owning mod to interpret.
             return destinationValue == null
-                ? sourceClock.ToString(CultureInfo.InvariantCulture)
+                ? SpoilageClock.FormatClockValue(sourceClock) ?? sourceValue
                 : destinationValue;
         }
 
         bool hasWorldTicks = TryGetWorldTicks(out long worldTicks);
         if (!hasWorldTicks && (destinationClock < 0L) != (sourceClock < 0L))
         {
-            return destinationClock.ToString(CultureInfo.InvariantCulture);
+            return destinationValue;
         }
 
         long nowTicks = hasWorldTicks ? worldTicks : 0L;
@@ -245,7 +249,7 @@ internal static class DecayRuntime
             sourceClock,
             nowTicks,
             destinationClock < 0L);
-        return composed.ToString(CultureInfo.InvariantCulture);
+        return SpoilageClock.FormatClockValue(composed) ?? destinationValue;
     }
 
     internal static bool CanMergeStackClockValues(
@@ -512,8 +516,10 @@ internal static class DecayRuntime
         }
 
         int instanceId = drop.GetInstanceID();
+        TrackGroundReadability(drop, instanceId);
         if (SpoilageClock.IsSpoiled(drop.m_itemData))
         {
+            ClearGroundReadability(instanceId);
             GroundDropsByInstanceId.Remove(instanceId);
             GroundEnvironmentSamples.Remove(instanceId);
             return;
@@ -525,8 +531,9 @@ internal static class DecayRuntime
         }
 
         if (!HasValidGroundView(drop) ||
-            !TryGetExpiryTicks(drop.m_itemData, out _) && !IsPlacedGroundDrop(drop))
+            !SpoilageClock.HasStoredClock(drop.m_itemData) && !IsPlacedGroundDrop(drop))
         {
+            ClearGroundReadability(instanceId);
             GroundDropsByInstanceId.Remove(instanceId);
             GroundEnvironmentSamples.Remove(instanceId);
             return;
@@ -596,7 +603,7 @@ internal static class DecayRuntime
 
         if (IsOwnedGroundDrop(drop))
         {
-            bool hasPersistedExpiry = TryGetExpiryTicks(drop.m_itemData, out _);
+            bool hasPersistedExpiry = SpoilageClock.HasStoredClock(drop.m_itemData);
             bool hasPendingAnchor =
                 drop.m_itemData?.m_customData.ContainsKey(PlacedAnchorDataKey) == true;
             if (!ShouldInitializePlacedDeadline(
@@ -675,7 +682,39 @@ internal static class DecayRuntime
             int instanceId = drop.GetInstanceID();
             GroundDropsByInstanceId.Remove(instanceId);
             GroundEnvironmentSamples.Remove(instanceId);
+            ClearGroundReadability(instanceId);
         }
+    }
+
+    private static void ClearGroundReadability(int id)
+    {
+        if (!UnresolvedGroundNames.TryGetValue(id, out string name)) return;
+        UnresolvedGroundNames.Remove(id);
+        int count = UnresolvedGroundCounts[name] - 1;
+        if (count == 0) UnresolvedGroundCounts.Remove(name);
+        else UnresolvedGroundCounts[name] = count;
+    }
+
+    private static void TrackGroundReadability(ItemDrop drop, int id)
+    {
+        string? name = !SpoilageClock.IsSpoiled(drop.m_itemData) && SpoilageClock.HasUnresolvedClock(drop.m_itemData)
+            ? drop.m_itemData?.m_shared?.m_name : null;
+        if (UnresolvedGroundNames.TryGetValue(id, out string previous) && previous == name) return;
+        ClearGroundReadability(id);
+        if (name == null) return;
+        UnresolvedGroundNames[id] = name;
+        UnresolvedGroundCounts.TryGetValue(name, out int count);
+        UnresolvedGroundCounts[name] = count + 1;
+    }
+
+    internal static bool CanAutoStackWithClock(ItemDrop? drop)
+    {
+        if (!WorldSpoilageClock.Initialized) return true;
+        if (drop == null || SpoilageClock.HasUnresolvedClock(drop.m_itemData)) return false;
+        // Existing candidate replacement paths cannot safely combine an unreadable
+        // clock. Defer only this food type's auto-stacking, without another physics
+        // query or a loaded-item search. Pickup and non-merging moves still work.
+        return !UnresolvedGroundCounts.ContainsKey(drop.m_itemData?.m_shared?.m_name ?? "");
     }
 
     internal static bool IsAuthoritativeInventory(Inventory? inventory)
@@ -875,7 +914,7 @@ internal static class DecayRuntime
                     keepPendingWhenNotReady: true);
             }
 
-            if (!TryGetExpiryTicks(drop.m_itemData, out _))
+            if (!SpoilageClock.HasStoredClock(drop.m_itemData))
             {
                 if (!isPlacedDrop)
                 {
@@ -900,7 +939,7 @@ internal static class DecayRuntime
                     inheritedRemainingTicks: -1L,
                     anchorTicks: 0L,
                     keepPendingWhenNotReady: true);
-                if (!TryGetExpiryTicks(drop.m_itemData, out _))
+                if (!SpoilageClock.HasStoredClock(drop.m_itemData))
                 {
                     continue;
                 }
@@ -950,6 +989,7 @@ internal static class DecayRuntime
             {
                 GroundDropsByInstanceId.Remove(instanceId);
                 GroundEnvironmentSamples.Remove(instanceId);
+                ClearGroundReadability(instanceId);
             }
         }
 
@@ -1011,7 +1051,7 @@ internal static class DecayRuntime
         }
 
         ItemDrop.ItemData? groundItem = drop.m_itemData;
-        if (groundItem == null)
+        if (groundItem == null || SpoilageClock.HasUnresolvedClock(groundItem))
         {
             return false;
         }
@@ -1068,6 +1108,14 @@ internal static class DecayRuntime
             return;
         }
 
+        if (SpoilageClock.HasUnresolvedClock(drop.m_itemData) ||
+            (drop.m_itemData.m_customData.TryGetValue(PlacedAnchorDataKey, out string pendingAnchor) &&
+             !SpoilageClock.TryParseTimestamp(pendingAnchor, out _)))
+        {
+            RegisterGroundDrop(drop);
+            return;
+        }
+
         if (SpoilageClock.IsSpoiled(drop.m_itemData))
         {
             UnregisterGroundDrop(drop);
@@ -1114,9 +1162,12 @@ internal static class DecayRuntime
 
                 if (effectiveAnchorTicks > 0L)
                 {
-                    drop.m_itemData.m_customData[PlacedAnchorDataKey] =
-                        effectiveAnchorTicks.ToString(CultureInfo.InvariantCulture);
-                    changed = true;
+                    string? anchor = SpoilageClock.FormatClockValue(effectiveAnchorTicks);
+                    if (anchor != null)
+                    {
+                        drop.m_itemData.m_customData[PlacedAnchorDataKey] = anchor;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -1328,9 +1379,7 @@ internal static class DecayRuntime
         ticks = 0L;
         return item?.m_customData != null &&
                item.m_customData.TryGetValue(key, out string value) &&
-               long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out ticks) &&
-               ticks > 0L &&
-               string.Equals(value, ticks.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+               SpoilageClock.TryParseTimestamp(value, out ticks) && ticks > 0L;
     }
 
     private static PreservationState ResolveInventoryPreservationState(Inventory inventory)
@@ -1535,13 +1584,16 @@ internal static class DecayRuntime
 
         foreach (ItemDrop.ItemData item in inventory.GetAllItems())
         {
-            if (TryGetSpoilageClock(item, nowTicks, out long remainingTicks, out bool paused) && paused &&
+            if (TryGetSpoilageClock(item, nowTicks, out long remainingTicks, out _) &&
                 item.m_customData.TryGetValue(ExpiryDataKey, out string originalValue))
             {
-                pausedClocks.Add(new KeyValuePair<ItemDrop.ItemData, string>(item, originalValue));
-                item.m_customData[ExpiryDataKey] =
-                    SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused: false)
-                        .ToString(CultureInfo.InvariantCulture);
+                string? snapshot = SpoilageClock.FormatClockValue(
+                    SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused: false));
+                if (snapshot != null && snapshot != originalValue)
+                {
+                    pausedClocks.Add(new KeyValuePair<ItemDrop.ItemData, string>(item, originalValue));
+                    item.m_customData[ExpiryDataKey] = snapshot;
+                }
             }
         }
 
@@ -1610,6 +1662,10 @@ internal static class DecayRuntime
                 {
                     continue;
                 }
+
+                // Pending/unknown records are not timerless fresh food. Never
+                // replace them with a fresh timer or interpret a failed read as 0.
+                if (SpoilageClock.HasUnresolvedClock(item)) continue;
 
                 if (SpoilageClock.IsSpoiled(item))
                 {
@@ -1724,10 +1780,19 @@ internal static class DecayRuntime
             return false;
         }
 
+        if (SpoilageClock.HasUnresolvedClock(item))
+        {
+            remainingTicks = long.MaxValue;
+            paused = true; // Defer this operation without writing a paused record.
+            return false;
+        }
+
         bool metadataChanged = FreshnessRuntime.EnsureTrackedMetadata(item, rule.LifetimeTicks);
 
         if (TryGetSpoilageClock(item, nowTicks, out remainingTicks, out paused))
         {
+            if (SpoilageClock.NeedsAdoption(item))
+                metadataChanged |= SetClockValue(item, SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused));
             if (!transitionExisting || paused == shouldPause)
             {
                 return metadataChanged;
@@ -1743,16 +1808,14 @@ internal static class DecayRuntime
 
             paused = shouldPause;
             long transitionedValue = SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused);
-            item.m_customData[ExpiryDataKey] = transitionedValue.ToString(CultureInfo.InvariantCulture);
-            return true;
+            return SetClockValue(item, transitionedValue) || metadataChanged;
         }
 
         long lifetimeTicks = Math.Max(TimeSpan.TicksPerSecond, rule.LifetimeTicks);
         remainingTicks = lifetimeTicks;
         paused = shouldPause;
         long clockValue = SpoilageClock.EncodeClockValue(nowTicks, remainingTicks, paused);
-        item.m_customData[ExpiryDataKey] = clockValue.ToString(CultureInfo.InvariantCulture);
-        return true;
+        return SetClockValue(item, clockValue) || metadataChanged;
     }
 
     internal static bool CompleteKeepOriginalExpiry(ItemDrop.ItemData? item)
@@ -1942,9 +2005,10 @@ internal static class DecayRuntime
 
         ZDO sourceZdo = drop.NetworkView().GetZDO();
         ZDOID sourceZdoId = sourceZdo.m_uid;
-        if (!TryGetExpiryTicks(drop.m_itemData, out long sourceExpiryTicks))
+        if (!TryGetExpiryTicks(drop.m_itemData, out _) ||
+            !drop.m_itemData.m_customData.TryGetValue(ExpiryDataKey, out string sourceExpiryValue))
         {
-            UnregisterGroundDrop(drop);
+            RegisterGroundDrop(drop);
             return;
         }
 
@@ -2071,7 +2135,7 @@ internal static class DecayRuntime
         if (!GroundSourceStillMatches(
                 drop,
                 sourceZdoId,
-                sourceExpiryTicks,
+                sourceExpiryValue,
                 sourcePrefab,
                 sourceAmount))
         {
@@ -2086,15 +2150,15 @@ internal static class DecayRuntime
     private static bool GroundSourceStillMatches(
         ItemDrop drop,
         ZDOID sourceZdoId,
-        long sourceExpiryTicks,
+        string sourceExpiryValue,
         string sourcePrefab,
         int sourceAmount)
     {
         if (!IsOwnedGroundDrop(drop) || IsCreatorlessPlacedDrop(drop) ||
             drop.NetworkView().GetZDO().m_uid != sourceZdoId ||
             drop.m_itemData == null || drop.m_itemData.m_stack != sourceAmount ||
-            !TryGetExpiryTicks(drop.m_itemData, out long currentExpiryTicks) ||
-            currentExpiryTicks != sourceExpiryTicks)
+            !drop.m_itemData.m_customData.TryGetValue(ExpiryDataKey, out string currentExpiryValue) ||
+            currentExpiryValue != sourceExpiryValue)
         {
             return false;
         }
@@ -2308,7 +2372,11 @@ internal static class DecayRuntime
             return false;
         }
 
-        string value = clockValue.ToString(CultureInfo.InvariantCulture);
+        // Avoid reserializing a portable checkpoint on every reconciliation.
+        if (!SpoilageClock.NeedsAdoption(target) && TryGetExpiryTicks(target, out long previous) && previous == clockValue)
+            return false;
+        string? value = SpoilageClock.FormatClockValue(clockValue);
+        if (value == null) return false;
         if (target.m_customData.TryGetValue(ExpiryDataKey, out string current) && current == value)
         {
             return false;

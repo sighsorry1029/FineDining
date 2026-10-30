@@ -1,18 +1,35 @@
 using System;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace FineDining;
 
 /// <summary>
-/// Encodes the one persisted spoilage clock used by inventory and world items.
-/// Positive values are running absolute deadlines; negative values are paused
-/// remaining durations.
+/// Owns the atomic item record. Calculation longs are deadlines in the current
+/// spoilage timeline, or negative environmental-pause durations. Persisted v2
+/// strings also carry the world/epoch and a portable remaining-life checkpoint.
 /// </summary>
 internal static class SpoilageClock
 {
     internal const string ExpiryDataKey = "sighsorry.FineDining.ExpiryWorldTicks";
     internal const string SpoiledDataKey = "sighsorry.FineDining.Spoiled";
     private const string SpoiledDataValue = "1";
+    private sealed class ParsedClock
+    {
+        internal string? Raw;
+        internal bool Valid;
+        internal SpoilageClockRecord Record;
+    }
+    private static readonly ConditionalWeakTable<ItemDrop.ItemData, ParsedClock> Parsed = new();
+
+    internal static bool HasStoredClock(ItemDrop.ItemData? item) =>
+        item?.m_customData?.ContainsKey(ExpiryDataKey) == true;
+    internal static bool HasUnresolvedClock(ItemDrop.ItemData? item) =>
+        HasStoredClock(item) && !TryGetExpiryTicks(item, out _);
+    internal static bool SameStoredClock(ItemDrop.ItemData? left, ItemDrop.ItemData? right) =>
+        left?.m_customData != null && right?.m_customData != null &&
+        left.m_customData.TryGetValue(ExpiryDataKey, out string a) &&
+        right.m_customData.TryGetValue(ExpiryDataKey, out string b) && string.Equals(a, b, StringComparison.Ordinal);
 
     internal static bool IsSpoiled(ItemDrop.ItemData? item) =>
         item?.m_customData != null &&
@@ -60,9 +77,54 @@ internal static class SpoilageClock
     internal static bool TryGetExpiryTicks(ItemDrop.ItemData? item, out long clockValue)
     {
         clockValue = 0L;
-        return item?.m_customData != null &&
-               item.m_customData.TryGetValue(ExpiryDataKey, out string value) &&
-               TryParseClockValue(value, out clockValue);
+        return TryReadItem(item, out SpoilageClockRecord record) && TryResolve(record, false, out clockValue);
+    }
+
+    private static bool TryReadItem(ItemDrop.ItemData? item, out SpoilageClockRecord record)
+    {
+        record = default;
+        if (item?.m_customData == null || !item.m_customData.TryGetValue(ExpiryDataKey, out string raw)) return false;
+        ParsedClock cache = Parsed.GetValue(item, _ => new ParsedClock());
+        if (cache.Raw != raw)
+        {
+            cache.Raw = raw;
+            cache.Valid = SpoilageClockRecord.TryParse(raw, out cache.Record);
+        }
+        record = cache.Record;
+        return cache.Valid;
+    }
+
+    internal static bool NeedsAdoption(ItemDrop.ItemData item) =>
+        WorldSpoilageClock.TryGetContext(out SpoilageTimeline context) &&
+        TryReadItem(item, out SpoilageClockRecord record) && record.NeedsAdoption(context);
+
+    private static bool TryResolve(SpoilageClockRecord record, bool timestamp, out long value)
+    {
+        value = 0;
+        if (WorldSpoilageClock.TryGetContext(out SpoilageTimeline context))
+        {
+            bool resolved = record.TryResolve(context, timestamp, out value);
+            if (!resolved && !record.Legacy && record.WorldUid == context.WorldUid && record.Epoch != context.Epoch)
+                WorldSpoilageClock.ReportMissingHistory();
+            return resolved;
+        }
+        if (WorldSpoilageClock.Initialized || !record.Legacy) return false;
+        value = record.Value; // Existing standalone codec/compatibility consumers.
+        return !timestamp || value > 0;
+    }
+
+    internal static string? FormatClockValue(long value)
+    {
+        if (!IsValidClockValue(value)) return null;
+        if (WorldSpoilageClock.TryGetContext(out SpoilageTimeline context))
+            return new SpoilageClockRecord(value, context).Serialize();
+        return WorldSpoilageClock.Initialized ? null : value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    internal static bool TryParseTimestamp(string? value, out long ticks)
+    {
+        ticks = 0;
+        return SpoilageClockRecord.TryParse(value, out SpoilageClockRecord record) && TryResolve(record, true, out ticks);
     }
 
     internal static bool TryGetSpoilageClock(
@@ -79,6 +141,15 @@ internal static class SpoilageClock
 
     internal static bool TryGetWorldTicks(out long ticks)
     {
+        if (!WorldSpoilageClock.Initialized) return TryGetRawWorldTicks(out ticks) && ticks > 0;
+        ticks = 0;
+        if (!WorldSpoilageClock.TryGetContext(out SpoilageTimeline context)) return false;
+        ticks = context.ClockTicks;
+        return true;
+    }
+
+    internal static bool TryGetRawWorldTicks(out long ticks)
+    {
         ticks = 0L;
         ZNet znet = ZNet.instance;
         if (znet == null)
@@ -89,7 +160,7 @@ internal static class SpoilageClock
         try
         {
             ticks = znet.GetTime().Ticks;
-            return ticks > 0L;
+            return ticks >= 0L;
         }
         catch
         {
@@ -100,13 +171,7 @@ internal static class SpoilageClock
     internal static bool TryParseClockValue(string? value, out long clockValue)
     {
         clockValue = 0L;
-        return value != null &&
-               long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out clockValue) &&
-               IsValidClockValue(clockValue) &&
-               string.Equals(
-                   value,
-                   clockValue.ToString(CultureInfo.InvariantCulture),
-                   StringComparison.Ordinal);
+        return SpoilageClockRecord.TryParse(value, out SpoilageClockRecord record) && TryResolve(record, false, out clockValue);
     }
 
     internal static bool IsValidClockValue(long clockValue)

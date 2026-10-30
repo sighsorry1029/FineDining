@@ -140,9 +140,11 @@ internal static class PlayerSaveSpoilageClockPatch
         Player __instance,
         out List<KeyValuePair<ItemDrop.ItemData, string>> __state)
     {
-        // Character files should keep advancing while the player is offline.
+        // Character files advance on the world spoilage clock while offline;
+        // winter stops that clock even when this character is not loaded.
         // Only the serialized snapshot is resumed; the live preserved inventory
-        // is restored by the finalizer and remains paused while online.
+        // is restored by the finalizer and remains paused while online. Running
+        // records also refresh their cross-world remaining-life checkpoint.
         __state = DecayRuntime.BeginPlayerSaveClockSnapshot(__instance);
     }
 
@@ -153,6 +155,14 @@ internal static class PlayerSaveSpoilageClockPatch
         DecayRuntime.EndPlayerSaveClockSnapshot(__state);
         return __exception;
     }
+}
+
+[HarmonyPatch(typeof(ItemDrop), "AutoStackItems")]
+internal static class ItemDropClockReadinessPatch
+{
+    [HarmonyPriority(Priority.First)]
+    [HarmonyBefore("sighsorry.FineDining.EpicLootStacks.Entry", "randyknapp.mods.epicloot")]
+    internal static bool Prefix(ItemDrop __instance) => DecayRuntime.CanAutoStackWithClock(__instance);
 }
 
 [HarmonyPatch(typeof(ItemDrop), "AutoStackItems")]
@@ -287,6 +297,19 @@ internal sealed class InventoryAddMergeState
 internal static class InventoryAddMergeTracker
 {
     private static bool _loggedTemporarySourceRestoreFailure;
+
+    internal static bool CanAddWithoutLosingClock(Inventory inventory, ItemDrop.ItemData? source)
+    {
+        if (source == null || DecayRuntime.IsContainerLoading(inventory)) return true;
+        bool unresolved = SpoilageClock.HasUnresolvedClock(source);
+        foreach (ItemDrop.ItemData item in inventory.GetAllItems())
+        {
+            if (!ReferenceEquals(item, source) && CanPotentiallyStack(item, source) &&
+                item.m_stack < item.m_shared.m_maxStackSize &&
+                (unresolved || SpoilageClock.HasUnresolvedClock(item)) && !SpoilageClock.SameStoredClock(item, source)) return false;
+        }
+        return true;
+    }
 
     internal static InventoryAddMergeState? Prefix(Inventory inventory, ItemDrop.ItemData? source)
     {
@@ -491,9 +514,12 @@ internal static class InventoryAddItemSpoilagePatch
     [HarmonyPrefix]
     [HarmonyPriority(Priority.First)]
     [HarmonyBefore(new[] { InventorySlotsCompatibility.PluginGuid })]
-    private static void Prefix(Inventory __instance, ItemDrop.ItemData item, out InventoryAddMergeState? __state)
+    private static bool Prefix(Inventory __instance, ItemDrop.ItemData item, ref bool __result, out InventoryAddMergeState? __state)
     {
+        __state = null;
+        if (!InventoryAddMergeTracker.CanAddWithoutLosingClock(__instance, item)) { __result = false; return false; }
         __state = InventoryAddMergeTracker.Prefix(__instance, item);
+        return true;
     }
 
     [HarmonyPostfix]
@@ -522,9 +548,12 @@ internal static class InventoryAddItemAtPositionSpoilagePatch
     [HarmonyPrefix]
     [HarmonyPriority(Priority.First)]
     [HarmonyBefore(new[] { InventorySlotsCompatibility.PluginGuid })]
-    private static void Prefix(Inventory __instance, ItemDrop.ItemData item, out InventoryAddMergeState? __state)
+    private static bool Prefix(Inventory __instance, ItemDrop.ItemData item, ref bool __result, out InventoryAddMergeState? __state)
     {
+        __state = null;
+        if (!InventoryAddMergeTracker.CanAddWithoutLosingClock(__instance, item)) { __result = false; return false; }
         __state = InventoryAddMergeTracker.Prefix(__instance, item);
+        return true;
     }
 
     [HarmonyPostfix]
@@ -560,9 +589,18 @@ internal static class InventoryAddItemAmountAtPositionSpoilagePatch
     [HarmonyPrefix]
     [HarmonyPriority(Priority.First)]
     [HarmonyBefore(new[] { InventorySlotsCompatibility.PluginGuid })]
-    private static void Prefix(Inventory __instance, ItemDrop.ItemData item, out InventoryAddMergeState? __state)
+    private static bool Prefix(Inventory __instance, ItemDrop.ItemData item, int x, int y, ref bool __result, out InventoryAddMergeState? __state)
     {
+        __state = null;
+        // Inventory.Load also uses this overload. An empty cell is a clone/load,
+        // not a merge: unrelated unreadable stacks must never reject that item.
+        ItemDrop.ItemData? destination = __instance.GetItemAt(x, y);
+        if (destination != null && !DecayRuntime.IsContainerLoading(__instance) &&
+            (SpoilageClock.HasUnresolvedClock(item) || SpoilageClock.HasUnresolvedClock(destination)) &&
+            !SpoilageClock.SameStoredClock(item, destination))
+        { __result = false; return false; }
         __state = InventoryAddMergeTracker.Prefix(__instance, item);
+        return true;
     }
 
     [HarmonyPostfix]

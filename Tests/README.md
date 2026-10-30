@@ -1,5 +1,166 @@
 # Development checks
 
+## Release 1.1.12 (2026-10-31)
+
+- Debug and normal Release builds completed with zero warnings/errors. Debug
+  deployment matched the local Steam plugins DLL. Release assembly `1.1.12.0`,
+  file/BepInPlugin version `1.1.12` and manifest agree; ServerSync/YamlDotNet are
+  merged and expected English/Korean/default/UI resources remain embedded.
+- Thunderstore and Nexus ZIPs passed CRC, exact entry-set and source-byte checks.
+  The Release DLL SHA-256 is
+  `D5A1CA660CADE7A2358A88EF9D0A9F47764BB1E3D40E9535721C10464B445849`.
+- The final Release DLL passed `IntegrationSmoke.ps1` with both package paths
+  and all 1,047 `WinterClockSmoke.ps1` checks. Both original Valheim 1.0.21 Mono
+  runtimes passed 62 winter integration checks and 48 PoV stack checks each.
+- Final FineDining/FeedLikeGrandma Release DLLs passed the expanded shared suite:
+  **652 checks in 19 isolated phases on each original client/server Mono runtime**.
+  The suite now installs the real winter-clock guard, including EpicLoot-absent,
+  initialization-order and missing/wrong-owner/wrong-order rejection cases.
+  FineDining requires its clock guard before accepting EpicLoot replacement work;
+  FeedLikeGrandma 1.2.1 recognizes that exact contract without allowing arbitrary
+  Prefixes. The earlier 606-check record below did not install this new guard.
+- Original client/server API checks each passed 2,161 direct references,
+  88 explicit Harmony contracts and 37 private bindings. `git diff --check` passed.
+
+These are build, metadata and isolated managed tests, not live BepInEx/Unity,
+calendar, native world saving or multiplayer verification. The in-game matrix
+below remains outstanding. Earlier sections retain implementation-stage hashes
+and results, before this release and version update.
+
+## Winter preservation (2026-10-31, pre-release implementation checkpoint)
+
+This extends the pre-existing EpicLoot changes documented below. The older section's
+DLL hash and reference counts describe that earlier stage, not the current binary.
+No version bump, Release package, commit or push was performed for winter support.
+
+`Pause Spoilage In Winter` is a server-synchronized, default-off option. The server
+owns a cumulative non-winter clock, checkpointed in one persistent world ZDO and
+sent through authenticated server `ZRpc` connections. No winter interval list or
+per-item RPC is kept. Item deadlines and placement anchors use one atomic versioned
+record in the existing custom-data key; item-local cold preservation remains separate.
+Legacy numeric values adopt their current remaining time, without retroactive winter
+refunds. Another world's items adopt their saved remaining checkpoint; same-world
+missing epochs retain their original data and defer unsafe processing with a warning.
+Neither character/world backups nor provider calendar jumps are treated as an atomic
+transaction or a reconstructable historical season log. All peers require the same
+updated DLL, even with the winter option off; old builds cannot read the new records.
+
+Performed against the final Debug DLL:
+
+- `dotnet build FineDining.sln -c Debug -p:DeployToGame=true`: zero warnings/errors.
+  ILRepack completed; source and installed Steam plugins DLL SHA-256 matched
+  `FA09F726CDFF50D428BB149D0AF07E550CFA93C2949F511AA147B05D25EC2DE1`.
+- `IntegrationSmoke.ps1` passed, including the new config presentation entry.
+- `WinterClockSmoke.ps1`: 1,047 pure timeline/serialization checks against the built
+  DLL: offline winter/spring accounting, 200 winters with reloads, zero world time,
+  signed non-winter rewinds, repeated transitions, strict parsing, corruption,
+  cross-world rebasing, missing epochs and legacy placement offsets.
+- `WinterRuntimeSmoke`: 62 checks on each **original** Valheim 1.0.21 client
+  (26249040) and dedicated-server (26266951) Mono runtime. Real game inventory methods
+  and FineDining Harmony patches covered split/partial merges, two unresolved same-food
+  stacks loading into empty cells without loss, player-save restoration on exceptions,
+  world-aware timers through offline winter and transfers, and provider metadata binding.
+  Synthetic peer objects exercised the real snapshot decoder's server-RPC identity,
+  session/epoch/world/revision checks and malformed-packet refusal. Actual EpicLoot
+  replacement registration accepted the known three-prefix order and rejected an
+  additional unknown prefix. Time, authority and Unity native calls use test fixtures.
+- `PoVStackSmoke`: 48 checks on each original Mono runtime, including world-aware
+  pickup/sorting quantities and shorter-expiry propagation. Existing PoV identity,
+  permission, foreign metadata and cleanup checks still pass.
+- The shared FLG/EpicLoot 606-check, 19-phase composition suite was also rerun on the
+  original client Mono with the current FineDining changes. The new winter runner
+  separately exercises the additional clock-readiness guard on both runtimes.
+- `Check-GameApi.ps1`: each original role passed 2,161 direct game references,
+  88 explicit Harmony targets/arguments and 37 private bindings. No game DLL was
+  modified or publicized. `git diff --check` passed.
+
+Provider bindings were checked against Seasonality 3.8.6
+(`C1979FDCE041D3B5841F18E83FC5E64716E1EC25FED7FDBDE8DA4ECF7AEA378C`)
+and Seasons 1.10.5
+(`60FA95DBE26E5BC0C5C873302A6C90E1C67C5C85DB2E8D115FF29F462BE2D28B`).
+Original profile files disappeared during verification; identical cached binaries
+were verified by SHA-256 and reused. PoV 5.3.6 used the hash documented below;
+EpicLoot remained 0.15.4. No new provider version was downloaded or substituted.
+
+```powershell
+pwsh -File Tests/WinterClockSmoke.ps1
+dotnet build Tests/WinterRuntimeSmoke/WinterRuntimeSmoke.csproj -c Debug
+python Tests/WinterRuntimeSmoke/run.py <original-game-root> <FineDining.dll> <BepInEx-core> <Seasonality.dll> <Seasons.dll> <EpicLoot.dll>
+```
+
+These checks do **not** run a game/server, native world saving, actual sockets or the
+providers' live calendars. Still verify each provider separately, with neither
+provider, on a host and dedicated server with two clients: winter/spring boundaries,
+normal sleep and Seasons time rewind, live option changes, disconnect/reconnect,
+unloaded zones, ground/stand/container food, cold storage exit and death/relogin.
+Save/restart the world and character, then check remaining time and total item counts;
+repeat with PoV/EpicLoot/FLG combinations and the option off. Check missing/corrupt
+checkpoint and partial-backup cases only on disposable copies. Confirm a mismatched
+history warns and preserves items instead of granting fresh lifetime or merging them.
+Seasonality's optional sleep progression on a headless server particularly needs live
+verification. No frame-time or large-world performance improvement has been measured.
+
+## EpicLoot expiry ownership and FeedLikeGrandma (2026-10-31)
+
+FineDining now patches EpicLoot's replacement `AutoStackItems` Prefix directly.
+FineDining owns the single expiry/freshness merge; FeedLikeGrandma, when present,
+owns only the candidate protection filter. Their explicit Harmony order permits
+either initialization order. The original game auto-stack path retains its
+existing FineDining transpiler when EpicLoot is absent.
+
+A separate entry guard inspects the active replacement at the auto-stack call
+boundary, including late EpicLoot registration. IL validation is cached until a
+replacement rebuild; no extra physics query, world-item search or polling loop
+is added. Unsupported replacement code, additional policies hidden by that
+replacement, missing hooks or an older FLG expiry insertion stop that ground
+auto-stack operation before item changes. A prior refusal does not block vanilla
+auto-stacking after the EpicLoot route is removed. Version/MVID/whole-DLL hashes
+are not activation gates; normalized relevant-method contracts are.
+
+Final Debug verification:
+
+- `dotnet build FineDining.csproj -c Debug -p:DeployToGame=true` succeeded with
+  zero warnings/errors. The merged DLL and the automatically copied local Steam
+  plugins DLL match SHA-256
+  `507376B53C5858A34573E9B86B43D54048D21AD16D549C67B0A4060287BE648F`.
+- Original Valheim 1.0.21 client 26249040 and dedicated-server 26266951 metadata
+  each passed 2,031 direct game references, 82 explicit Harmony contracts,
+  37 private bindings and the selected loading/dynamic checks. Existing
+  `IntegrationSmoke.ps1` passed; its owner-scope assertion includes the two
+  independently cleaned-up EpicLoot owners.
+- The shared FLG cross-mod runner passed 606 checks in 19 isolated phases on
+  each original Mono runtime. This is one combined suite, not separate 606-check
+  totals for each mod. It covers FineDining without FLG patches, both registration
+  orders, delayed registration, EpicLoot absent, exactly one pre-increment expiry
+  call, the retained magic-data policy, missing/foreign hooks, refusal before
+  mutation and independent cleanup. Synthetic relevant changes are rejected;
+  unrelated assembly identity changes are accepted. A synthetic older FLG
+  insertion is rejected without adding another expiry callback.
+- An already-generated game Harmony wrapper followed a later EpicLoot callback
+  detour through a test-only early-stop prefix and a null managed call. This
+  proves callback routing without invoking Unity or merging real items.
+
+The cross-mod runner uses the supplied EpicLoot 0.15.4 DLL and both final mod
+DLLs. Its FineDining fixture suppresses only the plugin startup initializer;
+the integration, transpiler and expiry helper bodies remain intact. Original
+game DLLs were not modified or publicized. These are managed/IL checks, not full
+BepInEx/Unity startup, actual expiry-policy execution, physical feeding/stacking,
+world persistence, ownership transfer or multiplayer verification. No release
+package or version change was made; manifest BepInExPack is now 5.4.2360.
+
+With the local sibling checkout, rerun the shared suite using:
+
+```powershell
+dotnet build C:/Users/blizz/RiderProjects/FeedLikeGrandma/tests/AzuCompatibilityChecks.csproj -c Debug
+python C:/Users/blizz/RiderProjects/FeedLikeGrandma/tests/run_azu_mono.py <original-game-directory> <final-FeedLikeGrandma.dll> <final-FineDining.dll> <BepInEx-core-directory> "epic-composition:<profile-plugins-directory>"
+```
+
+Still verify actual hungry-animal feeding and same/mixed protection states with
+enough loaded drops to trigger auto-stacking, differently aged food, magic data
+differences, pickup/re-drop, owner transfer and zone reload. Count barrel, ground,
+chest and consumed food on a host and dedicated server with two clients, all using
+the matching patched DLLs. Repeat with each optional mod absent.
+
 Run these commands from the repository root on Windows. Use the .NET SDK,
 the .NET Framework 4.8 targeting pack, and PowerShell 7 (`pwsh`).
 The project resolves original Valheim and BepInEx references from the local game install;

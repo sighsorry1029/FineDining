@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.12
+
+- Added the server-synchronized `Pause Spoilage In Winter` setting, disabled by default. With Seasonality or Seasons, a persistent world spoilage clock pauses during the accepted winter and protects converted food in offline character saves and unloaded containers or ground items. Existing Icebox, biome and fish preservation remain separate.
+- Store world-aware food timers and placement anchors as atomic records. Existing numeric timers retain their remaining lifetime when first processed; earlier winters are not refunded. Changing worlds uses the last saved remaining-life checkpoint. Turning winter protection off preserves protection already earned.
+- Preserve unreadable or not-yet-synchronized timers instead of resetting or expiring them. Defer unsafe merges, retain separate stacks during inventory loading, and refresh portable timer checkpoints while preserving live item state after character saves. Winter preservation is shown in food timers and tooltips.
+- Added EpicLoot ground-stack compatibility: FineDining composes expiry once in EpicLoot's replacement routine, independently of FeedLikeGrandma's food-drop protection. Preserve magic-item restrictions, support either initialization order, and reject incomplete or changed replacement/clock-guard contracts before unsafe work. Use FeedLikeGrandma 1.2.1 or later for the winter-guard combination.
+- Install this version on the server and every client, even when winter protection is off. The new timer records are not readable by older FineDining versions; keep matching world/character backups and do not downgrade converted saves. Keep FineDining installed when saving these worlds. Updated BepInExPack Valheim to `5.4.2360`.
+- Added timeline, save/restore, packet-validation and stacking regression checks on original Valheim 1.0.21 client/server assemblies and Mono runtimes. Actual seasonal progression, native world saving, feeding and multiplayer still require in-game verification; separate world/character backups and skipped calendar seasons are not reconstructed.
+
 ## 1.1.11
 
 - Added the server-synchronized `Auto Eject Guaranteed Cooking Level` setting, accepting 0-100 with a default of 100. Auto-eject chance scales linearly up to the chosen level: 25 or 50 guarantees ejection at that level; 0 disables it for newly inserted food.

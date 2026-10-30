@@ -24,13 +24,15 @@ namespace FineDining;
     BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency("expand_world_data", BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency(PathOfValheimanCompatibility.PluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
+[BepInDependency(SeasonalPreservation.SeasonalityGuid, BepInDependency.DependencyFlags.SoftDependency)]
+[BepInDependency(SeasonalPreservation.SeasonsGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInIncompatibility("sighsorry.BeingSpoiled")]
 [BepInIncompatibility("blizz.GourmetsDiet")]
 [BepInIncompatibility("sighsorry.InputHoverHints")]
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.1.11";
+    internal const string ModVersion = "1.1.12";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -60,6 +62,8 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
         FineDiningLocalization.Initialize(this);
         ConfigSync.AddLockingConfigEntry(BindConfigurationLock(Config));
         PreservationConfig.Initialize(Config, ConfigSync);
+        SeasonalPreservation.Initialize(Config, ConfigSync);
+        WorldSpoilageClock.Initialize();
         FreshnessRuntime.Initialize(Config, ConfigSync);
         SpoilagePolicy.Initialize(Config, ConfigSync);
         ChefResourceMapPolicy.Initialize(ConfigSync);
@@ -85,8 +89,17 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
                 ConfigPresentation.General,
                 500));
 
+    private void Start()
+    {
+        SeasonalPreservation.Install(_harmony);
+        // All plugins have registered their Awake patches before optional stack
+        // replacements are inspected. The entry guard handles later registration.
+        EpicLootStackCompatibility.Initialize();
+    }
+
     private void Update()
     {
+        WorldSpoilageClock.Tick();
         PreservationConfig.Tick();
         SpoilagePolicy.RefreshAuthority();
         ChefResourceMapPolicy.RefreshAuthority();
@@ -101,6 +114,13 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        WorldSpoilageClock.Shutdown();
+        SeasonalPreservation.Shutdown();
+        try { EpicLootStackCompatibility.Shutdown(); }
+        catch (System.Exception error)
+        {
+            Log.LogWarning("EpicLoot stack compatibility cleanup failed; remaining guarded stacking is disabled: " + error.Message);
+        }
         PathOfValheimanStackCompatibility.Shutdown();
         JotunnCompatibility.Shutdown();
         StationModule.Shutdown();

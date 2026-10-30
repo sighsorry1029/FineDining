@@ -98,13 +98,43 @@ Mode changes do not rewrite already-eaten food effects, reverse rotten replaceme
 
 Ordinary food starts its spoilage clock when it first enters a player inventory. Untouched food in location loot and ordinary containers remains fresh until that first pickup. Placed food starts from its placement time.
 
-An active clock uses Valheim's network world time. It continues in ordinary containers and unloaded zones while that clock is running, and it survives restarts without resetting. Time does not advance while the server is offline, while an empty dedicated server pauses world time, or while the item is preserved.
+An active clock follows Valheim's network world time through a persistent, server-controlled spoilage clock. It continues in ordinary containers and unloaded zones while that clock is running, and it survives restarts without resetting. Time does not advance while the server is offline, while an empty dedicated server pauses world time, or while the item is preserved.
 
 Spoilage pauses in:
 
 - An Icebox.
 - Biomes listed in `No-Spoil Biomes`; the default is `Mountain, DeepNorth`.
 - Water, for world items classified as Fish.
+
+`[5 - Spoilage] Pause Spoilage In Winter` defaults to `false` and is server-synchronized.
+When enabled with **Seasonality or Seasons**, the world spoilage clock stops during that
+mod's accepted winter. Food already using the world-aware clock receives the same winter
+protection in offline character saves, unloaded containers, and placed/ground items.
+Spring resumes the clock without scanning those inventories. This is a world-wide season
+rule, independent of indoor temperature or snow; `No-Spoil Biomes` is not overwritten.
+Seasons declares Seasonality incompatible, so use one season provider, not both.
+
+Existing numeric timers are upgraded when their owner first processes them, retaining
+their remaining lifetime at that moment. Winters before that upgrade are **not** refunded.
+Turning winter protection off retains previously earned protection and resumes normal
+time progression. Icebox/biome/fish preservation remains separate; logging out still
+resumes those local pauses in the character snapshot, on the winter-aware world clock.
+Already spoiled food is never restored. Seasons' normal time rewinds remain effective
+outside winter; skipped calendar seasons are not reconstructed after a large time jump.
+
+Install the **same updated FineDining DLL on the server and all clients**, including
+when winter protection is off. The world-aware item record is not readable by older
+FineDining builds; do not mix builds or downgrade saved characters/worlds without restoring
+matching backups. A character entering a different world uses its last saved remaining-life
+checkpoint because the destination cannot query the original server's offline history.
+Restore worlds and characters together where possible. If an item's same-world clock
+history is missing, FineDining retains its record and defers unsafe spoilage/merges with
+a warning rather than granting a new lifetime or destroying it.
+
+The clock is saved inside the world. Opening and saving that world without FineDining can
+remove its custom clock object, so keep the mod installed while using these saves.
+During initial clock synchronization, conflicting timed stacks wait to merge; loading
+items into separate empty slots remains available. Tooltips show winter as preservation.
 
 The default `Spoilage.yml` policy is:
 
@@ -299,5 +329,7 @@ PoV 5.0.10's custom item cards retain PoV's artwork and interactions while showi
 With PoV, batch cooking also submits FineDining's normal cooking plan for each extra ingredient. Fermenter bonuses preserve PoV's temporary extra bottle and output stamps. PoV's vanilla-skill freeze, Hearty Meal rolls, global food multiplier, nourishment, and existing extra-production stacking remain unchanged. PoV's **No Decay** applies to eaten-food stat decay; FineDining's **Spoilage Mode** controls inventory spoilage independently. No new required mod, setting, or save migration is introduced. Install the same FineDining version on the server and clients; actual combined game and multiplayer validation is still needed.
 
 PoV's metadata-based stacking is also supported, checked against `5.3.6` in isolated tests. Foods with different spoilage timers can merge during inventory transfers, full-inventory pickup checks, drag previews, and PoV's own sorting. The resulting stack keeps the shorter remaining lifetime; minimum-freshness state is preserved. Other item metadata and PoV's slot restrictions remain in force. This permission is limited to supported transfer/sort paths, including when spoilage is Off; it does not globally ignore FineDining metadata. If the required PoV contract changes, this adapter leaves the original stacking restrictions active and logs a warning independently of food/card compatibility.
+
+EpicLoot ground auto-stacking preserves FineDining's expiry and freshness merge even without FeedLikeGrandma. EpicLoot keeps its magic-item stacking rules; FineDining applies its existing expiry policy once before quantities change. With the corresponding FeedLikeGrandma compatibility patch, FLG only keeps Feed Barrel food separate from ordinary drops, so expiry is not applied twice. Update both mods together when using both, on the server and every client, then restart. Compatibility checks relevant code and active patches rather than an exact mod version or whole-DLL hash. An unsupported EpicLoot replacement or an older FLG bridge pauses ground auto-stacking before item changes; normal pickup, storage and spoilage remain available.
 
 FineDining performs spoilage work only for authoritative loaded inventories, containers, and world items. Unloaded progress is timestamp-based rather than continuously simulated, and dedicated servers do not require a local HUD.
