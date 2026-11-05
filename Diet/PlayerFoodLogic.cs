@@ -217,7 +217,10 @@ internal static class PlayerFoodLogic
 
         float regenMultiplier = 1f;
         player.GetSEMan().ModifyHealthRegen(ref regenMultiplier);
-        PathOfValheimanCompatibility.HealFood(player, regen * regenMultiplier);
+        // Keep this inline: older PoVPlus.Compat recognizes only the bare
+        // regen * multiplier shape and would otherwise add EpicLoot twice.
+        PathOfValheimanCompatibility.HealFood(player,
+            EpicLootHealthCompatibility.Add(player, regen) * regenMultiplier);
     }
 
     internal static void RefreshFoodStats(Player? player)

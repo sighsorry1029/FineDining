@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.12.0') 'Assembly version must be 1.1.12.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.13.0') 'Assembly version must be 1.1.13.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.12') 'Plugin version must be 1.1.12.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.13') 'Plugin version must be 1.1.13.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -3689,7 +3689,7 @@ Assert-True ([regex]::IsMatch(
     '(?s)float effectiveScale = isDietFood\s*\? FoodRules\.GetAppliedScale\(player, state, food\) \* fullCourseScale\s*: 1f;\s*food\.m_health = food\.m_item\.m_shared\.m_food \* effectiveScale \* normalizedTime;\s*food\.m_stamina = food\.m_item\.m_shared\.m_foodStamina \* effectiveScale \* normalizedTime;\s*food\.m_eitr = food\.m_item\.m_shared\.m_foodEitr \* effectiveScale \* normalizedTime;.*?PlayerPrivateAccess\.GetTotalFoodValue\(.*?player\.SetMaxHealth\(health, flashBar: true\);\s*player\.SetMaxStamina\(stamina, flashBar: true\);\s*PlayerPrivateAccess\.SetMaxEitr\(player, eitr, flashBar: true\);')) 'Dynamic slot and Full Course scales must affect only food contributions before untouched external Health/Stamina/Eitr totals are applied.'
 Assert-True ([regex]::IsMatch(
     $playerFoodLogicSource,
-    '(?s)regen \+= food\.m_item\.m_shared\.m_foodRegen \* scale;.*?float regenMultiplier = 1f;\s*player\.GetSEMan\(\)\.ModifyHealthRegen\(ref regenMultiplier\);\s*PathOfValheimanCompatibility\.HealFood\(player, regen \* regenMultiplier\);')) 'Slot scaling must affect food health-regeneration contributions before external status-effect modifiers and the optional PoV cadence adapter.'
+    '(?s)regen \+= food\.m_item\.m_shared\.m_foodRegen \* scale;.*?float regenMultiplier = 1f;\s*player\.GetSEMan\(\)\.ModifyHealthRegen\(ref regenMultiplier\);\s*(?://[^\r\n]*\s*)*PathOfValheimanCompatibility\.HealFood\(player,\s*EpicLootHealthCompatibility\.Add\(player, regen\) \* regenMultiplier\);')) 'Slot scaling must affect food regeneration before the optional fixed gear bonus, status-effect multiplier and PoV heal adapter.'
 $consumeChefCallIndex = $playerFoodLogicSource.IndexOf(
     'ChefCollectionService.TryConsumeChefEntry(',
     [StringComparison]::Ordinal)

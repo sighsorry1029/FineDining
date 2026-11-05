@@ -1,5 +1,121 @@
 # Development checks
 
+## Release 1.1.13 (2026-11-05)
+
+- Debug and normal Release builds completed with zero warnings/errors. Debug
+  deployment matched the local Steam plugins DLL. Release assembly `1.1.13.0`,
+  file/BepInPlugin version `1.1.13` and manifest agree. ServerSync/YamlDotNet are
+  merged; all five embedded resources match their source bytes, with no new
+  hard assembly references to optional mods.
+- Thunderstore (six entries) and Nexus (DLL only) ZIPs passed CRC, exact entry-set
+  and source-byte checks. The Release DLL SHA-256 is
+  `4AD02345CA76EF478D38242F300CBB73935BAB6094E9061D7D6138915CEC2064`.
+  Debug DLL SHA-256 is
+  `6068ECB4AA5BEE2E38A96E1C5866EF434C55C513BA27B9A216CAAD1618603E10`.
+- Both builds passed `IntegrationSmoke.ps1`; the Release run also checked both
+  packages. Original client/server API checks each passed 2,184 direct game
+  references, 88 explicit Harmony contracts and 37 private bindings.
+- The final Release DLL passed **14 health checks**, **314 paired ItemData checks
+  in 8 phases**, and **652 EpicLoot regression checks in 19 phases** on each
+  original Valheim 1.0.21 client/server Mono runtime. The fixed companion DLL is
+  the same coordinated FeedLikeGrandma build identified below. Logs are in
+  `C:/Users/blizz/AppData/Local/Temp/FineDining-release-1.1.13-20261105/`.
+
+These are build, artifact, metadata and isolated managed checks. Actual Unity
+worlds, equipped-gear healing, native stacking/destruction, saves and multiplayer
+remain unverified. The following checkpoint retains its earlier Debug hash and
+standalone companion-test results; it does not describe the final Release DLL.
+
+## Native EpicLoot / ItemDataManager integration (2026-11-05, pre-release checkpoint)
+
+Debug build/deployment completed with zero warnings/errors; the final merged DLL
+and Steam plugins copy match SHA-256
+`893F5A210781C33E838AC2B4D6222A1B128F8F20F266CB49489FA5A0FE803F5A`.
+`IntegrationSmoke.ps1` passed. Original client/server API metadata checks each
+passed 2,184 direct game references, 88 explicit Harmony contracts and 37 private
+bindings. The initial build/integration baseline also passed before these changes.
+No version bump or Release package is part of this implementation checkpoint.
+
+FineDining uses EpicLoot's public four-argument effect getter after checking the
+small private helper's original calculation. The effect remains local-player-only,
+follows live gear values, and stops when EpicLoot's additive patch is absent or the
+optional contract fails. The inline call in `PlayerFoodLogic.UpdateFood` prevents
+the supplied PoVPlus.Compat 1.0.2 adapter from adding the effect a second time.
+EpicLoot 0.15.6 is an external test input, not a compiler/package dependency.
+
+The ground-stack bridge discovers active ItemDataManager copies from their ground
+transpiler or intact positional inventory patch pair. The latter also covers
+PoVPlus removing only the ground transpiler. Dormant embedded copies are not
+force-initialized. Relevant helper, result-selector and exception-flow contracts
+were checked against BowsBeforeHoes 2.0.2, AzuCraftyBoxes 1.8.28, ValheimCuisine
+2.3.4 and BetterSleepBruh 2.1.2 (the Vapok namespace variant).
+
+With the coordinated FeedLikeGrandma build, FineDining owns item-data policy and
+expiry while FLG only filters Feed Barrel candidates. FLG retains a validation
+guard while delegating, so teardown or late provider changes cannot leave an
+unguarded old wrapper running. A route rebuilt during its own call defers that
+call; the next call uses the new route. Partial teardown stops unsafe work.
+
+Input DLL SHA-256 values (identification only):
+
+| Input | SHA-256 |
+| --- | --- |
+| EpicLoot 0.15.6 | `3BD349EEA71565B43EF7B70D656926039EFDACEC1FD0AEEE97D30787571BDD58` |
+| PoVPlus.Compat 1.0.2 | `BE8941A45C9E21DA0255A0338EC98267C0F690246D58D5E9352463743F9BD215` |
+| BowsBeforeHoes 2.0.2 | `7702DAFCA123B016890259A9BA321CD66C9F9094B24C9AF862C6E202547BAD5C` |
+| AzuCraftyBoxes 1.8.28 | `381883FE4625D1DD119BB425A2F3C7522457FBC08AE1DB60159F8256DE940D6E` |
+| ValheimCuisine 2.3.4 | `9C18044F94186D9310A0F2DCD1431C6ABF2A63B0AFEC9AC3FD1C24BBF98DB42D` |
+| BetterSleepBruh 2.1.2 | `E65AA72F98662854FE822F3952BB0F0243BD6B12CF6198166508499FA830F01A` |
+
+Each copy evaluates the receiver/source pair once. Only after every policy
+accepts are owned-key results committed, preserving FineDining's three spoilage
+keys for the following expiry callback. Unknown namespaces, missing keys,
+conflicting foreign values and unexpected callback mutation refuse the pair.
+Arbitrary side effects inside a mod's virtual `Load`/`TryStack` cannot be rolled
+back by this adapter. Compiler-generated helper-name changes may conservatively
+reject a new build; versions, whole-DLL hashes and MVIDs are not execution gates.
+Reflection/IL analysis occurs on binding changes, not every frame. Successful
+candidate evaluation allocates data snapshots/results; no performance improvement
+has been measured or claimed.
+
+`EpicLootSmoke` passed 14 managed checks on each original Valheim 1.0.21 client
+(26249040) and dedicated-server (26266951) Mono runtime: real public/private API
+arithmetic, negative/live effects, headless/non-local defaults, late/removal patch
+handling, helper detours, callback exceptions and actual PoVPlus installation in
+both orders. Only the gear getter is replaced for numeric tests. FineDining's
+plugin static initializer is suppressed and two Unity initialization calls are
+stubbed; game assemblies and their access restrictions remain original.
+
+The coordinated FeedLikeGrandma session also verified the fixed final pair on
+both original Mono runtimes. Per runtime: **441 checks / 18 phases** for the
+standalone manager bridge, **314 / 8** for the new FineDining composition, and
+**652 / 19** for existing EpicLoot regressions. The paired checks exercise actual
+FineDining policy calls, differing expiry metadata, refused foreign/unknown
+keys, both initialization orders, pending startup, late provider addition/removal,
+inventory-only discovery and independent teardown. The inventory-discovery cases
+use explicit Harmony patch descriptors; they do not execute `Inventory.AddItem`.
+Physical merge/destruction and the expiry callback's native execution remain
+outside these fixtures.
+
+The partner Debug DLL SHA-256 is
+`36D4347311D1AC604B6C3B44803508D7C73480EFC217C5CF04D9F14A1525E4A5`.
+The paired runner lives in the sibling repository's
+`tests/ItemDataStackChecks.cs` / `tests/run_azu_mono.py`; use its
+`idm-composition`, `idm-fine-composition` and `epic-composition` modes. Final logs
+are in `C:/Users/blizz/AppData/Local/Temp/flg-idm-final-36D434-893F5A/`.
+
+```powershell
+dotnet build Tests/EpicLootSmoke/EpicLootSmoke.csproj -c Debug
+python Tests/EpicLootSmoke/run.py <original-game-root> <FineDining.dll> <BepInEx-core> <EpicLoot.dll> <PoVPlus.Compat.dll>
+```
+
+These are isolated managed checks, not full BepInEx boot, native physics, actual
+equipped-gear healing, world saves or multiplayer. Still verify ground merges
+with different expiry/freshness values and manager-owned data, full stacks,
+Feed Barrel protected drops, client/host/dedicated ownership, save/restart and
+PoVPlus installed/absent. Confirm item totals and source destruction, refusal
+without loss, one gear bonus, and preserved PoV recovery cadence in game.
+
 ## Release 1.1.12 (2026-10-31)
 
 - Debug and normal Release builds completed with zero warnings/errors. Debug

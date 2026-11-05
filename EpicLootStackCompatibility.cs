@@ -26,6 +26,7 @@ internal static class EpicLootStackCompatibility
     private static readonly MethodInfo EntryMethod = typeof(EpicLootStackCompatibility).GetMethod(nameof(BeforeAutoStack), Declared)!;
     private static readonly MethodInfo TranspilerMethod = typeof(EpicLootStackCompatibility).GetMethod(nameof(Transpiler), Declared)!;
     private static readonly MethodInfo ComposeMethod = typeof(DecayRuntime).GetMethod(nameof(DecayRuntime.ComposeGroundStackExpiry), Declared)!;
+    private static readonly MethodInfo DataComposeMethod = typeof(EpicLootStackCompatibility).GetMethod(nameof(ComposeItemData), Declared)!;
     private static readonly MethodInfo VanillaTranspiler = typeof(ItemDropAutoStackSpoilagePatch).GetMethod("Transpiler", Declared)!;
     private static readonly MethodInfo ClockGuard = typeof(ItemDropClockReadinessPatch).GetMethod("Prefix", Declared)!;
     private static Harmony? _entry, _replacement;
@@ -34,7 +35,12 @@ internal static class EpicLootStackCompatibility
     private static Patch? _orderedEntry, _orderedEpic;
     private static bool _composed, _inserted, _blocked;
     private static string? _lastWarning;
+    private static MethodInfo[] _providerMethods = Array.Empty<MethodInfo>();
+    private static ItemDataStackCompatibility.Provider[] _providers = Array.Empty<ItemDataStackCompatibility.Provider>();
+    private static Type? _yieldedFlg;
+    private static Action? _yieldFlg;
     internal static bool IsInstalled => _replacement != null;
+    internal static bool ItemDataMergeActive => !_blocked && _replacement != null && _inserted && _providers.Length != 0;
 
     // Identifies relevant methods only, independent of DLL version/MVID/token or
     // branch offsets. Unrelated updates do not require a new compatibility list.
@@ -122,10 +128,20 @@ internal static class EpicLootStackCompatibility
         foreach (Patch patch in patches.Transpilers)
         {
             if (patch.owner == FineDiningPlugin.ModGUID && patch.PatchMethod == VanillaTranspiler && !patch.wrapTryCatch) continue;
+            if (ItemDataStackCompatibility.IsManagerPatch(patch) && !patch.wrapTryCatch) continue;
             Require(patch.owner == FlgDropOwner && patch.PatchMethod.DeclaringType?.FullName == "FeedLikeGrandma.FeedBarrelDropProtection" &&
                 patch.PatchMethod.Name == "Transpiler" && !patch.wrapTryCatch,
                 "original-method transpiler bypassed by EpicLoot");
         }
+        MethodInfo[] providerMethods = ItemDataStackCompatibility.Discover(patches);
+        if (!_providerMethods.SequenceEqual(providerMethods))
+        {
+            ItemDataStackCompatibility.Provider[] providers = ItemDataStackCompatibility.Bind(providerMethods);
+            if (_prefix != null) RemoveReplacement();
+            _providers = providers; _providerMethods = providerMethods;
+        }
+        ItemDataStackCompatibility.Validate(_providers);
+        YieldFlgItemData(prefix);
         if (_prefix != null)
         {
             Require(_prefix == prefix, "running EpicLoot replacement changed; restart required");
@@ -151,6 +167,25 @@ internal static class EpicLootStackCompatibility
             throw;
         }
         return true;
+    }
+
+    private static bool ComposeItemData(ItemDrop receiver, ItemDrop candidate) =>
+        !_blocked && ItemDataStackCompatibility.TryCompose(receiver, candidate, _providers);
+
+    private static void YieldFlgItemData(MethodInfo prefix)
+    {
+        Patches? patches = Harmony.GetPatchInfo(prefix);
+        Type? flg = patches?.Transpilers.FirstOrDefault(p => p.owner == FlgOwner)?.PatchMethod.DeclaringType;
+        if (flg == null) return;
+        if (flg == _yieldedFlg) { RequireUnpatched(_yieldFlg!.Method); _yieldFlg(); return; }
+        MethodInfo? yield = flg.GetMethod("YieldItemDataOwnership", Declared, null, Type.EmptyTypes, null);
+        if (yield == null) return; // Old FLG remains supported when no IDM is active.
+        Require(flg.FullName == "FeedLikeGrandma.FeedEpicLootStackCompatibility" &&
+            yield.IsStatic && yield.IsAssembly && yield.ReturnType == typeof(void), "FLG ItemData ownership handoff");
+        RequireUnpatched(yield);
+        _yieldFlg = (Action)Delegate.CreateDelegate(typeof(Action), yield);
+        _yieldFlg(); // FLG yields its data callback and retains its validation guard.
+        _yieldedFlg = flg;
     }
 
     internal static MethodInfo[] ValidateEpicContract(MethodInfo prefix)
@@ -180,7 +215,7 @@ internal static class EpicLootStackCompatibility
             Require(!requireOwn, "missing expiry patch");
             return null;
         }
-        Require(patches.Prefixes.Count == 0 && patches.Postfixes.Count == 0 && patches.Finalizers.Count == 0 &&
+        Require(patches.Postfixes.Count == 0 && patches.Finalizers.Count == 0 &&
             patches.ILManipulators.Count == 0, "uninspected replacement wrapper");
         int own = 0;
         MethodInfo? filter = null;
@@ -201,6 +236,27 @@ internal static class EpicLootStackCompatibility
             Require(filter != null && filter.IsStatic && filter.ReturnType == typeof(ItemDrop), "FLG filter signature");
         }
         Require(own == (requireOwn ? 1 : 0), "missing or duplicated expiry patch");
+        // The cooperating FLG keeps a validation-only guard while delegating
+        // item-data merging. It safely reacquires ownership on the next ordinary
+        // stack call if FineDining has been fully removed, without a gap.
+        Type? flg = filter?.DeclaringType?.Assembly.GetType("FeedLikeGrandma.FeedEpicLootStackCompatibility");
+        MethodInfo? guard = flg?.GetMethod("BeforeReplacement", Declared, null,
+            new[] { typeof(bool), typeof(bool), typeof(bool).MakeByRefType() }, null);
+        int expectedGuards = guard != null && _providers.Length != 0 ? 1 : 0;
+        Require(patches.Prefixes.Count == expectedGuards, "missing or additional replacement entry guard");
+        if (expectedGuards != 0)
+        {
+            Patch patch = patches.Prefixes[0];
+            Require(patch.owner == FlgOwner && patch.PatchMethod == guard && !patch.wrapTryCatch &&
+                patch.priority == Priority.First && patch.before.Length == 0 && patch.after.Length == 0 &&
+                guard!.IsPrivate && guard.IsStatic && guard.ReturnType == typeof(bool) &&
+                guard.GetParameters().Select(p => p.Name).SequenceEqual(new[] { "__runOriginal", "__1", "__result" }) &&
+                !guard.GetCustomAttributes(typeof(HarmonyArgument), false).Any() &&
+                !flg!.GetCustomAttributes(typeof(HarmonyArgument), false).Any() &&
+                guard.GetParameters().All(p => !p.GetCustomAttributes(typeof(HarmonyArgument), false).Any()),
+                "FLG replacement entry guard contract changed");
+            RequireUnpatched(guard!);
+        }
         return filter;
     }
 
@@ -229,6 +285,16 @@ internal static class EpicLootStackCompatibility
         code.InsertRange(start, new[] { receiver,
             new CodeInstruction(code[candidateLoad].opcode, code[candidateLoad].operand),
             new CodeInstruction(OpCodes.Call, ComposeMethod) });
+        if (_providers.Length != 0)
+        {
+            Label? skip = null;
+            Require(code[start - 1].Branches(out skip) && skip.HasValue, "ItemData candidate skip");
+            var dataReceiver = new CodeInstruction(OpCodes.Ldarg_0);
+            dataReceiver.labels.AddRange(code[start].labels); code[start].labels.Clear();
+            code.InsertRange(start, new[] { dataReceiver,
+                new CodeInstruction(code[candidateLoad].opcode, code[candidateLoad].operand),
+                new CodeInstruction(OpCodes.Call, DataComposeMethod), new CodeInstruction(OpCodes.Brfalse, skip!.Value) });
+        }
         _inserted = true;
         return code;
     }
@@ -260,6 +326,8 @@ internal static class EpicLootStackCompatibility
         MethodInfo? filter = ValidateReplacementPatches(_prefix!, true);
         foreach (MethodInfo helper in _helpers) RequireUnpatched(helper);
         RequireUnpatched(ComposeMethod);
+        RequireUnpatched(DataComposeMethod);
+        ItemDataStackCompatibility.Validate(_providers);
         if (_composed) return;
         List<CodeInstruction> code = PatchProcessor.GetCurrentInstructions(_prefix!);
         Require(_inserted, "expiry insertion failed; an older FLG bridge may already own expiry");
@@ -273,6 +341,21 @@ internal static class EpicLootStackCompatibility
         RequireNoEntry(code[call - 1]); RequireNoEntry(code[call]);
         Require(code[call - 2].blocks.Count == 0, "expiry exception entry");
         code[call + 1].labels.AddRange(code[call - 2].labels); code.RemoveRange(call - 2, 3);
+        int dataCall = code.FindIndex(instruction => instruction.Calls(DataComposeMethod));
+        if (_providers.Length != 0)
+        {
+            store = code.FindIndex(IsStackStore);
+            Label? skip = null;
+            Require(dataCall >= 3 && code.Count(i => i.Calls(DataComposeMethod)) == 1 && dataCall == store - 9 &&
+                code[dataCall - 2].opcode == OpCodes.Ldarg_0 && code[dataCall - 1].IsLdloc() &&
+                LocalIndex(code[dataCall - 1]) == LocalIndex(code[candidateStore]) &&
+                code[dataCall + 1].opcode == OpCodes.Brfalse && code[dataCall - 3].Branches(out skip) &&
+                skip.HasValue && Equals(code[dataCall + 1].operand, skip.Value), "ItemData guard missing, duplicated or moved");
+            RequireNoEntry(code[dataCall - 1]); RequireNoEntry(code[dataCall]); RequireNoEntry(code[dataCall + 1]);
+            Require(code[dataCall - 2].blocks.Count == 0, "ItemData guard exception entry");
+            code[dataCall + 2].labels.AddRange(code[dataCall - 2].labels); code.RemoveRange(dataCall - 2, 4);
+        }
+        else Require(dataCall < 0, "unexpected ItemData guard");
         MethodInfo? actualFilter = StripFilter(code, filter);
         Require(actualFilter == filter && Fingerprint(code) == PrefixContract, "replacement flow changed");
         _composed = true;
@@ -305,6 +388,8 @@ internal static class EpicLootStackCompatibility
         _entry = null;
         _blocked = false; _lastWarning = null;
         _orderedEntry = null; _orderedEpic = null;
+        _providers = Array.Empty<ItemDataStackCompatibility.Provider>();
+        _providerMethods = Array.Empty<MethodInfo>(); _yieldedFlg = null; _yieldFlg = null;
     }
 
     private static bool IsCandidateLookup(CodeInstruction instruction) => instruction.operand is MethodInfo method &&

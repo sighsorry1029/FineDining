@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.13
+
+- Restore EpicLoot's fixed health-regeneration bonus under FineDining, retaining existing food requirements, regeneration multipliers and Path of Valheiman recovery timing. This optional integration works without PoVPlus.Compat and avoids its duplicate health-bonus injection.
+- Compose active ItemDataManager stack policies inside EpicLoot's ground auto-stacking replacement. Preserve FineDining food timers and merge only approved manager-owned metadata; unknown or changed contracts reject unsafe ground merges before item counts change. Checked the embedded managers in BowsBeforeHoes, AzuCraftyBoxes, ValheimCuisine and BetterSleepBruh.
+- Coordinate ground-stack ownership with the matching FeedLikeGrandma compatibility update: FineDining handles metadata and expiry once, while FeedLikeGrandma retains food-drop protection and its validation guard. Handle either initialization order, pending or late registration and plugin cleanup. Update both mods together when using this combination.
+- No new configuration keys, saved-data formats or required mod dependencies. Added original Valheim 1.0.21 client/server Mono regression checks for the optional health and stacking integrations. Actual Unity-world healing, ground physics, save/reconnect and multiplayer still require in-game verification.
+
 ## 1.1.12
 
 - Added the server-synchronized `Pause Spoilage In Winter` setting, disabled by default. With Seasonality or Seasons, a persistent world spoilage clock pauses during the accepted winter and protects converted food in offline character saves and unloaded containers or ground items. Existing Icebox, biome and fish preservation remain separate.

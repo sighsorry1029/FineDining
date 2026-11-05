@@ -24,6 +24,7 @@ namespace FineDining;
     BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency("expand_world_data", BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency(PathOfValheimanCompatibility.PluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
+[BepInDependency(EpicLootHealthCompatibility.PluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency(SeasonalPreservation.SeasonalityGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInDependency(SeasonalPreservation.SeasonsGuid, BepInDependency.DependencyFlags.SoftDependency)]
 [BepInIncompatibility("sighsorry.BeingSpoiled")]
@@ -32,7 +33,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.1.12";
+    internal const string ModVersion = "1.1.13";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;
@@ -114,6 +115,7 @@ public sealed class FineDiningPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        EpicLootHealthCompatibility.Shutdown();
         WorldSpoilageClock.Shutdown();
         SeasonalPreservation.Shutdown();
         try { EpicLootStackCompatibility.Shutdown(); }
