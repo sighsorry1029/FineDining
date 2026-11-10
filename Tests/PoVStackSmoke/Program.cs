@@ -38,6 +38,15 @@ internal static class Program
     private static readonly HashSet<Inventory> Owned = new();
     private static Action? insideFind;
     private static ItemData? cancelled;
+    private static readonly List<ItemData> settled = new();
+    private static bool template, throwSettle;
+    private static void ObserveSettle(ItemData __0) {
+        settled.Add(__0);
+        if (throwSettle) throw new InvalidOperationException("normalization failed");
+    }
+    private static bool Template(ref bool __result) { __result = template; return false; }
+    private static bool PrefabName(ref string __result) { __result = "fd-stack-food"; return false; }
+    private static bool ColorParse(ref Color color, ref bool __result) { color = Color.white; __result = true; return false; }
     private static object? winterContext;
     private static bool WinterContext(object[] __args, ref bool __result) { __args[0] = winterContext!; __result = true; return false; }
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NativeInt();
@@ -129,11 +138,12 @@ internal static class Program
             Check((bool)AccessTools.Method(typeof(InventoryGui),"CanDropDragOntoItem").Invoke(gui,new object[]{target})!, "original drag preview accepts timed foods");
             Check(!same(target,source), "preview scope is cleaned up");
 
-            foreach (string mismatch in new[] { "foreign", "variant", "invalid-clock", "invalid-lifetime", "invalid-marker", "placed-anchor" })
+            foreach (string mismatch in new[] { "foreign", "implicit", "variant", "invalid-clock", "invalid-lifetime", "invalid-marker", "placed-anchor" })
             {
                 inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
                 switch(mismatch) {
                     case "foreign": source.m_customData["pt.food"]="distinct"; break;
+                    case "implicit": source.m_customData["pt.implicit"]="food:1"; break;
                     case "variant": source.m_variant=1; break;
                     case "invalid-clock": source.m_customData[Expiry]="future:400"; break;
                     case "invalid-lifetime": source.m_customData[Lifetime]="bad"; break;
@@ -159,6 +169,56 @@ internal static class Program
             Check(inv.AddItem(source) && target.m_stack==50 && target.m_customData[Expiry]=="future:equal", "identical unknown payload retains native behavior");
             inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); target.m_customData["pt.work.test"]="a"; source.m_customData["pt.work.test"]="b"; AddDirect(inv,target);
             Check(inv.AddItem(source) && target.m_stack==50, "PoV bookkeeping exclusions retain native behavior");
+
+            foreach (string key in new[] { "valheiman.equipment.v1.cell", "pt.fish.caught" })
+            foreach (bool reverse in new[] { false, true }) {
+                inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
+                (reverse ? target : source).m_customData[key]="bookkeeping";
+                Check(inv.AddItem(source) && target.m_stack==50 && target.m_customData[Expiry]==(Now+400).ToString(),key+" preserves native exclusion, reverse="+reverse);
+            }
+            Type? implicits=pov.GetType("PassiveTree.Implicits");
+            MethodInfo? settle=implicits?.GetMethod("Settle",S);
+            if(settle!=null) {
+                var normalizationFixture=new Harmony("fd.stack.normalization.fixture");
+                try {
+                    normalizationFixture.Patch(settle,prefix:new HarmonyMethod(typeof(Program),nameof(ObserveSettle)));
+                    target=Food(1,Now+400); source=Food(1,Now+400); settled.Clear();
+                    Check(same(target,source) && settled.SequenceEqual(new[]{target,source}),"original SameData normalizes both operands exactly once");
+                    source.m_variant=1; settled.Clear();
+                    Check(!same(target,source) && settled.Count==0,"variant rejection precedes normalization");
+                    normalizationFixture.Patch(AccessTools.Method(implicits,"IsTemplate"),prefix:new HarmonyMethod(typeof(Program),nameof(Template)));
+                    normalizationFixture.Patch(AccessTools.PropertyGetter(typeof(UnityEngine.Object),"name"),prefix:new HarmonyMethod(typeof(Program),nameof(PrefabName)));
+                    normalizationFixture.Patch(AccessTools.Method(typeof(ColorUtility),"TryParseHtmlString"),prefix:new HarmonyMethod(typeof(Program),nameof(ColorParse)));
+                    foreach(string type in new[]{"Belts","Rings","JewelImplicits","StaffImplicits","BaseImplicits"})
+                        normalizationFixture.Patch(AccessTools.Method(pov.GetType("PassiveTree."+type,true),"Touch"),prefix:new HarmonyMethod(typeof(Program),nameof(Skip)));
+                    implicits!.GetMethod("RegisterShown",S)!.Invoke(null,new[]{(object)"fd-stack-food",implicits.GetField("Food",S)!.GetValue(null)!});
+                    foreach(string mode in new[]{"settle","template","corruption","unregistered"}) {
+                        inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
+                        target.m_dropPrefab=source.m_dropPrefab=(GameObject)FormatterServices.GetUninitializedObject(typeof(GameObject));
+                        target.m_customData["pt.implicit"]="food:1"; source.m_customData["pt.implicit"]="food:2";
+                        template=mode=="template";
+                        if(mode=="corruption") target.m_customData["pt.corrupt.imp"]=source.m_customData["pt.corrupt.imp"]="1!";
+                        if(mode=="unregistered") ((System.Collections.IDictionary)implicits.GetField("bases",S)!.GetValue(null)!).Clear();
+                        bool merged=inv.AddItem(source);
+                        Check(mode=="settle" ? merged && target.m_stack==50 && !target.m_customData.ContainsKey("pt.implicit") && !source.m_customData.ContainsKey("pt.implicit") && target.m_customData[Expiry]==(Now+400).ToString()
+                            : !merged && target.m_stack==45 && source.m_stack==5 && target.m_customData.ContainsKey("pt.implicit") && source.m_customData.ContainsKey("pt.implicit"),"original Settle policy: "+mode);
+                    }
+                    template=false; inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target); throwSettle=true;
+                    try { inv.AddItem(source); throw new Exception("expected normalization exception"); }
+                    catch(InvalidOperationException e) { Check(e.Message=="normalization failed" && target.m_stack==45 && source.m_stack==5,"normalization exception preserves quantities"); }
+                    throwSettle=false;
+                    Check(!same(target,source),"normalization exception releases comparison scope");
+                } finally { normalizationFixture.UnpatchSelf(); template=false; throwSettle=false; }
+            }
+            foreach(int count in new[]{1,3}) {
+                var comparison=PatchProcessor.GetOriginalInstructions(rules.GetMethod("SameData",S)!).ToList();
+                var bookkeeping=rules.GetMethod("Bookkeeping",S)!;
+                int index=comparison.FindIndex(i=>i.Calls(bookkeeping));
+                if(count==1) comparison.RemoveAt(index); else comparison.Add(new CodeInstruction(OpCodes.Call,bookkeeping));
+                try { bridge.GetMethod("RewriteComparison",S)!.Invoke(null,new object[]{comparison}); throw new Exception("expected comparison drift rejection"); }
+                catch(TargetInvocationException e) { Check(e.InnerException is NotSupportedException,"bookkeeping count "+count+" rejected before partial rewrite"); }
+                Check(comparison.Count(i=>i.Calls(bookkeeping))==count,"rejected rewrite leaves input instructions intact");
+            }
 
             foreach(string denied in new[]{"authority","loading","clock"}) {
                 inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);

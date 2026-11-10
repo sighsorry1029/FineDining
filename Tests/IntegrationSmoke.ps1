@@ -200,11 +200,11 @@ function Assert-ZipPackage(
 
 $assembly = [Reflection.Assembly]::UnsafeLoadFrom($assemblyPath)
 Assert-True ($assembly.GetName().Name -eq 'FineDining') 'Assembly name must be FineDining.'
-Assert-True ($assembly.GetName().Version -eq [Version] '1.1.13.0') 'Assembly version must be 1.1.13.0.'
+Assert-True ($assembly.GetName().Version -eq [Version] '1.1.14.0') 'Assembly version must be 1.1.14.0.'
 
 $pluginType = Get-TypeRequired $assembly 'FineDining.FineDiningPlugin'
 Assert-True ((Get-Constant $pluginType 'ModName') -eq 'FineDining') 'Plugin name must be FineDining.'
-Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.13') 'Plugin version must be 1.1.13.'
+Assert-True ((Get-Constant $pluginType 'ModVersion') -eq '1.1.14') 'Plugin version must be 1.1.14.'
 Assert-True ((Get-Constant $pluginType 'Author') -eq 'sighsorry') 'Plugin author must be sighsorry.'
 Assert-True ((Get-Constant $pluginType 'ModGUID') -eq 'sighsorry.FineDining') 'Plugin GUID must be sighsorry.FineDining.'
 Assert-True ([bool](Get-Constant $pluginType 'DefaultConfigurationLock')) 'Server configuration lock must default to enabled.'
@@ -327,6 +327,7 @@ $expectedConfigEntries = @(
     [pscustomobject]@{ File = 'FreshnessRuntime.cs'; Section = 'Spoilage'; Key = 'Stale Food Minimum Multiplier'; Order = 500; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Default Placement Limit'; Order = 450; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Storage Rows'; Order = 400; Scope = 'Synced' },
+    [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Storage Columns'; Order = 350; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Build Recipe'; Order = 300; Scope = 'Synced' },
     [pscustomobject]@{ File = 'IceboxSubsystem.cs'; Section = 'Spoilage'; Key = 'Icebox Map Pins'; Order = 200; Scope = 'Client' })
 $configEntryGuard = 'ConfigPresentation\.(?:General|ClientSection|Diet|ChefChoice|Spoilage)(?:\.Name)?,\s*"[^"]+"'
@@ -397,6 +398,7 @@ Assert-True ($freshnessConfigSource.Contains('configSync.AddConfigEntry(_minimum
 Assert-True ($preservationConfigSource.Contains('configSync.AddConfigEntry(_noSpoilBiomes)') -and $preservationConfigSource.Contains('syncedEntry.SynchronizedConfig = true;')) 'No-spoil biome configuration must remain server-synchronized.'
 Assert-True ($iceboxConfigSource.Contains('FineDiningPlugin.ConfigSync.AddConfigEntry(_defaultPlacementLimit)') -and $iceboxConfigSource.Contains('FineDiningPlugin.ConfigSync.AddConfigEntry(_storageRows)') -and $iceboxConfigSource.Contains('FineDiningPlugin.ConfigSync.AddConfigEntry(_recipe)')) 'Icebox gameplay configuration must remain server-synchronized.'
 Assert-True (-not $iceboxConfigSource.Contains('AddConfigEntry(_showMapPins)')) 'Icebox map pins must remain client-only.'
+Assert-True ($iceboxConfigSource.Contains('FineDiningPlugin.ConfigSync.AddConfigEntry(_storageColumns)') -and $iceboxConfigSource.Contains('synchronizedColumns.SynchronizedConfig = true;')) 'Icebox columns must remain server-synchronized.'
 Assert-True (-not $iceboxConfigSource.Contains('_mapPinScale') -and -not $iceboxConfigSource.Contains('MapPinScale')) 'The removed Icebox map-pin scale configuration and accessor must not return.'
 Assert-True (-not $stationConfigSource.Contains('BindLocal')) 'Station client config must not regain a pass-through binding wrapper.'
 Assert-True ($stationConfigSource.Contains('configSync.AddConfigEntry(entry)') -and $stationConfigSource.Contains('syncedEntry.SynchronizedConfig = true;')) 'Fermentation gameplay settings must remain server-synchronized.'

@@ -21,9 +21,11 @@ internal static class IceboxSubsystem
     internal const string OwnerAccountIdKey = "sighsorry.FineDining.IceboxOwnerAccountId";
     internal const string LimitRefundProcessedKey = "sighsorry.FineDining.IceboxLimitRefundProcessed";
     internal const string PlacedRecipeKey = "sighsorry.FineDining.IceboxPlacedRecipe";
-    internal const int StorageColumns = 8;
+    internal const int DefaultStorageColumns = 8;
+    internal const int MinimumStorageColumns = 1;
+    internal const int MaximumStorageColumns = 8;
     internal const int DefaultStorageRows = 4;
-    internal const int MinimumStorageRows = 4;
+    internal const int MinimumStorageRows = 1;
     internal const int MaximumStorageRows = 20;
     internal const int DefaultPlacementLimit = 2;
     internal const string DefaultRecipe = "TrophySGolem:1,Obsidian:8,Crystal:16,Silver:32";
@@ -39,8 +41,10 @@ internal static class IceboxSubsystem
     private static FineDiningPlugin? _owner;
     private static ConfigEntry<int>? _defaultPlacementLimit;
     private static ConfigEntry<int>? _storageRows;
+    private static ConfigEntry<int>? _storageColumns;
     private static ConfigEntry<string>? _recipe;
     private static ConfigEntry<bool>? _showMapPins;
+    private static readonly HashSet<Container> PendingStorageSizes = new();
 
     internal static bool IsInitialized => _owner != null;
     internal static int PlacementLimit =>
@@ -49,6 +53,10 @@ internal static class IceboxSubsystem
         _storageRows?.Value ?? DefaultStorageRows,
         MinimumStorageRows,
         MaximumStorageRows);
+    internal static int StorageColumns => Mathf.Clamp(
+        _storageColumns?.Value ?? DefaultStorageColumns,
+        MinimumStorageColumns,
+        MaximumStorageColumns);
     internal static string Recipe => _recipe?.Value ?? DefaultRecipe;
     internal static bool ShowMapPins => _showMapPins?.Value == true;
 
@@ -68,6 +76,7 @@ internal static class IceboxSubsystem
         _owner = owner;
         _defaultPlacementLimit = BindDefaultPlacementLimit(owner.Config);
         _storageRows = BindStorageRows(owner.Config);
+        _storageColumns = BindStorageColumns(owner.Config);
         _recipe = BindRecipe(owner.Config);
         _showMapPins = owner.Config.Bind(
             ConfigPresentation.Spoilage.Name,
@@ -84,11 +93,15 @@ internal static class IceboxSubsystem
         SyncedConfigEntry<int> synchronizedRows =
             FineDiningPlugin.ConfigSync.AddConfigEntry(_storageRows);
         synchronizedRows.SynchronizedConfig = true;
+        SyncedConfigEntry<int> synchronizedColumns =
+            FineDiningPlugin.ConfigSync.AddConfigEntry(_storageColumns);
+        synchronizedColumns.SynchronizedConfig = true;
         SyncedConfigEntry<string> synchronizedRecipe =
             FineDiningPlugin.ConfigSync.AddConfigEntry(_recipe);
         synchronizedRecipe.SynchronizedConfig = true;
 
-        _storageRows.SettingChanged += OnStorageRowsChanged;
+        _storageRows.SettingChanged += OnStorageSizeChanged;
+        _storageColumns.SettingChanged += OnStorageSizeChanged;
         _recipe.SettingChanged += OnRecipeChanged;
         _showMapPins.SettingChanged += OnShowMapPinsChanged;
 
@@ -104,6 +117,7 @@ internal static class IceboxSubsystem
             return;
         }
 
+        RefreshPendingStorageSizes();
         IceboxLimitPolicy.Tick();
         IceboxQuotaService.Tick();
         IceboxMapPins.Tick();
@@ -111,18 +125,26 @@ internal static class IceboxSubsystem
 
     internal static void ResetSession()
     {
+        PendingStorageSizes.Clear();
         IceboxQuotaService.ResetSession();
         IceboxMapPins.ResetSession();
     }
 
     internal static void Shutdown()
     {
+        PendingStorageSizes.Clear();
         _defaultPlacementLimit = null;
 
         if (_storageRows != null)
         {
-            _storageRows.SettingChanged -= OnStorageRowsChanged;
+            _storageRows.SettingChanged -= OnStorageSizeChanged;
             _storageRows = null;
+        }
+
+        if (_storageColumns != null)
+        {
+            _storageColumns.SettingChanged -= OnStorageSizeChanged;
+            _storageColumns = null;
         }
 
         if (_recipe != null)
@@ -162,10 +184,21 @@ internal static class IceboxSubsystem
             "Icebox Storage Rows",
             DefaultStorageRows,
             ConfigPresentation.Synced(
-                "Number of Icebox inventory rows. Iceboxes always have eight columns.",
+                "Number of Icebox inventory rows (1-20). Occupied outer rows remain accessible until emptied.",
                 ConfigPresentation.Spoilage,
                 400,
                 new AcceptableValueRange<int>(MinimumStorageRows, MaximumStorageRows)));
+
+    internal static ConfigEntry<int> BindStorageColumns(ConfigFile config) =>
+        config.Bind(
+            ConfigPresentation.Spoilage.Name,
+            "Icebox Storage Columns",
+            DefaultStorageColumns,
+            ConfigPresentation.Synced(
+                "Number of Icebox inventory columns (1-8). Occupied outer columns remain accessible until emptied.",
+                ConfigPresentation.Spoilage,
+                350,
+                new AcceptableValueRange<int>(MinimumStorageColumns, MaximumStorageColumns)));
 
     internal static ConfigEntry<string> BindRecipe(ConfigFile config) =>
         config.Bind(
@@ -315,17 +348,17 @@ internal static class IceboxSubsystem
         }
 
         Inventory? inventory = container.GetInventory();
-        int rows = ResolveSafeStorageRows(inventory);
-        container.m_width = StorageColumns;
-        container.m_height = rows;
+        Vector2i size = ResolveSafeStorageSize(inventory);
+        container.m_width = size.x;
+        container.m_height = size.y;
 
         if (inventory == null)
         {
             return;
         }
 
-        InventoryWidth(inventory) = StorageColumns;
-        InventoryHeight(inventory) = rows;
+        InventoryWidth(inventory) = size.x;
+        InventoryHeight(inventory) = size.y;
     }
 
     internal static bool PrepareStorageLoad(Container? container)
@@ -335,15 +368,14 @@ internal static class IceboxSubsystem
             return false;
         }
 
-        // Inventory.Load silently drops saved entries whose coordinates are
-        // outside the current dimensions. Load every supported row first, then
-        // reduce only to a size that still contains all loaded slots.
-        container.m_width = StorageColumns;
+        // Inventory.Load permits extra saved rows but still rejects out-of-width
+        // entries. Read at the maximum supported size before safely shrinking.
+        container.m_width = MaximumStorageColumns;
         container.m_height = MaximumStorageRows;
         Inventory? inventory = container.GetInventory();
         if (inventory != null)
         {
-            InventoryWidth(inventory) = StorageColumns;
+            InventoryWidth(inventory) = MaximumStorageColumns;
             InventoryHeight(inventory) = MaximumStorageRows;
         }
 
@@ -438,30 +470,49 @@ internal static class IceboxSubsystem
             return;
         }
 
-        ApplyConfiguredStorageSize(container);
+        // Changed can run between the remove/add halves of a slot swap. Shrink
+        // only after that operation returns, so its destination stays valid.
+        PendingStorageSizes.Add(container);
     }
 
-    private static int ResolveSafeStorageRows(Inventory? inventory)
+    private static void RefreshPendingStorageSizes()
     {
+        foreach (Container container in PendingStorageSizes)
+        {
+            ApplyConfiguredStorageSize(container);
+        }
+
+        PendingStorageSizes.Clear();
+    }
+
+    private static Vector2i ResolveSafeStorageSize(Inventory? inventory)
+    {
+        int columns = StorageColumns;
         int rows = StorageRows;
         if (inventory == null)
         {
-            return rows;
+            return new Vector2i(columns, rows);
         }
 
         foreach (ItemDrop.ItemData item in inventory.GetAllItems())
         {
+            columns = Math.Max(columns, item.m_gridPos.x + 1);
             rows = Math.Max(rows, item.m_gridPos.y + 1);
         }
 
-        return Mathf.Clamp(rows, MinimumStorageRows, MaximumStorageRows);
+        return new Vector2i(
+            Mathf.Clamp(columns, MinimumStorageColumns, MaximumStorageColumns),
+            Mathf.Clamp(rows, MinimumStorageRows, MaximumStorageRows));
     }
 
-    private static void ApplyConfiguredStorageSizeToLoadedIceboxes()
+    private static void QueueLoadedStorageSizeRefresh()
     {
         foreach (Container container in UnityEngine.Object.FindObjectsByType<Container>(FindObjectsSortMode.None))
         {
-            ApplyConfiguredStorageSize(container);
+            if (IsIcebox(container))
+            {
+                PendingStorageSizes.Add(container);
+            }
         }
     }
 
@@ -519,9 +570,9 @@ internal static class IceboxSubsystem
         IceboxMapPins.HandleConfigChanged();
     }
 
-    private static void OnStorageRowsChanged(object sender, EventArgs args)
+    private static void OnStorageSizeChanged(object sender, EventArgs args)
     {
-        ApplyConfiguredStorageSizeToLoadedIceboxes();
+        QueueLoadedStorageSizeRefresh();
         GeneratedPrefabRegistry.RefreshIceboxConfiguredContent();
     }
 

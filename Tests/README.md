@@ -1,5 +1,22 @@
 # Development checks
 
+## Release 1.1.14 (2026-11-10)
+
+- Debug and normal Release builds completed with zero warnings/errors. Debug
+  deployment matches the local Steam plugins DLL. The plugin, assembly and
+  manifest identify 1.1.14. The unrelated station/CraftFromContainer work was
+  temporarily preserved outside the build and is not included in this release.
+- IntegrationSmoke passed against the final Release DLL and both packages,
+  including exact archive entry sets and source-byte comparisons. Release DLL
+  SHA-256: `299D211F74B302BA06C94A54DC53F41074514F4AD2632D8914347771D31813DA`.
+- The final Release DLL passed 20 Icebox, 65 PoV stack and 30 PoV tooltip checks
+  on each original Valheim 1.0.21 client/server Mono runtime with PoV 6.0.6.
+  API checks passed 2,187 direct game references, 88 explicit Harmony contracts
+  and 37 private bindings per role. These are isolated checks with the fixtures
+  described below, not actual Unity or multiplayer sessions.
+- Remaining in-game checks: live inventory resizing and scrolling, transfers
+  between containers, native save/reconnect and network ownership changes.
+
 ## Release 1.1.13 (2026-11-05)
 
 - Debug and normal Release builds completed with zero warnings/errors. Debug
@@ -647,6 +664,42 @@ Compare GC allocations and UI rebuilds in the same scene before making a
 performance claim. Preserve per-frame hint visibility when reducing cached work.
 
 ### Optional Path of Valheiman integration
+
+2026-11-10 update: original PoV **6.0.6**, SHA-256
+`5E2F52FE93691DE69C0BDE7CF0BADD4B62BE34111D3A382304C3A7A86372A734`,
+with original Valheim **1.0.21** Windows x64 client build **26249040** and
+dedicated-server build **26266951**. Both inputs passed 65 stack and 30 tooltip
+checks in their original Mono runtimes. The stack harness additionally checks
+PoV's new bookkeeping keys in both operand positions, original `Settle` call
+order and normalization, retained template/corruption/unregistered implicit
+data, normalization exceptions, null-prefab implicit rejection, and missing or
+extra bookkeeping call rejection. The original `SameData` and `Settle` bodies
+execute; native prefab identity, template lookup and registration initialization
+are fixtures. This is not a Unity/game/server session.
+
+The same two original runtimes also passed 20 Icebox storage checks:
+config defaults/ranges, occupied bounds on both axes, original item/inventory
+save and load, and original `InventoryGrid.DropItem` swaps at the last column
+and last row. A narrow-load control confirms vanilla drops an out-of-width
+entry; the production load preparation restores the supported width first.
+Swaps retain both item identities, quantities, coordinates and freshness;
+shrinking runs after the transaction. Native prefab construction, container
+identity/registration and change notification are fixtures. No network, ZDO
+ownership transfer or visible inventory grid is exercised.
+
+```powershell
+dotnet build Tests/IceboxStorageSmoke/IceboxStorageSmoke.csproj -c Debug
+& "<x64 MonoHost.exe>" "<original game>/MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll" "<original managed directory>" "<original game>/MonoBleedingEdge/etc" "Tests/IceboxStorageSmoke/bin/Debug/net48/IceboxStorageSmoke.exe" "bin/Debug/FineDining.dll" "<original managed directory>" "<BepInEx/core>"
+```
+
+The earlier Debug checkpoint, with the separate station work present, passed
+IntegrationSmoke and Check-GameApi: 2,203 direct references,
+88 explicit Harmony targets/arguments and 37 private bindings for each role.
+That Debug DLL was merged and deployed to the local Steam plugins folder
+with matching SHA-256. Existing station/CraftFromContainer work was preserved.
+Still check in-game: live 1x1/8x20 configuration changes with the Icebox open,
+scrolling and timer placement, cross-container slot swaps, unload/reload,
+save/reconnect and ownership transfer using the same mod build on all peers.
 
 PoV stack regression (2026-10-28):
 

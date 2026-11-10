@@ -17,6 +17,8 @@ internal static class PathOfValheimanStackCompatibility
     private static Func<ItemData?>? _incoming;
     private static Func<ItemData, ItemData, bool>? _sortStackable;
     private static MethodInfo? _stackableMethod;
+    private static MethodInfo? _bookkeepingMethod;
+    private static Func<string, bool>? _bookkeeping;
     [ThreadStatic] private static Context _context;
     private static bool _active;
 
@@ -53,6 +55,9 @@ internal static class PathOfValheimanStackCompatibility
         {
             MethodInfo same = RequireMethod(rules, "SameData", typeof(bool), typeof(ItemData), typeof(ItemData));
             ValidateComparison(same);
+            _bookkeepingMethod = RequireMethod(rules, "Bookkeeping", typeof(bool), typeof(string));
+            _bookkeeping = (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), _bookkeepingMethod);
+            RewriteComparison(PatchProcessor.GetOriginalInstructions(same));
             FieldInfo incoming = AccessTools.DeclaredField(rules, "incoming");
             if (incoming?.IsStatic != true || incoming.FieldType != typeof(ItemData))
                 throw new MissingFieldException(rules.FullName, "incoming");
@@ -105,11 +110,7 @@ internal static class PathOfValheimanStackCompatibility
             MethodInfo preview = AccessTools.DeclaredMethod(typeof(InventoryGui), "CanDropDragOntoItem", new[] { typeof(ItemData) });
             patches.Patch(preview, prefix: new HarmonyMethod(typeof(PathOfValheimanStackCompatibility), nameof(BeforePreview)), finalizer: after);
             patches.Patch(sort, transpiler: new HarmonyMethod(typeof(PathOfValheimanStackCompatibility), nameof(RewriteSort)));
-            patches.Patch(same, prefix: new HarmonyMethod(typeof(PathOfValheimanStackCompatibility), nameof(Compare))
-            {
-                priority = Priority.Last,
-                after = new[] { "sighsorry.InventorySlots.pov.stack-metadata", "sighsorry.InventoryActions.pov.stack-metadata" }
-            });
+            patches.Patch(same, transpiler: new HarmonyMethod(typeof(PathOfValheimanStackCompatibility), nameof(RewriteComparison)));
             _patches = patches;
             _active = true;
             FineDiningPlugin.Log.LogInfo("Enabled PoV spoilage-aware inventory transfers, capacity previews and sorting.");
@@ -127,6 +128,7 @@ internal static class PathOfValheimanStackCompatibility
         _active = false;
         _patches?.UnpatchSelf();
         _patches = null; _incoming = null; _sortStackable = null; _stackableMethod = null;
+        _bookkeepingMethod = null; _bookkeeping = null;
         _context = default;
     }
 
@@ -179,19 +181,22 @@ internal static class PathOfValheimanStackCompatibility
         if (__state.Entered) _context = __state.Previous;
     }
 
-    private static bool Compare(ItemData __0, ItemData __1, bool __runOriginal, ref bool __result)
+    // Preserve PoV's actual null/variant checks, implicit normalization and all
+    // foreign-data comparisons. Other owners can still reject/skip SameData.
+    // Only the two comparison-local Bookkeeping calls get this extra policy.
+    private static bool BookkeepingForComparison(string key, ItemData a, ItemData b)
     {
+        if (_bookkeeping!(key)) return true;
+        if (key != SpoilageClock.ExpiryDataKey && key != FreshnessRuntime.AssignedLifetimeDataKey &&
+            key != SpoilageClock.SpoiledDataKey) return false;
         Context context = _context;
-        if (!__runOriginal || !_active || context.Source == null || __0 == null || __1 == null) return true;
-        ItemData? target = ReferenceEquals(__0, context.Source) ? __1 : ReferenceEquals(__1, context.Source) ? __0 : null;
+        if (!_active || context.Source == null || a == null || b == null) return false;
+        ItemData? target = ReferenceEquals(a, context.Source) ? b : ReferenceEquals(b, context.Source) ? a : null;
         if (target == null || (context.Target != null && !ReferenceEquals(target, context.Target)) ||
             context.Inventory?.ContainsItem(target) != true ||
             context.CheckIncoming && !ReferenceEquals(_incoming?.Invoke(), context.Source) ||
-            !DifferentMetadata(__0, __1)) return true;
-        // Never waive the caller's non-metadata identity or another owner's policy.
-        __result = __0.m_variant == __1.m_variant &&
-                   Compatible(__0, __1) && SourceCanBeComposed(context.Source);
-        return false;
+            !DifferentMetadata(a, b)) return false;
+        return Compatible(a, b) && SourceCanBeComposed(context.Source);
     }
 
     private static bool SourceCanBeComposed(ItemData source) =>
@@ -215,21 +220,23 @@ internal static class PathOfValheimanStackCompatibility
     private static bool Compatible(ItemData a, ItemData b) =>
         DecayRuntime.CanMergeStackClockValues(Value(a, SpoilageClock.ExpiryDataKey), Value(b, SpoilageClock.ExpiryDataKey)) &&
         FreshnessRuntime.CanMergeAssignedLifetimeValues(Value(a, FreshnessRuntime.AssignedLifetimeDataKey), Value(b, FreshnessRuntime.AssignedLifetimeDataKey)) &&
-        SpoilageClock.CanMergeSpoiledValues(Value(a, SpoilageClock.SpoiledDataKey), Value(b, SpoilageClock.SpoiledDataKey)) &&
-        SameForeignData(a, b) && SameForeignData(b, a);
+        SpoilageClock.CanMergeSpoiledValues(Value(a, SpoilageClock.SpoiledDataKey), Value(b, SpoilageClock.SpoiledDataKey));
 
-    private static bool SameForeignData(ItemData a, ItemData b)
+    private static IEnumerable<CodeInstruction> RewriteComparison(IEnumerable<CodeInstruction> instructions)
     {
-        if (a.m_customData == null) return true;
-        foreach (var entry in a.m_customData)
+        var code = instructions.Select(i => new CodeInstruction(i)).ToList();
+        int[] calls = Enumerable.Range(0, code.Count).Where(i => code[i].Calls(_bookkeepingMethod)).ToArray();
+        if (calls.Length != 2 || calls.Any(i => code[i].opcode != OpCodes.Call || code[i].blocks.Count != 0))
+            throw new NotSupportedException("PoV metadata bookkeeping comparison changed; no partial rewrite applied");
+        MethodInfo helper = AccessTools.DeclaredMethod(typeof(PathOfValheimanStackCompatibility), nameof(BookkeepingForComparison));
+        foreach (int index in calls.Reverse())
         {
-            string key = entry.Key;
-            if (key == SpoilageClock.ExpiryDataKey || key == FreshnessRuntime.AssignedLifetimeDataKey ||
-                key == SpoilageClock.SpoiledDataKey || key == "pt.born" || key == "pt.bonus" ||
-                key.StartsWith("pt.work.", StringComparison.Ordinal)) continue;
-            if (b.m_customData == null || !b.m_customData.TryGetValue(key, out string value) || value != entry.Value) return false;
+            var first = new CodeInstruction(OpCodes.Ldarg_0);
+            first.MoveLabelsFrom(code[index]);
+            code[index].operand = helper;
+            code.InsertRange(index, new[] { first, new CodeInstruction(OpCodes.Ldarg_1) });
         }
-        return true;
+        return code;
     }
 
     private static bool SortStackable(ItemData target, ItemData source, Player player)
@@ -297,12 +304,28 @@ internal static class PathOfValheimanStackCompatibility
             throw new NotSupportedException("PoV metadata comparison uses additional item state");
         foreach (MethodInfo call in code.Select(i => i.operand).OfType<MethodInfo>())
         {
+            // Newer PoV normalizes implicit data before comparison. Keep these
+            // calls in the original method; never replace or imitate Settle.
+            if (call.DeclaringType?.Assembly == method.DeclaringType!.Assembly &&
+                call.DeclaringType.FullName == "PassiveTree.Implicits" && call.Name == "Settle" &&
+                call.IsStatic && call.ReturnType == typeof(bool) &&
+                call.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(ItemData) }))
+            {
+                int[] calls = Enumerable.Range(0, code.Count).Where(i => code[i].Calls(call)).ToArray();
+                int dataRead = code.FindIndex(i => i.operand is FieldInfo field && field.Name == "m_customData");
+                if (calls.Length != 2 || calls[0] < 1 || calls[1] + 1 >= dataRead ||
+                    code[calls[0] - 1].opcode != OpCodes.Ldarg_0 || code[calls[1] - 1].opcode != OpCodes.Ldarg_1 ||
+                    calls.Any(i => code[i + 1].opcode != OpCodes.Pop))
+                    throw new NotSupportedException("PoV implicit normalization placement changed");
+                continue;
+            }
             if (call.DeclaringType == method.DeclaringType && call.Name == "Bookkeeping")
             {
                 var helper = PatchProcessor.GetOriginalInstructions(call).ToList();
                 if (helper.Any(i => i.operand is FieldInfo) ||
                     helper.Select(i => i.operand).OfType<MethodInfo>().Any(m => m.DeclaringType != typeof(string)) ||
-                    helper.Select(i => i.operand).OfType<string>().Any(s => s != "pt.work." && s != "pt.born" && s != "pt.bonus"))
+                    helper.Select(i => i.operand).OfType<string>().Any(s => s != "pt.work." && s != "pt.born" && s != "pt.bonus" &&
+                        s != "valheiman.equipment.v1.cell" && s != "pt.fish.caught"))
                     throw new NotSupportedException("PoV metadata exclusions changed");
                 continue;
             }

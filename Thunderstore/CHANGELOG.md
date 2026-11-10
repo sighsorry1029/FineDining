@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.14
+
+- Expand `Icebox Storage Rows` to 1-20 and add server-synchronized `Icebox Storage Columns` with a range of 1-8. Defaults remain eight columns and four rows.
+- Preserve occupied outer slots when shrinking Iceboxes, including after save/load. Defer resizing until inventory operations finish so swapping items in an outer row or column cannot shrink away the return slot.
+- Restore spoilage-aware food stacking with Path of Valheiman 6.0.6. Keep PoV's original implicit-data normalization, bookkeeping exclusions and other item restrictions while preserving the shorter remaining food lifetime during supported transfers and sorting.
+- Keep existing save formats and required dependencies. Added original Valheim 1.0.21 client/server Mono checks for Icebox storage and PoV stacking; actual UI, save/reconnect and multiplayer ownership changes still require in-game verification. Update the server and all clients together.
+
 ## 1.1.13
 
 - Restore EpicLoot's fixed health-regeneration bonus under FineDining, retaining existing food requirements, regeneration multipliers and Path of Valheiman recovery timing. This optional integration works without PoVPlus.Compat and avoids its duplicate health-bonus injection.
