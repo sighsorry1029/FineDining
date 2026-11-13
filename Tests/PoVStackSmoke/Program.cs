@@ -40,12 +40,17 @@ internal static class Program
     private static ItemData? cancelled;
     private static readonly List<ItemData> settled = new();
     private static bool template, throwSettle;
+    private static GameObject? corruptedPrefab;
     private static void ObserveSettle(ItemData __0) {
         settled.Add(__0);
         if (throwSettle) throw new InvalidOperationException("normalization failed");
     }
     private static bool Template(ref bool __result) { __result = template; return false; }
-    private static bool PrefabName(ref string __result) { __result = "fd-stack-food"; return false; }
+    private static bool PrefabName(UnityEngine.Object __instance, ref string __result)
+    {
+        __result = ReferenceEquals(__instance, corruptedPrefab) ? "fd-stack-corrupted" : "fd-stack-food";
+        return false;
+    }
     private static bool ColorParse(ref Color color, ref bool __result) { color = Color.white; __result = true; return false; }
     private static object? winterContext;
     private static bool WinterContext(object[] __args, ref bool __result) { __args[0] = winterContext!; __result = true; return false; }
@@ -69,6 +74,13 @@ internal static class Program
     private static void InsideFind() { Action? action = insideFind; insideFind = null; action?.Invoke(); }
     private static bool Cancel(ItemData __0, ref bool __result) { if (!ReferenceEquals(__0, cancelled)) return true; __result = false; return false; }
     private static IEnumerable<CodeInstruction> NullBody() { yield return new CodeInstruction(OpCodes.Ldnull); yield return new CodeInstruction(OpCodes.Ret); }
+    private static IEnumerable<CodeInstruction> ChangeComparisonKey(IEnumerable<CodeInstruction> instructions)
+    {
+        var code = instructions.Select(i => new CodeInstruction(i)).ToList();
+        int index = code.FindIndex(i => i.operand is MethodInfo method && method.Name == "Bookkeeping");
+        code[index - 1].operand = AccessTools.PropertyGetter(typeof(KeyValuePair<string, string>), "Value");
+        return code;
+    }
     private static bool Movable(Player __0, ref List<ItemData> __result) { __result = new List<ItemData>(__0.GetInventory().GetAllItems()); return false; }
     private static void Log(object sender, BepInEx.Logging.LogEventArgs args) => System.Console.WriteLine(args.Data);
 
@@ -89,10 +101,17 @@ internal static class Program
         var fd = new Harmony("sighsorry.FineDining");
         Assembly mod = Assembly.LoadFrom(args[0]), pov = Assembly.LoadFrom(args[1]);
         Type bridge = mod.GetType("FineDining.PathOfValheimanStackCompatibility", true)!;
+        Type? corruption = pov.GetType("PassiveTree.ItemCorruption");
+        MethodInfo? settleCorruption = corruption?.GetMethod("Settle", S);
+        FieldInfo? born = settleCorruption == null ? null : corruption!.GetField("born", S);
+        object? previousBorn = born?.GetValue(null);
         void Patch(MethodBase method, string prefix) => fixture.Patch(method, prefix: new HarmonyMethod(typeof(Program), prefix));
         void ModPatch(string type, string method, string prefix) => Patch(AccessTools.Method(mod.GetType("FineDining." + type, true), method), prefix);
         try
         {
+            // Substitute prefab registration only. Settle, BornCorrupted and Set
+            // execute from the supplied PoV DLL, including their metadata writes.
+            born?.SetValue(null, new HashSet<string> { "fd-stack-corrupted" });
             var log = new BepInEx.Logging.ManualLogSource("stack-smoke"); log.LogEvent += Log;
             mod.GetType("FineDining.FineDiningPlugin", true)!.GetField("Log", S)!.SetValue(null, log);
             Check(!mod.GetReferencedAssemblies().Any(a => a.Name == "PathOfValheiman"), "optional PoV dependency");
@@ -117,10 +136,38 @@ internal static class Program
             Inventory inv = Inventory(1,1); ItemData target = Food(45, Now + 900), source = Food(5, Now + 400); AddDirect(inv, target);
             Check(!inv.CanAddItem(source) && !inv.AddItem(source) && target.m_stack == 45, "original PoV reproduces full-inventory rejection");
             bridge.GetMethod("Install", S)!.Invoke(null, new object[] { pov });
+            if (Environment.GetEnvironmentVariable("FINEDINING_POV_EXPECT_REJECTED") == "1")
+            {
+                Check(!(bool)bridge.GetField("_active", S)!.GetValue(null)!, "changed rewrite contract disables the adapter");
+                Check(!Harmony.GetAllPatchedMethods().Any(method => Harmony.GetPatchInfo(method).Owners.Contains("sighsorry.FineDining.pov.stacking")),
+                    "rejected contract leaves no adapter patches");
+                Check(!inv.AddItem(source) && target.m_stack == 45 && source.m_stack == 5,
+                    "rejected adapter retains original PoV stack restrictions and quantities");
+                System.Console.WriteLine("PASS rewrite contract rejection and cleanup.");
+                return;
+            }
             Check((bool)bridge.GetField("_active", S)!.GetValue(null)!, "all original stack and sort patches install in game Mono");
             Check(!same(target,source), "unscoped callers keep original metadata comparison");
             Check(inv.CanAddItem(source) && source.m_customData[Expiry] == (Now+400).ToString(), "capacity preflight accepts without changing timers");
             Check(inv.AddItem(source) && target.m_stack == 50 && target.m_customData[Expiry] == (Now+400).ToString(), "pickup composes earlier expiry");
+
+            // Optional, generated PoV copy: new helper/field checks and bookkeeping
+            // policy must execute from that DLL, without FineDining knowing their names.
+            FieldInfo? policyCalls = rules.GetField("FineDiningFixtureChecks", S);
+            if (policyCalls != null)
+            {
+                policyCalls.SetValue(null, 0);
+                inv = Inventory(1, 1); target = Food(45, Now + 900); source = Food(5, Now + 400); AddDirect(inv, target);
+                source.m_customData["pt.fixture.bookkeeping"] = "source-only";
+                Check(inv.CanAddItem(source) && inv.AddItem(source) && target.m_stack == 50 &&
+                    target.m_customData[Expiry] == (Now + 400).ToString() && (int)policyCalls.GetValue(null)! > 0,
+                    "new PoV helper and native bookkeeping exclusion remain active");
+                policyCalls.SetValue(null, 0);
+                inv = Inventory(1, 1); target = Food(45, Now + 900); source = Food(5, Now + 400); AddDirect(inv, target);
+                source.m_durability = 1;
+                Check(!inv.CanAddItem(source) && !inv.AddItem(source) && target.m_stack == 45 && source.m_stack == 5 &&
+                    (int)policyCalls.GetValue(null)! > 0, "additional PoV item-state check still rejects merging");
+            }
 
             inv = Inventory(1,1); target = Food(48, Now+900); source = Food(5,Now+400); AddDirect(inv,target);
             var positional = AccessTools.Method(typeof(Inventory), "AddItem", new[] { typeof(ItemData),typeof(int),typeof(int),typeof(int),typeof(bool) });
@@ -138,12 +185,13 @@ internal static class Program
             Check((bool)AccessTools.Method(typeof(InventoryGui),"CanDropDragOntoItem").Invoke(gui,new object[]{target})!, "original drag preview accepts timed foods");
             Check(!same(target,source), "preview scope is cleaned up");
 
-            foreach (string mismatch in new[] { "foreign", "implicit", "variant", "invalid-clock", "invalid-lifetime", "invalid-marker", "placed-anchor" })
+            foreach (string mismatch in new[] { "foreign", "implicit", "corruption", "variant", "invalid-clock", "invalid-lifetime", "invalid-marker", "placed-anchor" })
             {
                 inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
                 switch(mismatch) {
                     case "foreign": source.m_customData["pt.food"]="distinct"; break;
                     case "implicit": source.m_customData["pt.implicit"]="food:1"; break;
+                    case "corruption": source.m_customData["pt.corrupt"]="1"; break;
                     case "variant": source.m_variant=1; break;
                     case "invalid-clock": source.m_customData[Expiry]="future:400"; break;
                     case "invalid-lifetime": source.m_customData[Lifetime]="bad"; break;
@@ -152,6 +200,21 @@ internal static class Program
                 }
                 Check(!inv.CanAddItem(source) && !inv.AddItem(source) && target.m_stack==45 && source.m_stack==5, mismatch + " stays protected");
             }
+            foreach (bool reverse in new[] { false, true })
+            {
+                inv = Inventory(1, 1); target = Food(45, Now + 900); source = Food(5, Now + 400); AddDirect(inv, target);
+                target.m_customData["pt.corrupt"] = source.m_customData["pt.corrupt"] = "1";
+                target.m_customData["pt.corrupt.imp"] = reverse ? "socket" : "quality";
+                source.m_customData["pt.corrupt.imp"] = reverse ? "quality" : "socket";
+                Check(!inv.CanAddItem(source) && !inv.AddItem(source) && target.m_stack == 45 && source.m_stack == 5 &&
+                    target.m_customData[Expiry] == (Now + 900).ToString() && source.m_customData[Expiry] == (Now + 400).ToString(),
+                    "different corruption properties preserve quantities and timers, reverse=" + reverse);
+            }
+            inv = Inventory(1, 1); target = Food(45, Now + 900); source = Food(5, Now + 400); AddDirect(inv, target);
+            target.m_customData["pt.corrupt"] = source.m_customData["pt.corrupt"] = "1";
+            target.m_customData["pt.corrupt.imp"] = source.m_customData["pt.corrupt.imp"] = "quality";
+            Check(inv.AddItem(source) && target.m_stack == 50 && target.m_customData[Expiry] == (Now + 400).ToString() &&
+                target.m_customData["pt.corrupt.imp"] == "quality", "matching corruption properties can merge differing timers");
             inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
             source.m_customData.Clear(); source.m_customData[Spoiled]="1";
             Check(inv.AddItem(source) && target.m_customData[Spoiled]=="1" && !target.m_customData.ContainsKey(Expiry) && !target.m_customData.ContainsKey(Lifetime), "kept-spoiled state propagates and clears timer/lifetime");
@@ -210,14 +273,98 @@ internal static class Program
                     Check(!same(target,source),"normalization exception releases comparison scope");
                 } finally { normalizationFixture.UnpatchSelf(); template=false; throwSettle=false; }
             }
-            foreach(int count in new[]{1,3}) {
+            if (settleCorruption != null)
+            {
+                var corruptionFixture = new Harmony("fd.stack.corruption.fixture");
+                try
+                {
+                    corruptionFixture.Patch(settleCorruption, prefix: new HarmonyMethod(typeof(Program), nameof(ObserveSettle)));
+                    corruptionFixture.Patch(AccessTools.PropertyGetter(typeof(UnityEngine.Object), "name"),
+                        prefix: new HarmonyMethod(typeof(Program), nameof(PrefabName)));
+                    corruptedPrefab = (GameObject)FormatterServices.GetUninitializedObject(typeof(GameObject));
+                    target = Food(1, Now + 400);
+                    source = Food(1, Now + 400);
+                    target.m_dropPrefab = source.m_dropPrefab = corruptedPrefab;
+                    settled.Clear();
+                    Check(same(target, source) && settled.SequenceEqual(new[] { target, source }) &&
+                        target.m_customData["pt.corrupt"] == "1" && source.m_customData["pt.corrupt"] == "1",
+                        "original corruption normalization restores both markers before comparison");
+                    target.m_customData["pt.corrupt"] = "existing";
+                    Check(!same(target, source) && target.m_customData["pt.corrupt"] == "existing",
+                        "corruption normalization retains and compares existing marker values");
+                    target.m_customData.Remove("pt.corrupt");
+                    source.m_customData.Remove("pt.corrupt");
+                    source.m_variant = 1;
+                    settled.Clear();
+                    Check(!same(target, source) && settled.Count == 0 && !target.m_customData.ContainsKey("pt.corrupt") &&
+                        !source.m_customData.ContainsKey("pt.corrupt"), "variant rejection precedes corruption normalization");
+
+                    foreach (bool reverse in new[] { false, true })
+                    {
+                        inv = Inventory(1, 1);
+                        target = Food(45, Now + 900);
+                        source = Food(5, Now + 400);
+                        ItemData corrupted = reverse ? target : source;
+                        ItemData ordinary = reverse ? source : target;
+                        corrupted.m_dropPrefab = corruptedPrefab;
+                        ordinary.m_dropPrefab = (GameObject)FormatterServices.GetUninitializedObject(typeof(GameObject));
+                        AddDirect(inv, target);
+                        Check(!inv.CanAddItem(source) && !inv.AddItem(source) && target.m_stack == 45 && source.m_stack == 5 &&
+                            corrupted.m_customData["pt.corrupt"] == "1" && !ordinary.m_customData.ContainsKey("pt.corrupt") &&
+                            target.m_customData[Expiry] == (Now + 900).ToString(),
+                            "born-corrupted and ordinary items remain separate, reverse=" + reverse);
+                    }
+
+                    inv = Inventory(1, 1);
+                    target = Food(48, Now + 900);
+                    source = Food(5, Now + 400);
+                    target.m_dropPrefab = source.m_dropPrefab = corruptedPrefab;
+                    AddDirect(inv, target);
+                    bool complete = (bool)positional.Invoke(inv, new object[] { source, 5, 0, 0, false })!;
+                    Check(!complete && target.m_stack == 50 && source.m_stack == 3 &&
+                        target.m_customData["pt.corrupt"] == "1" && source.m_customData["pt.corrupt"] == "1" &&
+                        target.m_customData[Expiry] == (Now + 400).ToString() && source.m_customData[Expiry] == (Now + 400).ToString(),
+                        "partial merge preserves normalized corruption, quantity and both earlier clocks");
+
+                    inv = Inventory(1, 1);
+                    target = Food(45, Now + 900);
+                    source = Food(5, Now + 400);
+                    AddDirect(inv, target);
+                    throwSettle = true;
+                    try { inv.AddItem(source); throw new Exception("expected corruption normalization exception"); }
+                    catch (InvalidOperationException exception)
+                    {
+                        Check(exception.Message == "normalization failed" && target.m_stack == 45 && source.m_stack == 5,
+                            "corruption normalization exception preserves quantities");
+                    }
+                    throwSettle = false;
+                    Check(!same(target, source), "corruption normalization exception releases comparison scope");
+                }
+                finally
+                {
+                    corruptionFixture.UnpatchSelf();
+                    corruptedPrefab = null;
+                    throwSettle = false;
+                }
+            }
+            foreach(string drift in new[]{"one-call", "three-calls", "value-argument", "inverted-predicate", "wrong-resume"}) {
                 var comparison=PatchProcessor.GetOriginalInstructions(rules.GetMethod("SameData",S)!).ToList();
                 var bookkeeping=rules.GetMethod("Bookkeeping",S)!;
                 int index=comparison.FindIndex(i=>i.Calls(bookkeeping));
-                if(count==1) comparison.RemoveAt(index); else comparison.Add(new CodeInstruction(OpCodes.Call,bookkeeping));
+                switch (drift) {
+                    case "one-call": comparison.RemoveAt(index); break;
+                    case "three-calls": comparison.Add(new CodeInstruction(OpCodes.Call,bookkeeping)); break;
+                    case "value-argument": comparison[index - 1].operand = AccessTools.PropertyGetter(typeof(KeyValuePair<string,string>), "Value"); break;
+                    case "inverted-predicate": comparison[index + 1].opcode = OpCodes.Brfalse; break;
+                    case "wrong-resume":
+                        var skip = (Label)comparison[index + 1].operand;
+                        comparison[comparison.FindIndex(i => i.labels.Contains(skip)) + 1].operand = AccessTools.PropertyGetter(typeof(Dictionary<string,string>.Enumerator), "Current");
+                        break;
+                }
+                string[] before = comparison.Select(i => i.ToString()).ToArray();
                 try { bridge.GetMethod("RewriteComparison",S)!.Invoke(null,new object[]{comparison}); throw new Exception("expected comparison drift rejection"); }
-                catch(TargetInvocationException e) { Check(e.InnerException is NotSupportedException,"bookkeeping count "+count+" rejected before partial rewrite"); }
-                Check(comparison.Count(i=>i.Calls(bookkeeping))==count,"rejected rewrite leaves input instructions intact");
+                catch(TargetInvocationException e) { Check(e.InnerException is NotSupportedException,drift+" rejected before partial rewrite"); }
+                Check(comparison.Select(i => i.ToString()).SequenceEqual(before),"rejected rewrite leaves input instructions intact");
             }
 
             foreach(string denied in new[]{"authority","loading","clock"}) {
@@ -246,6 +393,14 @@ internal static class Program
             Check(inv.GetAllItems().Count==1 && target.m_stack==12 && source.m_stack==0 && target.m_customData[Expiry]==(Now+400).ToString(), "original PoV Sort merges quantity and earliest expiry atomically");
             inv.GetAllItems().Clear(); target=Food(5,Now+900); source=Food(7,Now+400); source.m_customData["pt.food"]="distinct"; AddDirect(inv,target,0,1); AddDirect(inv,source,1,1);
             sort.Invoke(null,new object[]{player}); Check(inv.GetAllItems().Count==2 && target.m_stack==5 && source.m_stack==7,"PoV Sort preserves foreign metadata identity");
+            inv.GetAllItems().Clear(); target=Food(5,Now+900); source=Food(7,Now+400);
+            target.m_customData["pt.corrupt"]=source.m_customData["pt.corrupt"]="1";
+            target.m_customData["pt.corrupt.imp"]="quality"; source.m_customData["pt.corrupt.imp"]="socket";
+            AddDirect(inv,target,0,1); AddDirect(inv,source,1,1);
+            sort.Invoke(null,new object[]{player});
+            Check(inv.GetAllItems().Count==2 && target.m_stack==5 && source.m_stack==7 &&
+                target.m_customData[Expiry]==(Now+900).ToString() && source.m_customData[Expiry]==(Now+400).ToString(),
+                "PoV Sort rejects different corruption properties without changing quantities or clocks");
             inv.GetAllItems().Clear(); target=Food(48,Now+900); source=Food(7,Now+400); AddDirect(inv,target,0,1); AddDirect(inv,source,1,1);
             sort.Invoke(null,new object[]{player});
             Check(target.m_stack==50 && source.m_stack==5 && target.m_customData[Expiry]==(Now+400).ToString() && source.m_customData[Expiry]==(Now+400).ToString(), "partial PoV sort preserves remainder and both clocks");
@@ -294,13 +449,36 @@ internal static class Program
             Check(!(bool)bridge.GetField("_active",S)!.GetValue(null)!,"shutdown clears active state");
             inv=Inventory(1,1); target=Food(45,Now+900); source=Food(5,Now+400); AddDirect(inv,target);
             Check(!inv.AddItem(source),"shutdown restores original PoV restrictions");
+            var changedKey = new Harmony("fd.stack.key-layout.fixture");
+            try
+            {
+                // Original-IL preflight passes; the composed transpiler input differs.
+                // Installation must roll back the scopes/sort patches installed first.
+                changedKey.Patch(rules.GetMethod("SameData", S), transpiler:
+                    new HarmonyMethod(typeof(Program), nameof(ChangeComparisonKey)) { priority = Priority.First });
+                bridge.GetMethod("Install", S)!.Invoke(null, new object[] { pov });
+                Check(!(bool)bridge.GetField("_active", S)!.GetValue(null)! &&
+                    !Harmony.GetAllPatchedMethods().Any(method => Harmony.GetPatchInfo(method).Owners.Contains("sighsorry.FineDining.pov.stacking")),
+                    "composed comparison drift rolls back all partially installed adapter patches");
+                Check(Harmony.GetPatchInfo(rules.GetMethod("SameData", S)).Owners.Contains(changedKey.Id) &&
+                    !inv.AddItem(source) && target.m_stack == 45 && source.m_stack == 5,
+                    "adapter rollback preserves other owners and original stack restrictions");
+            }
+            finally { changedKey.UnpatchSelf(); }
             povPatches.UnpatchSelf();
             bridge.GetMethod("Install",S)!.Invoke(null,new object[]{pov});
             Check(!(bool)bridge.GetField("_active",S)!.GetValue(null)!,"incomplete PoV patch installation fails closed");
             Check(inv.AddItem(source) && target.m_stack==50,"failed optional adapter leaves standalone FineDining gameplay usable");
             System.Console.WriteLine("PASS "+checks+" original Mono stack checks. Authority/time/UI/notification fixtures; no live game/server run.");
         }
-        finally { bridge.GetMethod("Shutdown",S)!.Invoke(null,null); fd.UnpatchSelf(); povPatches.UnpatchSelf(); fixture.UnpatchSelf(); }
+        finally
+        {
+            bridge.GetMethod("Shutdown", S)!.Invoke(null, null);
+            fd.UnpatchSelf();
+            povPatches.UnpatchSelf();
+            fixture.UnpatchSelf();
+            born?.SetValue(null, previousBorn);
+        }
     }
     private static Inventory Inventory(int width,int height) { var inv=new Inventory("test",null!,width,height); Owned.Add(inv); return inv; }
     private static ItemData Food(int amount,long expiry) => new() { m_shared=new ItemData.SharedData { m_name="$item_raspberry",m_maxStackSize=50,m_maxQuality=1 },m_stack=amount,m_customData=new Dictionary<string,string>{{Expiry,expiry.ToString()},{Lifetime,"1000"}} };

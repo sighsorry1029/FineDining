@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.15
+
+- Restore spoilage-aware stacking with Path of Valheiman 6.0.11 while retaining PoV's original implicit and corruption normalization. Different corruption properties remain separate; matching items can merge different food timers while preserving the shorter remaining lifetime.
+- Reduce unnecessary compatibility rejections when PoV adds internal helpers, item checks or bookkeeping exclusions. FineDining now validates the key-comparison points it changes and retains the existing quantity-transfer, authority and timer checks. Unsupported comparison or sorting layouts disable only this stacking integration and clean up its patches.
+- Keep configuration keys, saved-data formats and required dependencies unchanged. Added original Valheim 1.0.21 client/server Mono regression checks for extended PoV policies, distinct corruption properties and safe rejection/cleanup. Actual inventory UI, save/reconnect and multiplayer ownership changes still require in-game verification. Update the server and all clients together.
+
 ## 1.1.14
 
 - Expand `Icebox Storage Rows` to 1-20 and add server-synchronized `Icebox Storage Columns` with a range of 1-8. Defaults remain eight columns and four rows.

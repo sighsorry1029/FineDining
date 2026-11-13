@@ -33,7 +33,7 @@ namespace FineDining;
 public sealed class FineDiningPlugin : BaseUnityPlugin
 {
     internal const string ModName = "FineDining";
-    internal const string ModVersion = "1.1.14";
+    internal const string ModVersion = "1.1.15";
     internal const string Author = "sighsorry";
     internal const string ModGUID = Author + "." + ModName;
     internal const bool DefaultConfigurationLock = true;

@@ -54,7 +54,6 @@ internal static class PathOfValheimanStackCompatibility
         try
         {
             MethodInfo same = RequireMethod(rules, "SameData", typeof(bool), typeof(ItemData), typeof(ItemData));
-            ValidateComparison(same);
             _bookkeepingMethod = RequireMethod(rules, "Bookkeeping", typeof(bool), typeof(string));
             _bookkeeping = (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), _bookkeepingMethod);
             RewriteComparison(PatchProcessor.GetOriginalInstructions(same));
@@ -228,6 +227,22 @@ internal static class PathOfValheimanStackCompatibility
         int[] calls = Enumerable.Range(0, code.Count).Where(i => code[i].Calls(_bookkeepingMethod)).ToArray();
         if (calls.Length != 2 || calls.Any(i => code[i].opcode != OpCodes.Call || code[i].blocks.Count != 0))
             throw new NotSupportedException("PoV metadata bookkeeping comparison changed; no partial rewrite applied");
+        // Own only the two key-exclusion predicates. PoV keeps responsibility for
+        // normalization, additional item checks and its native bookkeeping policy.
+        MethodInfo key = AccessTools.PropertyGetter(typeof(KeyValuePair<string, string>), "Key");
+        MethodInfo next = AccessTools.DeclaredMethod(typeof(Dictionary<string, string>.Enumerator), "MoveNext");
+        foreach (int index in calls)
+        {
+            if (index < 1 || index + 1 >= code.Count || !code[index - 1].Calls(key) ||
+                (code[index + 1].opcode != OpCodes.Brtrue && code[index + 1].opcode != OpCodes.Brtrue_S) ||
+                !(code[index + 1].operand is Label skip))
+                throw new NotSupportedException("PoV metadata key predicate changed; no partial rewrite applied");
+            int resume = code.FindIndex(i => i.labels.Contains(skip));
+            if (resume <= index + 1 || resume + 1 >= code.Count ||
+                (code[resume].opcode != OpCodes.Ldloca && code[resume].opcode != OpCodes.Ldloca_S) ||
+                !code[resume + 1].Calls(next))
+                throw new NotSupportedException("PoV metadata exclusion no longer skips to the next key; no partial rewrite applied");
+        }
         MethodInfo helper = AccessTools.DeclaredMethod(typeof(PathOfValheimanStackCompatibility), nameof(BookkeepingForComparison));
         foreach (int index in calls.Reverse())
         {
@@ -295,47 +310,4 @@ internal static class PathOfValheimanStackCompatibility
     private static bool SameLocal(CodeInstruction a, CodeInstruction b) => IsLocal(a) && a.opcode == b.opcode && Equals(a.operand, b.operand);
     private static CodeInstruction Load(CodeInstruction i) => new(i.opcode, i.operand);
 
-    private static void ValidateComparison(MethodInfo method)
-    {
-        var code = PatchProcessor.GetOriginalInstructions(method).ToList();
-        var fields = code.Select(i => i.operand).OfType<FieldInfo>().ToArray();
-        if (!fields.Any(f => f.Name == "m_variant") || !fields.Any(f => f.Name == "m_customData") ||
-            fields.Any(f => f.DeclaringType != typeof(ItemData) || f.Name != "m_variant" && f.Name != "m_customData"))
-            throw new NotSupportedException("PoV metadata comparison uses additional item state");
-        foreach (MethodInfo call in code.Select(i => i.operand).OfType<MethodInfo>())
-        {
-            // Newer PoV normalizes implicit data before comparison. Keep these
-            // calls in the original method; never replace or imitate Settle.
-            if (call.DeclaringType?.Assembly == method.DeclaringType!.Assembly &&
-                call.DeclaringType.FullName == "PassiveTree.Implicits" && call.Name == "Settle" &&
-                call.IsStatic && call.ReturnType == typeof(bool) &&
-                call.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(ItemData) }))
-            {
-                int[] calls = Enumerable.Range(0, code.Count).Where(i => code[i].Calls(call)).ToArray();
-                int dataRead = code.FindIndex(i => i.operand is FieldInfo field && field.Name == "m_customData");
-                if (calls.Length != 2 || calls[0] < 1 || calls[1] + 1 >= dataRead ||
-                    code[calls[0] - 1].opcode != OpCodes.Ldarg_0 || code[calls[1] - 1].opcode != OpCodes.Ldarg_1 ||
-                    calls.Any(i => code[i + 1].opcode != OpCodes.Pop))
-                    throw new NotSupportedException("PoV implicit normalization placement changed");
-                continue;
-            }
-            if (call.DeclaringType == method.DeclaringType && call.Name == "Bookkeeping")
-            {
-                var helper = PatchProcessor.GetOriginalInstructions(call).ToList();
-                if (helper.Any(i => i.operand is FieldInfo) ||
-                    helper.Select(i => i.operand).OfType<MethodInfo>().Any(m => m.DeclaringType != typeof(string)) ||
-                    helper.Select(i => i.operand).OfType<string>().Any(s => s != "pt.work." && s != "pt.born" && s != "pt.bonus" &&
-                        s != "valheiman.equipment.v1.cell" && s != "pt.fish.caught"))
-                    throw new NotSupportedException("PoV metadata exclusions changed");
-                continue;
-            }
-            Type? type = call.DeclaringType;
-            bool collection = type == typeof(Dictionary<string, string>) || type == typeof(KeyValuePair<string, string>) ||
-                              type == typeof(Dictionary<string, string>.Enumerator);
-            if (!(type == typeof(string) && (call.Name == "op_Equality" || call.Name == "op_Inequality")) &&
-                !(collection && new[] { "TryGetValue", "ContainsKey", "GetEnumerator", "MoveNext", "get_Current", "get_Key", "get_Value", "Dispose" }.Contains(call.Name)) &&
-                !(type == typeof(IDisposable) && call.Name == "Dispose"))
-                throw new NotSupportedException("PoV metadata comparison logic changed: " + call.Name);
-        }
-    }
 }
